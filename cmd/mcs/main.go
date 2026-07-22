@@ -120,7 +120,7 @@ func main() {
 			fmt.Printf("Sync failed: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Sync complete! Copied: %d, Skipped: %d, Conflicts: %d\n", report.CopiedCount, report.SkippedCount, report.ConflictCount)
+		fmt.Printf("Sync complete! Re-bucketed %s -> %s. Copied: %d, Skipped: %d, Conflicts: %d\n", report.SourceAccount, report.TargetAccount, report.CopiedCount, report.SkippedCount, report.ConflictCount)
 		if report.ConflictCount > 0 {
 			fmt.Printf("⚠️  %d file(s) left untouched because the target had newer content:\n", report.ConflictCount)
 			for _, c := range report.Conflicts {
