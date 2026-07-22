@@ -1,4 +1,6 @@
 # multi-claude-switcher
+<img src="docs/assets/icon.png" width="120" alt="Multi-Claude Switcher icon" />
+
 <img width="236" height="277" alt="image" src="https://github.com/user-attachments/assets/62f863dd-9545-4a5c-ac46-66c32517f21f" />
 
 <img width="2457" height="829" alt="image" src="https://github.com/user-attachments/assets/fa5eef07-356a-4f8a-8eba-4f82d8e9f531" />
@@ -52,7 +54,7 @@ switch never touches session data unless you turn on auto sync.
 2. Drag **Multi-Claude Switcher.app** into your **Applications** folder.
 3. **First launch only:** right-click the app → **Open**, then **Open** in the dialog. (The app is unsigned — a paid Apple Developer certificate would remove this step — so macOS asks you to confirm the first time. After that, just double-click.)
 
-The app runs in the **menu bar** (top-right), shown as a swap-arrows icon (⇄) —
+The app runs in the **menu bar** (top-right), shown as a pair-of-eyes icon —
 it has no Dock icon. Click it to switch profiles; a checkmark marks the profile
 in use. Enable **Start at Login** from the menu to launch it automatically. The
 app **updates itself** from GitHub Releases, so you only install once.
@@ -69,6 +71,8 @@ app **updates itself** from GitHub Releases, so you only install once.
 ```
 multi-claude-switcher/
 ├── docs/
+│   ├── assets/
+│   │   └── icon.png                   # App icon for README / docs
 │   ├── plans/                         # Implementation plans
 │   │   └── 2026-07-22-phase-0-probe.md
 │   └── superpowers/
@@ -76,6 +80,8 @@ multi-claude-switcher/
 │           ├── 2026-07-22-multi-claude-account-sync-design.md
 │           └── 2026-07-22-probe-results.md
 ├── scripts/
+│   ├── gen-icons/
+│   │   └── main.go                    # Generates all icon assets from geometry
 │   └── probe/
 │       └── probe_runner.py            # Phase 0 probe suite tool
 ├── CHANGELOG.md                       # Project version history
@@ -103,7 +109,7 @@ go build -o bin/mcs-tray ./cmd/mcs-tray
 ```bash
 ./bin/mcs-tray
 ```
-Appears as a swap-arrows icon in the macOS menu bar for 1-click profile switching and backups. The icon marks the profile currently in use, and the app checks GitHub for updates and installs them automatically.
+Appears as a pair-of-eyes icon in the macOS menu bar for 1-click profile switching and backups. The icon marks the profile currently in use, and the app checks GitHub for updates and installs them automatically.
 
 ### CLI Commands
 

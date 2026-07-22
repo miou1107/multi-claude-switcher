@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [0.7.1] - 2026-07-23
+
+### Changed
+- **New app icon — a pair of eyes** (left large, right small, each with a
+  pupil), replacing the generic swap-arrows glyph. Ships as a color app icon,
+  a black menu-bar template that macOS recolors for light/dark, a
+  multi-resolution Windows `.ico`, and a 512px doc image. All are generated
+  from geometry by `scripts/gen-icons/main.go` (`go run scripts/gen-icons/main.go`),
+  so the source of truth is code, not binaries
+  (`cmd/mcs-tray/assets/{appicon-1024.png,icon.png,icon.ico}`,
+  `docs/assets/icon.png`).
+
 ## [0.7.0] - 2026-07-22
 
 ### Added
