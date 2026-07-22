@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Build / CI
+- **GitHub Release automation** (`.github/workflows/release.yml`): pushing a
+  `v*` tag builds universal (arm64 + Intel) macOS binaries with the version
+  baked in via `-ldflags`, packages a zip + checksum, and publishes a GitHub
+  Release with the raw binaries attached (the download source for the upcoming
+  auto-updater). `core.Version` is now a `var` so the tag can be injected.
+
 ### Added
 - **Active-profile marker in the tray**: the profile currently in use is shown
   with a checkmark and "(current)", updated after a switch and by a background

@@ -2,6 +2,7 @@
 
 - `.gitignore` — Git ignore rules.
 - `go.mod` — Go module definition file.
+- `.github/workflows/release.yml` — GitHub Actions: on a `v*` tag, builds universal macOS binaries (version injected) and publishes a GitHub Release.
 - `go.sum` — Go module checksum file.
 - `README.md` — Project overview, architecture, and quick start CLI/GUI guide.
 - `FILELIST.md` — Inventory of project files and purpose.
