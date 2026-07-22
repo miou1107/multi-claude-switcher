@@ -38,5 +38,6 @@
 - `docs/plans/2026-07-22-phase-2-gui.md` — Phase 2 GUI execution plan.
 - `docs/superpowers/specs/2026-07-22-multi-claude-account-sync-design.md` — Core design spec for multi-claude switcher.
 - `docs/superpowers/specs/2026-07-22-macos-app-bundle-design.md` — Design spec for the macOS .app bundle packaging.
+- `docs/superpowers/specs/2026-07-22-session-align-manual-and-auto-design.md` — Design spec for manual "Align" + auto-align-on-switch (with default-off toggle).
 - `docs/superpowers/specs/2026-07-22-probe-results.md` — Findings report from Phase 0 probe execution.
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.
