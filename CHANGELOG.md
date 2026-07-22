@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Documentation
+- **Phase 0 findings corrected with live-machine evidence** (`docs/superpowers/specs/2026-07-22-probe-results.md`):
+  - The Code tab enumerates sessions **only** from `claude-code-sessions/<lastKnownAccountUuid>/`; copying a session bucket under any other name is a silent failure (files on disk, empty sidebar). Sync MUST re-bucket under the *target* profile's account UUID. Confirmed by a real natural experiment on two live profiles.
+  - Falsified an earlier hypothesis that `config.json` `dxt:allowlist*` / Local Storage leveldb drives the list; the account-UUID bucket name is the whole gate.
+  - Added a Config / Preferences sync analysis: config files are not monolithic (global prefs = whitelist-copy, per-account maps = merge-by-key, identity/auth = never sync). Bypass Permissions is a per-account opt-in in `claude_desktop_config.json`.
+  - Closes the 0.4.0 "Known limitation": a source-only `<AccountUUID>` bucket **does** surface in the target app once copied under the target's account UUID (verified on-device by restoring a personal-account bucket into the personal profile).
+- **Design spec** (`...-multi-claude-account-sync-design.md`): added the bucket-naming invariant to the Safe Switch steps and refined the shared/isolated boundary to field-level config sync.
+
 ## [0.4.0] - 2026-07-22
 
 ### Fixed (safety hardening)
@@ -49,7 +59,7 @@
 - Cross-account sync only reliably surfaces buckets that already exist on both
   profiles. Whether a source-only `<AccountUUID>` bucket appears in the target
   app is unverified on-device (Phase 0 probe open item) and needs a real
-  end-to-end test.
+  end-to-end test. **(Closed in [Unreleased] — verified on-device.)**
 
 ## [0.3.0] - 2026-07-22
 
