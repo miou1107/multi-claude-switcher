@@ -24,6 +24,10 @@ func (w *WindowsPlatform) IsAppRunning() (bool, []string, error) {
 	return false, nil, fmt.Errorf("windows support is backlog")
 }
 
+func (w *WindowsPlatform) DetectRunningProfile() (string, error) {
+	return "", fmt.Errorf("windows support is backlog")
+}
+
 func (w *WindowsPlatform) TerminateApp() error {
 	return fmt.Errorf("windows support is backlog")
 }

@@ -38,11 +38,17 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 		}
 	}
 
-	// Step 2: Backup target profile sessions before modifying
+	// Step 2: Backup target profile sessions before modifying.
+	// The next step overwrites the target's index, so a backup is mandatory
+	// whenever the target holds data. Any backup error aborts the switch: we
+	// never overwrite real data without a backup.
 	log.Printf("[Safe Switch] Creating backup of target profile: %s", dstProfilePath)
-	backupPath, err := s.BackupManager.CreateBackup(dstProfilePath)
+	backupPath, err := s.BackupManager.BackupIfHasData(dstProfilePath)
 	if err != nil {
-		log.Printf("[Safe Switch Warning] Target profile backup failed or skipped: %v", err)
+		return fmt.Errorf("aborting switch: failed to back up target profile (refusing to overwrite without a backup): %w", err)
+	}
+	if backupPath == "" {
+		log.Printf("[Safe Switch] Target profile has no existing sessions; nothing to back up.")
 	} else {
 		log.Printf("[Safe Switch] Backup created at: %s", backupPath)
 	}
@@ -53,7 +59,13 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to sync sessions: %w", err)
 	}
-	log.Printf("[Safe Switch] Sync complete: %d session file(s) copied, %d skipped.", report.CopiedCount, report.SkippedCount)
+	log.Printf("[Safe Switch] Sync complete: %d copied, %d skipped, %d conflict(s).", report.CopiedCount, report.SkippedCount, report.ConflictCount)
+	if report.ConflictCount > 0 {
+		log.Printf("[Safe Switch Warning] %d conflict(s) left untouched (target had newer content). Review before relying on these sessions:", report.ConflictCount)
+		for _, c := range report.Conflicts {
+			log.Printf("    conflict: %s", c)
+		}
+	}
 
 	// Step 4: Launch target profile
 	log.Printf("[Safe Switch] Launching Claude Desktop profile: %s...", dstProfilePath)
