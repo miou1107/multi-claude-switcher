@@ -74,8 +74,10 @@ func onReady() {
 
 	systray.AddSeparator()
 
-	// Manual align: copy one account's sessions into another WITHOUT switching.
+	// Manual sync + its auto-mode toggle live in one submenu. Auto Sync sits at
+	// the top of the submenu, above the manual "From … → To …" directions.
 	mSync := systray.AddMenuItem("Sync sessions", "Copy one account's sessions into another (without switching accounts)")
+	mAutoSync := mSync.AddSubMenuItemCheckbox("Auto Sync on Switch", "Sync both accounts automatically on every switch", core.AutoSyncOnSwitch())
 	type alignPair struct{ src, dst *platform.ProfileInfo }
 	alignItems := map[*systray.MenuItem]alignPair{}
 	var shown []*platform.ProfileInfo
@@ -94,27 +96,19 @@ func onReady() {
 			alignItems[child] = alignPair{src: a, dst: b}
 		}
 	}
-
-	// Auto Sync sits with the manual "Sync sessions" it complements: when it is
-	// on, every switch syncs automatically, so a manual sync is redundant and the
-	// "Sync sessions" submenu is disabled while it is on.
-	mAutoSync := systray.AddMenuItemCheckbox("Auto Sync on Switch", "Sync both accounts automatically on every switch", core.AutoSyncOnSwitch())
-	// Manual sync is redundant while Auto Sync is on: gray out the whole
-	// "Sync sessions" submenu (parent + every direction) accordingly.
-	setManualSyncEnabled := func(enabled bool) {
-		toggle := func(m *systray.MenuItem) {
+	// While Auto Sync is on, the manual directions are redundant, so disable them.
+	// The Auto Sync checkbox and the parent submenu stay usable so it can be
+	// turned back off.
+	setManualDirectionsEnabled := func(enabled bool) {
+		for child := range alignItems {
 			if enabled {
-				m.Enable()
+				child.Enable()
 			} else {
-				m.Disable()
+				child.Disable()
 			}
 		}
-		toggle(mSync)
-		for child := range alignItems {
-			toggle(child)
-		}
 	}
-	setManualSyncEnabled(!core.AutoSyncOnSwitch())
+	setManualDirectionsEnabled(!core.AutoSyncOnSwitch())
 
 	systray.AddSeparator()
 
@@ -245,9 +239,9 @@ func onReady() {
 	go func() {
 		for range mAutoSync.ClickedCh {
 			toggleAutoSync(mAutoSync)
-			// Reflect the new state on the manual sync submenu. Read the persisted
+			// Reflect the new state on the manual directions. Read the persisted
 			// value so a cancelled enable (warning dismissed) leaves it correct.
-			setManualSyncEnabled(!core.AutoSyncOnSwitch())
+			setManualDirectionsEnabled(!core.AutoSyncOnSwitch())
 		}
 	}()
 
