@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- **Menu bar icon** for the tray instead of the literal text "Claude": a
+  swap-arrows template glyph that macOS recolors for light/dark menu bars
+  (`cmd/mcs-tray/assets/icon.png`, embedded via `go:embed`).
+- **Persistent logging** (`core/logging.go`): the tray and mutating CLI commands
+  now append to `~/.multi-claude-switcher/logs/<component>.log` (plus stderr), so
+  a background/auto-started tray leaves a durable trail. New tray menu item
+  **Open Log Folder**.
+
 ### Fixed (correctness)
 - **Sync is now account-aware — the switch's core actually works cross-account.**
   `SyncSessions` previously copied buckets at their verbatim path, so switching

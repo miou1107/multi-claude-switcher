@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"log"
 	"os/exec"
@@ -12,6 +13,9 @@ import (
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
 
+//go:embed assets/icon.png
+var trayIcon []byte
+
 var (
 	plat     platform.Platform
 	bm       *core.BackupManager
@@ -19,6 +23,12 @@ var (
 )
 
 func main() {
+	if closer, _, err := core.SetupLogging("mcs-tray"); err == nil {
+		defer closer.Close()
+	} else {
+		log.Printf("Warning: could not open log file, logging to stderr only: %v", err)
+	}
+
 	plat = platform.New()
 	bm = core.NewBackupManager("")
 	switcher = core.NewSwitcher(plat, bm)
@@ -27,7 +37,9 @@ func main() {
 }
 
 func onReady() {
-	systray.SetTitle(" Claude")
+	// Template icon: black-on-transparent glyph that macOS recolors to match a
+	// light or dark menu bar automatically. Icon only, no text title.
+	systray.SetTemplateIcon(trayIcon, trayIcon)
 	systray.SetTooltip("Multi-Claude Switcher")
 
 	// Header item
@@ -57,6 +69,7 @@ func onReady() {
 	// Actions section
 	mBackup := systray.AddMenuItem("Backup All Profiles", "Take a snapshot backup of all profiles")
 	mOpenBackups := systray.AddMenuItem("Open Backup Directory", "Open backup folder in Finder")
+	mOpenLogs := systray.AddMenuItem("Open Log Folder", "Open the log folder in Finder")
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit", "Quit Multi-Claude Switcher Tray")
 
@@ -101,6 +114,12 @@ func onReady() {
 	go func() {
 		for range mOpenBackups.ClickedCh {
 			_ = exec.Command("open", bm.BackupRootDir).Run()
+		}
+	}()
+
+	go func() {
+		for range mOpenLogs.ClickedCh {
+			_ = exec.Command("open", core.LogDir()).Run()
 		}
 	}()
 
