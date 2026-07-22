@@ -3,7 +3,7 @@
 ## [0.7.0] - 2026-07-22
 
 ### Added
-- **Manual "Sync sessions →" tray submenu:** copy one account's Code sessions
+- **Manual "Sync sessions" tray submenu:** copy one account's Code sessions
   into another **without switching accounts** — it closes Claude Desktop, backs
   up the target, syncs (re-bucketed under the target account), and reopens the
   account you were already on (`core/align.go` `Switcher.ManualAlign`,

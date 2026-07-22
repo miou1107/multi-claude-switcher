@@ -833,7 +833,7 @@ git commit -m "feat: tray Auto Sync on Switch toggle with one-time enable warnin
 
 ---
 
-### Task 6: Tray "Sync sessions →" directional submenu (manual align)
+### Task 6: Tray "Sync sessions" directional submenu (manual align)
 
 **Files:**
 - Modify: `cmd/mcs-tray/main.go` (submenu in `onReady`, handlers, `confirmAlign` helper)
@@ -847,7 +847,7 @@ Place after the Profiles section (after the `systray.AddSeparator()` at line 70)
 
 ```go
 // Manual align: copy one account's sessions into another WITHOUT switching.
-mSync := systray.AddMenuItem("Sync sessions →", "Copy one account's sessions into another (without switching accounts)")
+mSync := systray.AddMenuItem("Sync sessions", "Copy one account's sessions into another (without switching accounts)")
 type alignPair struct{ src, dst *platform.ProfileInfo }
 alignItems := map[*systray.MenuItem]alignPair{}
 var shown []*platform.ProfileInfo
@@ -939,7 +939,7 @@ Prepend under the top `# CHANGELOG` header:
 ## [0.7.0] - 2026-07-22
 
 ### Added
-- **Manual "Sync sessions →" tray submenu:** copy one account's Code sessions
+- **Manual "Sync sessions" tray submenu:** copy one account's Code sessions
   into another **without switching accounts** — it closes Claude Desktop, backs
   up the target, syncs (re-bucketed under the target account), and reopens the
   account you were already on (`core/align.go` `Switcher.ManualAlign`,
@@ -967,7 +967,7 @@ Prepend under the top `# CHANGELOG` header:
 
 - [ ] **Step 3: Add a README section**
 
-Add a "Syncing sessions between accounts" subsection documenting: (a) the manual "Sync sessions →" submenu (copies one account's sessions into another without switching), (b) the "Auto Sync on Switch" toggle (default off; on = every switch keeps both accounts identical; one-time warning), and (c) the behavior note that a plain switch moves no session data unless the toggle is on. State plainly that only the Code sessions sync, and that regular chat stays per account. Match the existing README voice.
+Add a "Syncing sessions between accounts" subsection documenting: (a) the manual "Sync sessions" submenu (copies one account's sessions into another without switching), (b) the "Auto Sync on Switch" toggle (default off; on = every switch keeps both accounts identical; one-time warning), and (c) the behavior note that a plain switch moves no session data unless the toggle is on. State plainly that only the Code sessions sync, and that regular chat stays per account. Match the existing README voice.
 
 - [ ] **Step 4: Update FILELIST**
 

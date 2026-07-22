@@ -85,7 +85,7 @@ account they started on.
    they were. If nothing was running in step 2, launch nothing.
 7. Notify: copied / skipped / conflict counts.
 
-**UI:** a `Sync sessions →` submenu listing each ordered pair by display name
+**UI:** a `Sync sessions` submenu listing each ordered pair by display name
 (`From Company → To Personal`, `From Personal → To Company`). For the common
 two-profile case that is exactly two items. For N profiles it is the N·(N−1)
 ordered pairs (acceptable at small N).

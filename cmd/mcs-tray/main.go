@@ -75,7 +75,7 @@ func onReady() {
 	systray.AddSeparator()
 
 	// Manual align: copy one account's sessions into another WITHOUT switching.
-	mSync := systray.AddMenuItem("Sync sessions →", "Copy one account's sessions into another (without switching accounts)")
+	mSync := systray.AddMenuItem("Sync sessions", "Copy one account's sessions into another (without switching accounts)")
 	type alignPair struct{ src, dst *platform.ProfileInfo }
 	alignItems := map[*systray.MenuItem]alignPair{}
 	var shown []*platform.ProfileInfo
