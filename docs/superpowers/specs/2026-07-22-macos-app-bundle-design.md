@@ -73,10 +73,14 @@ A per-user LaunchAgent, controlled from the tray:
   running executable (`Contents/MacOS/mcs-tray`); `RunAtLoad` = true.
 - API:
   - `LoginItemEnabled() bool` — the plist exists.
-  - `EnableLoginItem(exePath string) error` — write the plist (atomic temp+rename),
-    best-effort `launchctl load`.
-  - `DisableLoginItem() error` — best-effort `launchctl unload`, remove the plist.
+  - `EnableLoginItem(exePath string) error` — write the plist (atomic temp+rename).
+  - `DisableLoginItem() error` — remove the plist.
 - Tray: a checkable **Start at Login** menu item that reflects and toggles state.
+- **No runtime `launchctl load`/`unload`.** The setting takes effect at the next
+  login. Loading at enable time would immediately start a second instance
+  (RunAtLoad + no single-instance guard); unloading at disable time would SIGTERM
+  the running app when it was itself started by launchd. Writing/removing the
+  plist is the whole operation.
 
 **Known edge:** the plist stores an absolute path. If the user moves the `.app`
 after enabling, the login item points at the old location and must be re-toggled.

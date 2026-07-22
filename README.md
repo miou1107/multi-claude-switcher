@@ -16,32 +16,40 @@ Seamless Multi-Account Switching & Sync for Claude Desktop (macOS & Windows).
 
 [![Download latest](https://img.shields.io/github/v/release/miou1107/multi-claude-switcher?label=Download&style=for-the-badge)](https://github.com/miou1107/multi-claude-switcher/releases/latest)
 
-Prebuilt **universal macOS binaries** (Apple Silicon + Intel) are attached to
-every release — no need to build from source.
+Prebuilt **universal** (Apple Silicon + Intel) downloads are attached to every
+release — no need to build from source.
 
-- **[⬇︎ Menu bar app (`mcs-tray`)](https://github.com/miou1107/multi-claude-switcher/releases/latest/download/mcs-tray-macos-universal)** — the one-click switcher (recommended)
-- **[⬇︎ CLI (`mcs`)](https://github.com/miou1107/multi-claude-switcher/releases/latest/download/mcs-macos-universal)** — for terminal use
-- **[All releases & the `.zip` bundle](https://github.com/miou1107/multi-claude-switcher/releases/latest)** — both binaries + checksum
+- **[⬇︎ Menu bar app (`.app`)](https://github.com/miou1107/multi-claude-switcher/releases/latest)** — recommended: double-clickable, lives in `/Applications`, can start at login. Grab the `Multi-Claude-Switcher_<version>_macos.zip` on the latest release.
+- **[⬇︎ Raw tray binary (`mcs-tray`)](https://github.com/miou1107/multi-claude-switcher/releases/latest/download/mcs-tray-macos-universal)** — advanced: run from the Terminal, no bundle.
+- **[⬇︎ CLI (`mcs`)](https://github.com/miou1107/multi-claude-switcher/releases/latest/download/mcs-macos-universal)** — command-line tool.
 
-### Install (menu bar app)
+### Install the app
+
+1. Download `Multi-Claude-Switcher_<version>_macos.zip` from the [latest release](https://github.com/miou1107/multi-claude-switcher/releases/latest) and unzip it (double-click).
+2. Drag **Multi-Claude Switcher.app** into your **Applications** folder.
+3. **First launch only:** right-click the app → **Open** → **Open** in the dialog. (The app is unsigned — a paid Apple Developer certificate would remove this step — so macOS asks you to confirm the first time. After that, double-click works normally.)
+
+A swap-arrows icon (⇄) appears in the menu bar. Click it to switch profiles; a
+checkmark marks the profile in use. Enable **Start at Login** from the menu to
+launch it automatically. The app **updates itself** from GitHub Releases, so you
+only install once.
+
+<details>
+<summary>Prefer the raw binary (Terminal)?</summary>
 
 ```bash
-# 1. Download the tray app to your Applications-ish location of choice
+# Download, make executable, clear the download quarantine, run.
 curl -L -o mcs-tray \
   https://github.com/miou1107/multi-claude-switcher/releases/latest/download/mcs-tray-macos-universal
-
-# 2. Make it executable and clear the "downloaded from the internet" quarantine
 chmod +x mcs-tray
 xattr -dr com.apple.quarantine mcs-tray
-
-# 3. Run it — a swap-arrows icon appears in the menu bar
 ./mcs-tray
 ```
 
-The binaries are unsigned, so the quarantine-strip step (2) is what lets macOS
-Gatekeeper open them. Once running, the app **updates itself** — it checks
-GitHub for newer releases and swaps itself in automatically, so you only do this
-once.
+The quarantine-strip step is what lets Gatekeeper open the unsigned binary. Note
+the process stops when the Terminal closes; the `.app` above does not have this
+limitation.
+</details>
 
 > **How sync stays correct**: the Code tab only lists conversations from the
 > bucket named after the profile's own logged-in account. Sync reads the source
@@ -79,6 +87,9 @@ go build -o bin/mcs ./cmd/mcs
 
 # Build System Tray GUI app
 go build -o bin/mcs-tray ./cmd/mcs-tray
+
+# Package a double-clickable macOS .app (universal, into dist/)
+./scripts/package-app.sh 0.6.0
 ```
 
 ### Launch System Tray App

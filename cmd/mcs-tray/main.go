@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -71,6 +72,7 @@ func onReady() {
 	// Actions section
 	mUpdate := systray.AddMenuItem("Check for Updates…", "Check GitHub for a newer version and update")
 	mRename := systray.AddMenuItem("Rename a Profile…", "Give a profile a friendlier display name")
+	mLogin := systray.AddMenuItemCheckbox("Start at Login", "Launch automatically when you log in", core.LoginItemEnabled())
 	mBackup := systray.AddMenuItem("Backup All Profiles", "Take a snapshot backup of all profiles")
 	mOpenBackups := systray.AddMenuItem("Open Backup Directory", "Open backup folder in Finder")
 	mOpenLogs := systray.AddMenuItem("Open Log Folder", "Open the log folder in Finder")
@@ -160,6 +162,12 @@ func onReady() {
 		}
 	}()
 
+	go func() {
+		for range mLogin.ClickedCh {
+			toggleLoginItem(mLogin)
+		}
+	}()
+
 	// Auto-update: check on startup and periodically.
 	startUpdateChecker()
 
@@ -233,6 +241,39 @@ func renameFlow(items map[*systray.MenuItem]*platform.ProfileInfo) {
 	// Refresh labels (preserve the current-profile marker).
 	active, _ := plat.DetectRunningProfile()
 	markActive(items, active)
+}
+
+// toggleLoginItem flips the start-at-login LaunchAgent and syncs the menu
+// checkbox. When enabling, it registers the resolved path of the running
+// executable (the binary inside the .app bundle once packaged).
+func toggleLoginItem(m *systray.MenuItem) {
+	if core.LoginItemEnabled() {
+		if err := core.DisableLoginItem(); err != nil {
+			log.Printf("Disable login item failed: %v", err)
+			notify("Couldn't update Start at Login", err.Error())
+			return
+		}
+		m.Uncheck()
+		log.Println("Start at Login disabled")
+		return
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("Cannot resolve executable for login item: %v", err)
+		notify("Couldn't update Start at Login", err.Error())
+		return
+	}
+	if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+		exe = resolved
+	}
+	if err := core.EnableLoginItem(exe); err != nil {
+		log.Printf("Enable login item failed: %v", err)
+		notify("Couldn't update Start at Login", err.Error())
+		return
+	}
+	m.Check()
+	log.Printf("Start at Login enabled (%s)", exe)
 }
 
 // chooseFromList shows a native macOS "choose from list" dialog and returns the

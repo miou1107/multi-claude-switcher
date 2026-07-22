@@ -13,10 +13,10 @@ func TestIsNewer(t *testing.T) {
 		{"v0.5.1", "0.5.0", true},
 		{"v1.0.0", "0.9.9", true},
 		{"v0.5.0", "0.5.0", false},
-		{"v0.10.0", "0.9.0", true},        // numeric, not lexical
-		{"v0.5.0-rc1", "0.5.0", false},    // pre-release suffix stripped -> equal
-		{"v0.5.1-beta", "0.5.0", true},    // still newer on patch
-		{"0.6", "0.5.0", true},            // short form
+		{"v0.10.0", "0.9.0", true},     // numeric, not lexical
+		{"v0.5.0-rc1", "0.5.0", false}, // pre-release suffix stripped -> equal
+		{"v0.5.1-beta", "0.5.0", true}, // still newer on patch
+		{"0.6", "0.5.0", true},         // short form
 	}
 	for _, c := range cases {
 		if got := IsNewer(c.remote, c.local); got != c.want {

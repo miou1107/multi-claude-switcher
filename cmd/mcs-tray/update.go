@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -13,6 +14,19 @@ import (
 	"github.com/getlantern/systray"
 	"github.com/miou1107/multi-claude-switcher/core"
 )
+
+// isInsideAppBundle reports whether exePath is the executable of a macOS .app
+// bundle, returning the path to the bundle (the "…/Foo.app" directory). Used to
+// decide whether to relaunch via LaunchServices (`open`) instead of exec'ing the
+// bare binary.
+func isInsideAppBundle(exePath string) (string, bool) {
+	const marker = ".app/Contents/MacOS/"
+	i := strings.Index(exePath, marker)
+	if i < 0 {
+		return "", false
+	}
+	return exePath[:i+len(".app")], true
+}
 
 // trayAsset is the release asset that holds this (the tray) binary.
 const trayAsset = "mcs-tray-macos-universal"
@@ -125,8 +139,17 @@ func applyUpdate(url string) error {
 	_ = os.Remove(old)
 
 	log.Printf("Update applied; relaunching %s", exe)
-	cmd := exec.Command(exe, os.Args[1:]...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // detach so it outlives us
+	var cmd *exec.Cmd
+	if bundle, ok := isInsideAppBundle(exe); ok {
+		// Relaunch through LaunchServices so the bundle's Info.plist (notably
+		// LSUIElement) is honored; exec'ing the raw binary would drop the
+		// menu-bar-agent treatment and flash a Dock icon. `open` detaches on its
+		// own, so no Setpgid is needed here.
+		cmd = exec.Command("open", "-n", bundle)
+	} else {
+		cmd = exec.Command(exe, os.Args[1:]...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // detach so it outlives us
+	}
 	if err := cmd.Start(); err != nil {
 		// The new binary is already swapped in; only the auto-relaunch failed.
 		return fmt.Errorf("update installed but relaunch failed (please reopen the app to use it): %w", err)

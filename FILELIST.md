@@ -12,12 +12,18 @@
 - `cmd/mcs/main.go` — Go CLI entry point (`mcs status`, `sync`, `switch`, `backup`, `restore`).
 - `cmd/mcs-tray/main.go` — Go System Tray GUI entry point for macOS menu bar quick switcher.
 - `cmd/mcs-tray/assets/icon.png` — Menu bar template icon (swap-arrows glyph; recolored by macOS for light/dark).
+- `cmd/mcs-tray/assets/appicon-1024.png` — Color 1024px app icon source, converted to icon.icns at packaging time.
 - `core/version.go` — Single source of truth for the product version (imported by CLI and tray).
 - `core/logging.go` — Persistent per-component logging to ~/.multi-claude-switcher/logs (stderr + file).
 - `core/names.go` — User-chosen profile display names, stored in ~/.multi-claude-switcher/names.json.
+- `core/loginitem.go` — Start-at-login LaunchAgent management (install/remove per-user plist).
+- `core/loginitem_test.go` — Unit tests for login-item enable/disable and plist contents (stubbed dir + launchctl).
 - `core/update.go` — Update check against GitHub Releases (version compare, latest-release fetch, download).
 - `core/update_test.go` — Unit tests for version comparison and release JSON parsing.
-- `cmd/mcs-tray/update.go` — Tray auto-update: download the new binary, atomically swap it in, relaunch.
+- `cmd/mcs-tray/update.go` — Tray auto-update: download the new binary, atomically swap it in, relaunch (bundle-aware).
+- `cmd/mcs-tray/update_test.go` — Unit tests for .app-bundle path detection.
+- `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
+- `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon) and zips it via ditto.
 - `core/backup.go` — Profile backup & snapshot restoration module (atomic restore).
 - `core/backup_test.go` — Unit tests for backup & restore manager.
 - `core/sync.go` — Session index synchronization module with conflict detection.
@@ -31,5 +37,6 @@
 - `docs/plans/2026-07-22-phase-0-probe.md` — Phase 0 probe execution plan.
 - `docs/plans/2026-07-22-phase-2-gui.md` — Phase 2 GUI execution plan.
 - `docs/superpowers/specs/2026-07-22-multi-claude-account-sync-design.md` — Core design spec for multi-claude switcher.
+- `docs/superpowers/specs/2026-07-22-macos-app-bundle-design.md` — Design spec for the macOS .app bundle packaging.
 - `docs/superpowers/specs/2026-07-22-probe-results.md` — Findings report from Phase 0 probe execution.
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.

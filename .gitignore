@@ -2,3 +2,4 @@
 *.log
 /tmp/
 bin/
+dist/
