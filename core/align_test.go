@@ -58,3 +58,28 @@ func TestManualAlignNoRelaunchWhenNothingRunning(t *testing.T) {
 		t.Error("must not launch anything when nothing was running")
 	}
 }
+
+func TestManualAlignAbortsWhenRunningProfileUnknown(t *testing.T) {
+	tempDir := t.TempDir()
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfig(t, src, "src-uuid")
+	writeAccountConfig(t, dst, "dst-uuid")
+	writeSessionFile(t, src, filepath.Join("src-uuid", "local_a.json"), `{"v":"x"}`, time.Now())
+
+	bm := NewBackupManager(filepath.Join(tempDir, "backups"))
+	// App is running but its profile can't be identified (detected == "").
+	mp := &mockPlatform{running: true, detected: ""}
+	s := NewSwitcher(mp, bm)
+
+	if _, err := s.ManualAlign(src, dst); err == nil {
+		t.Fatal("expected ManualAlign to abort when the running profile can't be identified")
+	}
+	if mp.terminated {
+		t.Error("must not close Claude Desktop when it cannot be reopened")
+	}
+	// Sync must not have run: the target must not have received the source session.
+	if _, err := os.Stat(filepath.Join(platformSessions(dst), "dst-uuid", "local_a.json")); err == nil {
+		t.Error("align wrote data despite aborting before close")
+	}
+}
