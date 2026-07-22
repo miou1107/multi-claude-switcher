@@ -12,7 +12,9 @@
   bidirectionally unions both accounts' Code sessions so they converge to the
   same history; safe because both profiles are closed during the switch window.
   Enabling shows a one-time warning (with an "Enable, don't ask again" option),
-  since it merges one account's conversations into the other
+  since it merges one account's conversations into the other. The toggle sits
+  right below the manual **Sync sessions** menu, and while it is on the manual
+  submenu is disabled (redundant)
   (`core/settings.go`, `core/sync.go` `SyncBidirectional`,
   `cmd/mcs-tray/autosync.go`).
 - **Single-instance guard:** launching a second tray while one is already running
