@@ -54,10 +54,6 @@ func onReady() {
 	systray.SetTemplateIcon(trayIcon, trayIcon)
 	systray.SetTooltip("Multi-Claude Switcher")
 
-	// Header item
-	systray.AddMenuItem(fmt.Sprintf("Multi-Claude Switcher v%s", core.Version), "Seamless Multi-Account Switcher for Claude Desktop").Disable()
-	systray.AddSeparator()
-
 	// Profiles section
 	mProfilesHeader := systray.AddMenuItem("Available Profiles:", "")
 	mProfilesHeader.Disable()
@@ -99,15 +95,23 @@ func onReady() {
 		}
 	}
 
-	// Actions section
-	mUpdate := systray.AddMenuItem("Check for Updates…", "Check GitHub for a newer version and update")
-	mRename := systray.AddMenuItem("Rename a Profile…", "Give a profile a friendlier display name")
-	mLogin := systray.AddMenuItemCheckbox("Start at Login", "Launch automatically when you log in", core.LoginItemEnabled())
-	mAutoSync := systray.AddMenuItemCheckbox("Auto Sync on Switch", "Keep both accounts' sessions identical on every switch", core.AutoSyncOnSwitch())
-	mBackup := systray.AddMenuItem("Backup All Profiles", "Take a snapshot backup of all profiles")
-	mOpenBackups := systray.AddMenuItem("Open Backup Directory", "Open backup folder in Finder")
-	mOpenLogs := systray.AddMenuItem("Open Log Folder", "Open the log folder in Finder")
 	systray.AddSeparator()
+
+	// Settings submenu
+	mSettings := systray.AddMenuItem("Settings", "Preferences")
+	mAutoSync := mSettings.AddSubMenuItemCheckbox("Auto Sync on Switch", "Keep both accounts' sessions identical on every switch", core.AutoSyncOnSwitch())
+	mLogin := mSettings.AddSubMenuItemCheckbox("Start at Login", "Launch automatically when you log in", core.LoginItemEnabled())
+	mRename := mSettings.AddSubMenuItem("Rename a Profile…", "Give a profile a friendlier display name")
+
+	// Maintenance submenu
+	mMaint := systray.AddMenuItem("Maintenance", "Backups, logs, updates")
+	mBackup := mMaint.AddSubMenuItem("Backup All Profiles", "Take a snapshot backup of all profiles")
+	mOpenBackups := mMaint.AddSubMenuItem("Open Backup Directory", "Open backup folder in Finder")
+	mOpenLogs := mMaint.AddSubMenuItem("Open Log Folder", "Open the log folder in Finder")
+	mUpdate := mMaint.AddSubMenuItem("Check for Updates…", "Check GitHub for a newer version and update")
+
+	systray.AddSeparator()
+	mAbout := systray.AddMenuItem("About", "About Multi-Claude Switcher")
 	mQuit := systray.AddMenuItem("Quit", "Quit Multi-Claude Switcher Tray")
 
 	// Handle menu item events in goroutines
@@ -226,6 +230,12 @@ func onReady() {
 
 	// Auto-update: check on startup and periodically.
 	startUpdateChecker()
+
+	go func() {
+		for range mAbout.ClickedCh {
+			showAbout()
+		}
+	}()
 
 	go func() {
 		<-mQuit.ClickedCh
@@ -378,6 +388,24 @@ func confirmAlign(src, dst string) bool {
 	msg := fmt.Sprintf("Copy %q's sessions into %q? Claude Desktop will be closed, synced, and reopened on the account you're using now.", src, dst)
 	script := fmt.Sprintf(`display dialog %s buttons {"Cancel", "Sync"} default button "Sync" cancel button "Cancel" with title "Multi-Claude Switcher"`, osaQuote(msg))
 	return exec.Command("osascript", "-e", script).Run() == nil
+}
+
+// showAbout displays a small About dialog with the app name, version, and link.
+func showAbout() {
+	lines := []string{
+		"Multi-Claude Switcher",
+		"Version " + core.Version,
+		"",
+		"Seamless multi-account switcher for Claude Desktop.",
+		"github.com/miou1107/multi-claude-switcher",
+	}
+	quoted := make([]string, len(lines))
+	for i, l := range lines {
+		quoted[i] = osaQuote(l)
+	}
+	script := "display dialog " + strings.Join(quoted, " & return & ") +
+		` buttons {"OK"} default button "OK" with title "About Multi-Claude Switcher"`
+	_ = exec.Command("osascript", "-e", script).Run()
 }
 
 // notify shows a native macOS notification (best-effort).
