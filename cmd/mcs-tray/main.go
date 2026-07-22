@@ -95,11 +95,31 @@ func onReady() {
 		}
 	}
 
+	// Auto Sync sits with the manual "Sync sessions" it complements: when it is
+	// on, every switch syncs automatically, so a manual sync is redundant and the
+	// "Sync sessions" submenu is disabled while it is on.
+	mAutoSync := systray.AddMenuItemCheckbox("Auto Sync on Switch", "Sync both accounts automatically on every switch", core.AutoSyncOnSwitch())
+	// Manual sync is redundant while Auto Sync is on: gray out the whole
+	// "Sync sessions" submenu (parent + every direction) accordingly.
+	setManualSyncEnabled := func(enabled bool) {
+		toggle := func(m *systray.MenuItem) {
+			if enabled {
+				m.Enable()
+			} else {
+				m.Disable()
+			}
+		}
+		toggle(mSync)
+		for child := range alignItems {
+			toggle(child)
+		}
+	}
+	setManualSyncEnabled(!core.AutoSyncOnSwitch())
+
 	systray.AddSeparator()
 
 	// Settings submenu
 	mSettings := systray.AddMenuItem("Settings", "Preferences")
-	mAutoSync := mSettings.AddSubMenuItemCheckbox("Auto Sync on Switch", "Keep both accounts' sessions identical on every switch", core.AutoSyncOnSwitch())
 	mLogin := mSettings.AddSubMenuItemCheckbox("Start at Login", "Launch automatically when you log in", core.LoginItemEnabled())
 	mRename := mSettings.AddSubMenuItem("Rename a Profile…", "Give a profile a friendlier display name")
 
@@ -225,6 +245,9 @@ func onReady() {
 	go func() {
 		for range mAutoSync.ClickedCh {
 			toggleAutoSync(mAutoSync)
+			// Reflect the new state on the manual sync submenu. Read the persisted
+			// value so a cancelled enable (warning dismissed) leaves it correct.
+			setManualSyncEnabled(!core.AutoSyncOnSwitch())
 		}
 	}()
 
