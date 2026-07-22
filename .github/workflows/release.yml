@@ -1,0 +1,68 @@
+name: Release
+
+# Cut a release by pushing a version tag, e.g.:
+#   git tag v0.5.0 && git push origin v0.5.0
+# This builds universal (arm64 + Intel) macOS binaries with the version baked
+# in, packages them, and publishes a GitHub Release with the assets attached.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build universal macOS binaries
+        env:
+          LDFLAGS: "-X github.com/miou1107/multi-claude-switcher/core.Version=${{ steps.ver.outputs.version }}"
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          for cmd in mcs mcs-tray; do
+            CGO_ENABLED=1 GOARCH=arm64 CC="clang -arch arm64" \
+              go build -ldflags "$LDFLAGS" -o "dist/${cmd}-arm64" "./cmd/${cmd}"
+            CGO_ENABLED=1 GOARCH=amd64 CC="clang -arch x86_64" \
+              go build -ldflags "$LDFLAGS" -o "dist/${cmd}-amd64" "./cmd/${cmd}"
+            lipo -create -output "dist/${cmd}-macos-universal" "dist/${cmd}-arm64" "dist/${cmd}-amd64"
+            rm "dist/${cmd}-arm64" "dist/${cmd}-amd64"
+            file "dist/${cmd}-macos-universal"
+          done
+
+      - name: Package
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euxo pipefail
+          cd dist
+          cp mcs-macos-universal mcs
+          cp mcs-tray-macos-universal mcs-tray
+          cp ../README.md .
+          ZIP="multi-claude-switcher_${VERSION}_macos-universal.zip"
+          zip -j "$ZIP" mcs mcs-tray README.md
+          shasum -a 256 "$ZIP" > "$ZIP.sha256"
+          ls -la
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/multi-claude-switcher_*_macos-universal.zip
+            dist/multi-claude-switcher_*_macos-universal.zip.sha256
+            dist/mcs-macos-universal
+            dist/mcs-tray-macos-universal
+          generate_release_notes: true
