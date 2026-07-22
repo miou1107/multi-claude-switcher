@@ -13,6 +13,7 @@
 - `cmd/mcs-tray/assets/icon.png` — Menu bar template icon (swap-arrows glyph; recolored by macOS for light/dark).
 - `core/version.go` — Single source of truth for the product version (imported by CLI and tray).
 - `core/logging.go` — Persistent per-component logging to ~/.multi-claude-switcher/logs (stderr + file).
+- `core/names.go` — User-chosen profile display names, stored in ~/.multi-claude-switcher/names.json.
 - `core/backup.go` — Profile backup & snapshot restoration module (atomic restore).
 - `core/backup_test.go` — Unit tests for backup & restore manager.
 - `core/sync.go` — Session index synchronization module with conflict detection.

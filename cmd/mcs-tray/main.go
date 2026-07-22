@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/getlantern/systray"
 	"github.com/miou1107/multi-claude-switcher/core"
@@ -60,13 +62,14 @@ func onReady() {
 		if !p.HasSessionsDir && p.Name != "Claude" && p.Name != "Claude_Profile2" {
 			continue
 		}
-		item := systray.AddMenuItem(fmt.Sprintf("Switch to: %s", p.Name), fmt.Sprintf("Switch active profile to %s", p.Name))
+		item := systray.AddMenuItem(fmt.Sprintf("Switch to: %s", core.DisplayName(p.Name)), fmt.Sprintf("Switch active profile to %s", p.Name))
 		profileItems[item] = p
 	}
 
 	systray.AddSeparator()
 
 	// Actions section
+	mRename := systray.AddMenuItem("Rename a Profile…", "Give a profile a friendlier display name")
 	mBackup := systray.AddMenuItem("Backup All Profiles", "Take a snapshot backup of all profiles")
 	mOpenBackups := systray.AddMenuItem("Open Backup Directory", "Open backup folder in Finder")
 	mOpenLogs := systray.AddMenuItem("Open Log Folder", "Open the log folder in Finder")
@@ -81,7 +84,7 @@ func onReady() {
 
 				// Confirm before switching: the switch closes Claude Desktop, so
 				// a mis-click should not silently kill a running session.
-				if !confirmSwitch(target.Name) {
+				if !confirmSwitch(core.DisplayName(target.Name)) {
 					log.Printf("Switch to %s cancelled by user.", target.Name)
 					continue
 				}
@@ -92,10 +95,31 @@ func onReady() {
 				if err != nil {
 					log.Printf("Switch error: %v", err)
 					notify("Switch failed", err.Error())
+				} else {
+					// We just launched the target, so mark it active immediately
+					// (before the new process is even detectable by `ps`).
+					markActive(profileItems, target.Path)
 				}
 			}
 		}(item, prof)
 	}
+
+	// Mark the currently-active profile now, and keep the marker fresh even if
+	// the profile is changed outside the tray (e.g. opening Claude directly).
+	go func() {
+		last := "\x00" // sentinel so the first real detection always applies
+		for {
+			active, _ := plat.DetectRunningProfile()
+			// Only act on a positive detection. Ignore "" (no process visible):
+			// right after a switch the freshly launched app isn't in `ps` yet, and
+			// unmarking here would blink off the marker the switch handler just set.
+			if active != "" && active != last {
+				markActive(profileItems, active)
+				last = active
+			}
+			time.Sleep(4 * time.Second)
+		}
+	}()
 
 	go func() {
 		for range mBackup.ClickedCh {
@@ -124,6 +148,12 @@ func onReady() {
 	}()
 
 	go func() {
+		for range mRename.ClickedCh {
+			renameFlow(profileItems)
+		}
+	}()
+
+	go func() {
 		<-mQuit.ClickedCh
 		systray.Quit()
 	}()
@@ -131,6 +161,99 @@ func onReady() {
 
 func onExit() {
 	log.Println("Multi-Claude Switcher Tray exited cleanly.")
+}
+
+// markActive relabels the profile menu items so the one matching activePath is
+// shown as the current profile (checkmark + "(current)"), and the rest as
+// "Switch to: …". Called at startup, after a switch, and by the background
+// poller so the marker stays correct however the profile changed.
+// markMu serializes menu-item relabeling, which is driven concurrently by the
+// switch handler, the rename handler, and the background poller.
+var markMu sync.Mutex
+
+func markActive(items map[*systray.MenuItem]*platform.ProfileInfo, activePath string) {
+	markMu.Lock()
+	defer markMu.Unlock()
+	for item, p := range items {
+		name := core.DisplayName(p.Name)
+		if samePath(p.Path, activePath) {
+			item.SetTitle(fmt.Sprintf("✓ %s  (current)", name))
+			item.Check()
+		} else {
+			item.SetTitle(fmt.Sprintf("Switch to: %s", name))
+			item.Uncheck()
+		}
+	}
+}
+
+// samePath reports whether two profile paths refer to the same directory.
+func samePath(a, b string) bool {
+	return a != "" && b != "" && filepath.Clean(a) == filepath.Clean(b)
+}
+
+// renameFlow asks the user (via native dialogs) which profile to rename and the
+// new display name, persists it, and refreshes the menu labels.
+func renameFlow(items map[*systray.MenuItem]*platform.ProfileInfo) {
+	// Collect the folder names currently shown, each labeled with its display name.
+	var labels []string
+	labelToFolder := map[string]string{}
+	for _, p := range items {
+		label := fmt.Sprintf("%s  (%s)", core.DisplayName(p.Name), p.Name)
+		labels = append(labels, label)
+		labelToFolder[label] = p.Name
+	}
+
+	chosenLabel := chooseFromList(labels, "Which profile do you want to rename?")
+	if chosenLabel == "" {
+		return // cancelled
+	}
+	folder := labelToFolder[chosenLabel]
+
+	newName := askText(fmt.Sprintf("New display name for %q:", folder), core.DisplayName(folder))
+	if newName == "" {
+		return // cancelled or empty
+	}
+	if err := core.SetProfileName(folder, newName); err != nil {
+		log.Printf("Rename failed: %v", err)
+		notify("Rename failed", err.Error())
+		return
+	}
+	log.Printf("Renamed profile %s -> %q", folder, newName)
+
+	// Refresh labels (preserve the current-profile marker).
+	active, _ := plat.DetectRunningProfile()
+	markActive(items, active)
+}
+
+// chooseFromList shows a native macOS "choose from list" dialog and returns the
+// selected item, or "" if cancelled.
+func chooseFromList(options []string, prompt string) string {
+	var quoted []string
+	for _, o := range options {
+		quoted = append(quoted, osaQuote(o))
+	}
+	script := fmt.Sprintf(`set sel to choose from list {%s} with prompt %s
+if sel is false then
+	return ""
+end if
+return item 1 of sel`, strings.Join(quoted, ", "), osaQuote(prompt))
+	out, err := exec.Command("osascript", "-e", script).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// askText shows a native text-input dialog and returns the entered string, or
+// "" if cancelled.
+func askText(prompt, defaultAnswer string) string {
+	script := fmt.Sprintf(`set r to display dialog %s default answer %s buttons {"Cancel", "OK"} default button "OK" cancel button "Cancel" with title "Multi-Claude Switcher"
+return text returned of r`, osaQuote(prompt), osaQuote(defaultAnswer))
+	out, err := exec.Command("osascript", "-e", script).Output()
+	if err != nil {
+		return "" // cancelled
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // confirmSwitch shows a native macOS confirmation dialog. Returns true only if
