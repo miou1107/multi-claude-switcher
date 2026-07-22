@@ -130,15 +130,18 @@ func renderSquare(size int, sample func(x, y float64) (rgb, float64)) *image.NRG
 	})
 }
 
-// renderTemplate renders the eyes tightly cropped to the given pixel box, so
-// the mark fills the menu-bar height instead of floating in padding.
-func renderTemplate(w, h int) *image.NRGBA {
-	// padded bounding box of the eye group, in 0..100 space
+// renderTemplate renders the eyes on a SQUARE canvas centered on the eye group.
+// This must stay 1:1 — systray forces the menu-bar image to a 16x16 square
+// (systray_darwin.m: `[image setSize:NSMakeSize(16, 16)]`), so a non-square
+// source gets squished horizontally. The wide eye group leaves vertical padding,
+// which is the normal, balanced look for a menu-bar glyph.
+func renderTemplate(size int) *image.NRGBA {
+	// Square crop [12..90] x [11..89] in 0..100 space, centered on the eyes.
 	const x0, x1 = 12.0, 90.0
-	const y0, y1 = 25.0, 75.0
-	return render(w, h, func(px, py float64) (rgb, float64) {
-		x := x0 + px/float64(w)*(x1-x0)
-		y := y0 + py/float64(h)*(y1-y0)
+	const y0, y1 = 11.0, 89.0
+	return render(size, size, func(px, py float64) (rgb, float64) {
+		x := x0 + px/float64(size)*(x1-x0)
+		y := y0 + py/float64(size)*(y1-y0)
 		return templateMark(x, y)
 	})
 }
@@ -253,7 +256,7 @@ func main() {
 
 	fmt.Println("Generating icons:")
 	writePNG(p("cmd", "mcs-tray", "assets", "appicon-1024.png"), renderSquare(1024, colorIcon))
-	writePNG(p("cmd", "mcs-tray", "assets", "icon.png"), renderTemplate(69, 44))
+	writePNG(p("cmd", "mcs-tray", "assets", "icon.png"), renderTemplate(44))
 	writeICO(p("cmd", "mcs-tray", "assets", "icon.ico"), []int{16, 32, 48, 64, 128, 256})
 	writePNG(p("docs", "assets", "icon.png"), renderSquare(512, colorIcon))
 	fmt.Println("Done.")
