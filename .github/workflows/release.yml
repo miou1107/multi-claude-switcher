@@ -57,10 +57,20 @@ jobs:
           shasum -a 256 "$ZIP" > "$ZIP.sha256"
           ls -la
 
+      - name: Package .app bundle
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euxo pipefail
+          # Reuse the universal binary already built above instead of rebuilding.
+          ./scripts/package-app.sh "$VERSION" dist/mcs-tray-macos-universal
+          ls -la dist
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            dist/Multi-Claude-Switcher_*_macos.zip
             dist/multi-claude-switcher_*_macos-universal.zip
             dist/multi-claude-switcher_*_macos-universal.zip.sha256
             dist/mcs-macos-universal

@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.6.0] - 2026-07-22
 
 ### Added
 - **Automatic updates** (`core/update.go`, `cmd/mcs-tray/update.go`): the tray
@@ -9,18 +9,39 @@
   atomically swaps it in for the running executable (with rollback on failure),
   and relaunches. New tray menu item **Check for Updates…** for a manual check.
   Verified end-to-end: a binary built as v0.4.9 self-updated to the real v0.5.0
-  release and its hash matched the published asset.
-- Note: updates are trusted via HTTPS to the project's own GitHub Releases; a
-  per-binary checksum/signature verification step is a planned follow-up.
+  release and its hash matched the published asset. (Updates are trusted via
+  HTTPS to the project's own GitHub Releases; per-binary checksum/signature
+  verification is a planned follow-up.)
+- **Double-clickable macOS `.app` bundle**: the tray now ships as
+  `Multi-Claude Switcher.app` — a menu-bar-only agent (`LSUIElement`, no Dock
+  icon) with a color app icon. Built by `scripts/package-app.sh` locally and by
+  the release workflow (packaged into `Multi-Claude-Switcher_<ver>_macos.zip` via
+  `ditto`). The app is unsigned (no Apple Developer account), so the first launch
+  is a one-time **right-click → Open**; no Terminal required
+  (`packaging/Info.plist.template`, `cmd/mcs-tray/assets/appicon-1024.png`).
+- **Start at Login** (`core/loginitem.go`): a new checkable tray item installs or
+  removes a per-user LaunchAgent
+  (`~/Library/LaunchAgents/com.miou1107.multi-claude-switcher.plist`) so the app
+  launches automatically at login. Plist writes are atomic. Enabling/disabling
+  only writes/removes the plist and takes effect at the next login — it does not
+  `launchctl load`/`unload` the job at runtime, which would otherwise spawn a
+  duplicate instance on enable or SIGTERM the running app on disable.
+
+### Changed
+- **Self-update is bundle-aware**: when running inside a `.app`, the post-update
+  relaunch goes through LaunchServices (`open -n <bundle>`) instead of exec'ing
+  the raw binary, so the `LSUIElement` menu-bar-agent treatment is preserved (no
+  transient Dock icon). Bare-binary runs are unchanged
+  (`cmd/mcs-tray/update.go`, new `isInsideAppBundle`).
 
 ### Documentation
-- **README Download section**: direct links to the prebuilt universal macOS
-  binaries on the latest GitHub Release (stable `releases/latest/download/…`
-  URLs) plus an install walkthrough (download → `chmod +x` → strip quarantine →
-  run). Also refreshed two stale notes: the resolved "known limitation" now
-  describes how account-aware sync stays correct, and the tray description
-  reflects the icon / active marker / auto-update instead of the old `☁️ Claude`
-  text.
+- **README Download section**: leads with the `.app` (double-click, first-launch
+  right-click → Open) and keeps the raw binary / CLI as advanced options, with
+  stable `releases/latest/download/…` links. Refreshed two stale notes: the
+  resolved cross-account "known limitation" now explains how account-aware sync
+  stays correct, and the tray description reflects the icon / active marker /
+  auto-update instead of the old `☁️ Claude` text.
+- **Design spec** `docs/superpowers/specs/2026-07-22-macos-app-bundle-design.md`.
 
 ## [0.5.0] - 2026-07-22
 
