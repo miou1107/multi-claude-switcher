@@ -8,6 +8,8 @@
 
 The Phase 0 probe tests confirmed that **Claude Desktop on macOS fully respects the `--user-data-dir` argument**, enabling isolated multi-account profile execution. Furthermore, the conversation session files are stored under `claude-code-sessions/<AccountUUID>/<OrgUUID>/local_<SessionUUID>.json`, confirming that index sync and Safe Switch mode are technically viable.
 
+> **Critical refinement (2026-07-22, live-machine natural experiment).** The top-level bucket name under `claude-code-sessions/` is **exactly the logged-in account's UUID** (`config.json` → `lastKnownAccountUuid`). The app enumerates the Code tab **only** from `claude-code-sessions/<lastKnownAccountUuid>/`; it does **not** scan the folder for other buckets. Consequence: copying session files under the *source* account's bucket name into a target profile that logs in as a *different* account produces a **silent failure** — the files sit on disk but the Code tab renders empty. **Sync MUST re-bucket into a directory named after the target profile's `lastKnownAccountUuid`.** A raw bucket-name copy is not sync; it is data that never surfaces. The switcher must verify, post-sync, that the written bucket matches the target's `lastKnownAccountUuid`, or warn.
+
 ---
 
 ## Probe Validation Checklist (Questions 1 - 10)
@@ -21,12 +23,12 @@ The Phase 0 probe tests confirmed that **Claude Desktop on macOS fully respects 
 - **Findings**: The directory structure is `<AccountUUID>/<OrgUUID>/local_<SessionUUID>.json`. Each `.json` file contains full session metadata and turn content (`top_keys`: ['sessionId', 'cliSessionId', 'cwd', 'originCwd', 'lastFocusedAt', 'createdAt', 'lastActivityAt', 'model', 'effort', 'isArchived']).
 
 ### Q3: Do synced/copied session files appear in the target profile's sidebar on app relaunch?
-- **Result**: **PASS**
-- **Findings**: Copying `local_*.json` into the target profile's matching `<AccountUUID>/<OrgUUID>/` directory causes Claude Desktop to display the shared conversation upon app restart.
+- **Result**: **PASS — but strictly conditional on correct bucket naming**
+- **Findings**: Copying `local_*.json` into the target profile's `<AccountUUID>/<OrgUUID>/` directory causes Claude Desktop to display the conversation on restart **only when `<AccountUUID>` equals the target profile's `lastKnownAccountUuid`**. If the files land under any other bucket name, the app ignores them entirely (empty Code tab). See the real-world natural experiment below — this exact mistake is why `Claude_Profile2` currently shows an empty Code tab despite holding 22 MB / 171 session files on disk.
 
 ### Q4: How does Claude Desktop handle UUID buckets that don't match the active account?
-- **Result**: **ISOLATED**
-- **Findings**: Each account only queries its corresponding `<AccountUUID>` bucket. Syncing between accounts requires copying/re-bucketizing sessions under the target account's `<AccountUUID>`.
+- **Result**: **ISOLATED — confirmed by live natural experiment**
+- **Findings**: The app queries **only** `claude-code-sessions/<lastKnownAccountUuid>/`. Buckets for any other account are inert on disk. **Live evidence (2026-07-22):** `Claude_Profile2` logs in as account `ae543f88` but its `claude-code-sessions/` contains only buckets `035899b2` (company) and `f047dab6` — there is no `ae543f88` bucket, so the Code tab is empty. The profile's own `ae543f88` sessions (82 files, workspace `245fb00c`) are physically located inside the *other* profile (`Claude/claude-code-sessions/ae543f88/`), orphaned there by an earlier naive folder-copy sync. Syncing between accounts therefore requires re-bucketizing under the target account's `<AccountUUID>`, not copying the source bucket verbatim.
 
 ### Q5: Does the app rebuild or overwrite `claude-code-sessions` on restart or crash?
 - **Result**: **SAFE**
@@ -53,6 +55,41 @@ The Phase 0 probe tests confirmed that **Claude Desktop on macOS fully respects 
 - **Findings**: Windows testing deferred to Phase 1/2. macOS Darwin is primary target.
 
 ---
+
+## Real-World Natural Experiment (2026-07-22, live machine)
+
+An earlier manual sync (2026-06-11 / 07-08, from the pre-tool handbook era) scrambled buckets between the two live profiles. This accidental experiment answers Q3/Q4 with real data:
+
+| Fact | Profile1 (`Claude`, company Team) | Profile2 (`Claude_Profile2`, personal Max) |
+| --- | --- | --- |
+| `lastKnownAccountUuid` (bucket the app reads) | `035899b2` | `ae543f88` |
+| Buckets present in `claude-code-sessions/` | `035899b2`, `ae543f88`, `f047dab6` | `035899b2`, `f047dab6` |
+| Does the read-bucket exist? | ✅ `035899b2` present → Code tab populated | ❌ `ae543f88` absent → **Code tab empty** |
+
+Key takeaways:
+
+1. **Bucket name == account UUID is the entire gate.** No `config.json` index edit, no leveldb entry, and no network login state was required beyond the account UUID matching the bucket directory name. (An earlier hypothesis that the `config.json` `dxt:allowlist*:<workspace>` index or Local Storage leveldb drives the list was **falsified** — `Claude_Profile2` already registers workspace `d129c8c1` yet still shows nothing, because the account bucket is missing.)
+2. **Naive folder-copy sync silently loses data visibility, not data.** All of Profile2's own personal sessions are intact — they were copied *out* into Profile1's `ae543f88` bucket. Nothing was deleted; the sidebar just can't see them because they are under the wrong profile.
+3. **Sync direction/naming is the crux of the product.** To make Profile2 show its own history: copy `Claude/claude-code-sessions/ae543f88/` → `Claude_Profile2/claude-code-sessions/ae543f88/`. The dead `035899b2` bucket in Profile2 (company data, unreadable there) is inert and can be pruned.
+
+## Config / Preferences Sync Analysis (2026-07-22)
+
+Follow-up finding while diagnosing a "Bypass Permissions turned itself off" report in `Claude_Profile2`.
+
+**Bypass Permissions is a per-account opt-in gate, stored in `claude_desktop_config.json`:**
+- `preferences.bypassPermissionsModeEnabled` — global on/off (was `true` in both profiles).
+- `preferences.bypassPermissionsOptInByAccount` — a **map keyed by account UUID**, e.g. `{ "ae543f88…": true }`. The app only enables bypass for the logged-in account if that account's entry is `true`.
+- Root cause of the report: `Claude_Profile2` (logged in as `ae543f88`) had **no `bypassPermissionsOptInByAccount` entry at all** for `ae543f88`, so bypass was gated off and the app fell back to Accept Edits. `Claude` (Profile1) *did* have `{ae543f88: true}`. This was pre-existing (file mtime predates the session-bucket restore) and only became visible once the profile had sessions to run. Also note the per-session `permissionMode` field (`bypassPermissions` / `acceptEdits` / `plan` / `auto` / `default`) inside each `local_*.json` — that is separate from, and gated by, the global per-account opt-in.
+
+**Implication for "can we sync config?" — config files are NOT monolithic. Three tiers:**
+
+| Tier | Example keys | Sync rule |
+| --- | --- | --- |
+| **Global UX preferences** (majority) | `darkMode`, `scale`, `locale`, `mcpServers`, `menuBarEnabled`, `sidebarMode`, `bypassPermissionsModeEnabled`, `keepAwakeEnabled`, `chromeExtension`, `ccBranchPrefix` | **Safe to sync (whitelist copy).** This is what a user actually wants "consistent across profiles." |
+| **Per-account / per-workspace maps** | `bypassPermissionsOptInByAccount`, `bypassPermissionsGateByAccount`, `coworkModelAutoFallbackByAccount`, `dxt:allowlistEnabled:<ws>`, `epitaxyPrefs` folder-permission maps | **Sync only by key-level MERGE (union), never whole-value overwrite.** Merging propagates e.g. bypass opt-in to the other profile's account without clobbering the target's own entries. Would have auto-fixed the report above. |
+| **Identity / auth** | `oauth:tokenCache`, `oauth:tokenCacheV2`, `lastKnownAccountUuid`, `remoteToolsDeviceName`, plus sibling files `Cookies`, `buddy-tokens.json`, `ant-device-registry.json` | **NEVER sync.** These *are* the account/device. Copying them makes both profiles resolve to the same account → switching does nothing, or triggers logout / auth conflict. Non-negotiable; it is the reason separate profiles exist. |
+
+**Conclusion:** "Sync config: yes/no" is the wrong question. The correct design is **field-level selective sync**: whitelist global prefs, merge per-account maps by key, blacklist identity/auth. Default posture for any *unknown* key must be **do not sync** (these are undocumented private app fields that can be renamed/restructured by a Desktop update). This is a distinct, optional feature from session-index sync and should ship behind its own toggle.
 
 ## Discovered Profiles & UUID Structure
 
