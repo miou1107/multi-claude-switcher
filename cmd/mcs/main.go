@@ -27,6 +27,16 @@ func main() {
 	}
 
 	command := os.Args[1]
+
+	// Persist a log trail for the mutating commands (read-only status/help stay
+	// quiet). SafeSwitch and friends log their steps via the standard logger.
+	switch command {
+	case "switch", "sync", "restore", "backup":
+		if closer, _, err := core.SetupLogging("mcs-cli"); err == nil {
+			defer closer.Close()
+		}
+	}
+
 	plat := platform.New()
 	bm := core.NewBackupManager("")
 	switcher := core.NewSwitcher(plat, bm)
