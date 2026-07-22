@@ -12,6 +12,30 @@ Seamless Multi-Account Switching & Sync for Claude Desktop (macOS & Windows).
 - **Conflict-safe Sync**: When both profiles changed the same session, the newer target copy is preserved and reported as a conflict instead of being silently overwritten.
 - **Probe Validation Tool**: Includes `scripts/probe/probe_runner.py` for inspecting profiles and validating local session synchronization.
 
+## 🔄 Syncing sessions between accounts
+
+Switching accounts and syncing sessions are two separate actions — a plain
+switch never touches session data unless you turn on auto-align.
+
+- **Plain switch (default):** clicking a profile in the menu just closes
+  Claude Desktop and reopens it on that profile. No session data moves. Each
+  account keeps only its own Code conversation history.
+- **Manual align — "Sync sessions →" submenu:** pick a direction (e.g. `From
+  Company → To Personal`) to copy one account's Code sessions into another
+  **without switching which account you're on**. It closes Claude Desktop,
+  backs up the target account, copies the sessions over, and reopens the
+  account you were already using.
+- **"Auto-Align on Switch" toggle (default OFF):** turn this on and every
+  switch bidirectionally unions both accounts' Code sessions, so the two
+  accounts converge to the same conversation history over time. Because
+  turning it on merges one account's conversations into the other, enabling it
+  shows a one-time warning dialog (with an "Enable, don't ask again" option to
+  skip the warning on future enables).
+
+> **Scope:** only the Code tab (`claude-code-sessions`) syncs. Regular chat
+> conversations are stored server-side per account and can't be synced
+> locally. Agent Mode / Cowork sessions are not covered yet.
+
 ## 📥 Download
 
 [![Download latest](https://img.shields.io/github/v/release/miou1107/multi-claude-switcher?label=Download%20app&style=for-the-badge)](https://github.com/miou1107/multi-claude-switcher/releases/latest)

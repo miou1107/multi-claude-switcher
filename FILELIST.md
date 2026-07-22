@@ -26,10 +26,16 @@
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon) and zips it via ditto.
 - `core/backup.go` — Profile backup & snapshot restoration module (atomic restore).
 - `core/backup_test.go` — Unit tests for backup & restore manager.
-- `core/sync.go` — Session index synchronization module with conflict detection.
+- `core/sync.go` — Session index synchronization module with conflict detection, plus `SyncBidirectional` (unions both profiles' sessions for auto-align).
 - `core/sync_test.go` — Unit tests for session sync (copy, conflict, identical, overwrite).
-- `core/switch.go` — Safe Switch controller (Terminate -> Backup -> Sync -> Launch).
+- `core/switch.go` — Safe Switch controller (Terminate -> Backup -> Sync -> Launch); session data only moves when the auto-align toggle is on (bidirectional align), otherwise a switch is a pure account change.
 - `core/switch_test.go` — Unit tests for Safe Switch (aborts on backup failure).
+- `core/settings.go` — User settings store (~/.multi-claude-switcher/settings.json): auto-align toggle + warning-dismissed flag.
+- `core/settings_test.go` — Unit tests for settings round-trip, defaults, and no-clobber.
+- `core/align.go` — Manual directional align (ManualAlign): close → backup → sync → reopen the same account.
+- `core/align_test.go` — Unit tests for ManualAlign (returns to running profile; no relaunch when nothing ran).
+- `cmd/mcs-tray/autoalign.go` — Tray Auto-Align toggle: enable-time warning dialog and choice parsing.
+- `cmd/mcs-tray/autoalign_test.go` — Unit tests for the warning-gating and dialog-choice parsing helpers.
 - `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
 - `platform/darwin.go` — macOS implementation for platform interface.
 - `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).

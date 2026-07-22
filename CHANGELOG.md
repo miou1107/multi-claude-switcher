@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## [0.7.0] - 2026-07-22
+
+### Added
+- **Manual "Sync sessions →" tray submenu:** copy one account's Code sessions
+  into another **without switching accounts** — it closes Claude Desktop, backs
+  up the target, syncs (re-bucketed under the target account), and reopens the
+  account you were already on (`core/align.go` `Switcher.ManualAlign`,
+  `cmd/mcs-tray/main.go`).
+- **"Auto-Align on Switch" toggle (default OFF):** when on, every switch
+  bidirectionally unions both accounts' Code sessions so they converge to the
+  same history; safe because both profiles are closed during the switch window.
+  Enabling shows a one-time warning (with an "Enable, don't ask again" option),
+  since it merges one account's conversations into the other
+  (`core/settings.go`, `core/sync.go` `SyncBidirectional`,
+  `cmd/mcs-tray/autoalign.go`).
+
+### Changed
+- **Switching no longer auto-syncs by default.** Previously every switch ran a
+  one-way session sync; now a switch moves **no** session data unless
+  "Auto-Align on Switch" is enabled. This makes cross-account conversation
+  merging an explicit opt-in (`core/switch.go`).
+
+### Notes
+- Scope is Code sessions (`claude-code-sessions`) only. Agent Mode / Cowork
+  sessions (`local-agent-mode-sessions`) are not synced; that is a separate,
+  display-verification-gated follow-up. Regular chat is server-side per account
+  and cannot be synced locally.
+
 ## [0.6.1] - 2026-07-22
 
 ### Changed
