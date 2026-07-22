@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.5.0] - 2026-07-22
 
 ### Build / CI
 - **GitHub Release automation** (`.github/workflows/release.yml`): pushing a
