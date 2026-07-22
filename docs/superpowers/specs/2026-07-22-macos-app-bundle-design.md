@@ -87,18 +87,26 @@ after enabling, the login item points at the old location and must be re-toggled
 Acceptable for 0.6.0; documented. (A future refinement could use
 `open -a "Multi-Claude Switcher"`, but that is flakier at login time.)
 
-### 4. Self-update compatibility — `cmd/mcs-tray/update.go`
+### 4. Self-update — `cmd/mcs-tray/update.go`
 
-Self-update downloads the raw `mcs-tray-macos-universal` asset and swaps the
-executable at `os.Executable()`. Inside a bundle that path is
-`.../Contents/MacOS/mcs-tray`, so the atomic same-dir rename still works — **no
-change to what is downloaded or how it is swapped.**
+**Source (updated in 0.6.1):** the `.app` zip is the only published asset, so
+self-update downloads that zip, extracts `…/Contents/MacOS/mcs-tray` from it via
+`ditto -x -k` (`findTrayBinary`), copies that binary onto the app's filesystem
+(`copyExecutable`, since the scratch dir is a different filesystem — no cross-fs
+rename), then atomically swaps it in for `os.Executable()` with rollback on
+failure. Only the executable is replaced, not the whole bundle, so `Info.plist` /
+icon changes ship with a fresh install rather than a self-update. The release
+asset is matched by prefix+suffix (`findAppZip`), since the version is in the
+middle of the filename.
 
-The one required change is **relaunch**: today it `exec`s the raw binary
-directly, which bypasses LaunchServices and would drop the `LSUIElement`
-treatment (a transient Dock icon). New behavior: if the executable path is inside
-a `*.app/Contents/MacOS/` bundle, relaunch with `open -n -a "<bundle path>"`;
-otherwise keep the current direct-exec path (bare-binary users are unaffected).
+**Relaunch:** if the executable path is inside a `*.app/Contents/MacOS/` bundle,
+relaunch via LaunchServices (`open -n "<bundle path>"`) so `LSUIElement` is
+honored (a direct `exec` of the raw binary would flash a Dock icon); otherwise
+keep the direct-exec path (bare-binary/dev runs are unaffected).
+
+**Migration:** pre-0.6.1 installs (0.5.0 and 0.6.0) auto-update by looking for the
+now-removed `mcs-tray-macos-universal` asset, so they cannot auto-update to 0.6.1
+and must install the 0.6.1 `.app` once by hand; 0.6.1+ self-updates from the zip.
 
 ### 5. Packaging
 

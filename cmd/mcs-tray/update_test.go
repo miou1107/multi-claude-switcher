@@ -2,6 +2,27 @@ package main
 
 import "testing"
 
+func TestFindAppZip(t *testing.T) {
+	assets := map[string]string{
+		"mcs-macos-universal":                             "https://x/cli",
+		"Multi-Claude-Switcher_0.6.1_macos.zip":           "https://x/app",
+		"multi-claude-switcher_0.6.1_macos-universal.zip": "https://x/raw",
+	}
+	url, ok := findAppZip(assets)
+	if !ok || url != "https://x/app" {
+		t.Fatalf("findAppZip = (%q,%v), want the app zip URL", url, ok)
+	}
+
+	// A release with no packaged app must report not-found (not match the
+	// lowercase raw-binary zip).
+	if _, ok := findAppZip(map[string]string{
+		"multi-claude-switcher_0.6.1_macos-universal.zip": "https://x/raw",
+		"mcs-tray-macos-universal":                        "https://x/tray",
+	}); ok {
+		t.Fatal("findAppZip matched a non-app asset")
+	}
+}
+
 func TestIsInsideAppBundle(t *testing.T) {
 	cases := []struct {
 		exe        string

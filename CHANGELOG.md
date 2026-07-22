@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## [0.6.1] - 2026-07-22
+
+### Changed
+- **The `.app` is now the only published download.** Releases no longer attach
+  the raw `mcs` / `mcs-tray` binaries or the raw `_macos-universal.zip`; the sole
+  asset is `Multi-Claude-Switcher_<version>_macos.zip` (the ready-to-run app), so
+  there's no confusing "which file do I download" (`.github/workflows/release.yml`,
+  README).
+- **Self-update now sources the `.app` zip** instead of a standalone binary: it
+  downloads the release zip, extracts the tray executable from
+  `…/Contents/MacOS/mcs-tray` (via `ditto`), and atomically swaps that in
+  (`cmd/mcs-tray/update.go`, new `findAppZip` / `findTrayBinary` / `copyExecutable`).
+  Only the executable is replaced, not the whole bundle, so `Info.plist` / icon
+  changes ship with a fresh install rather than a self-update.
+
+### Upgrade note
+- **Any install older than 0.6.1** (0.5.0 or 0.6.0) cannot auto-update to 0.6.1:
+  their updater looks for the now-removed `mcs-tray-macos-universal` asset.
+  Download the 0.6.1 `.app` once manually; 0.6.1+ self-updates normally from the
+  zip thereafter.
+
 ## [0.6.0] - 2026-07-22
 
 ### Added

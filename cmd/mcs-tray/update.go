@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -28,8 +30,24 @@ func isInsideAppBundle(exePath string) (string, bool) {
 	return exePath[:i+len(".app")], true
 }
 
-// trayAsset is the release asset that holds this (the tray) binary.
-const trayAsset = "mcs-tray-macos-universal"
+// appZipPrefix / appZipSuffix bracket the release asset that holds the packaged
+// app (e.g. "Multi-Claude-Switcher_0.6.1_macos.zip"). The version is in the
+// middle so we match by prefix+suffix rather than an exact name. This is the
+// only published download — the self-updater extracts the binary from it.
+const (
+	appZipPrefix = "Multi-Claude-Switcher_"
+	appZipSuffix = "_macos.zip"
+)
+
+// findAppZip returns the download URL of the packaged-app asset in a release.
+func findAppZip(assets map[string]string) (string, bool) {
+	for name, url := range assets {
+		if strings.HasPrefix(name, appZipPrefix) && strings.HasSuffix(name, appZipSuffix) {
+			return url, true
+		}
+	}
+	return "", false
+}
 
 // updating single-flights the check/apply pipeline. Overlapping runs (a manual
 // "Check for Updates…" landing during the startup/6h auto check, or a rapid
@@ -79,11 +97,11 @@ func checkForUpdate(auto bool) {
 		return
 	}
 
-	url, ok := assets[trayAsset]
+	url, ok := findAppZip(assets)
 	if !ok {
-		log.Printf("Release %s has no %q asset; cannot auto-update", tag, trayAsset)
+		log.Printf("Release %s has no packaged-app asset (%s…%s); cannot auto-update", tag, appZipPrefix, appZipSuffix)
 		if !auto {
-			notify("Update unavailable", "The release has no downloadable binary for this app.")
+			notify("Update unavailable", "The release has no downloadable app for this platform.")
 		}
 		return
 	}
@@ -98,8 +116,11 @@ func checkForUpdate(auto bool) {
 	// applyUpdate relaunches and quits on success, so we normally don't return.
 }
 
-// applyUpdate downloads the new binary, atomically swaps it in for the currently
-// running executable, then relaunches and quits the old process.
+// applyUpdate downloads the packaged-app zip, extracts the tray binary from
+// inside it, atomically swaps that in for the currently running executable, then
+// relaunches and quits the old process. Only the executable is replaced (not the
+// whole bundle), so Info.plist / icon changes ship with a fresh install rather
+// than a self-update — acceptable, and it keeps the swap a single atomic rename.
 func applyUpdate(url string) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -109,18 +130,34 @@ func applyUpdate(url string) error {
 		exe = resolved
 	}
 
-	// Download alongside the current binary so the final swap is a same-filesystem
-	// atomic rename.
-	tmp := exe + ".new"
-	if err := core.DownloadTo(url, tmp); err != nil {
-		os.Remove(tmp) // don't leave a partial download behind
+	// Download + unzip in a scratch dir (cleaned up regardless of outcome).
+	work, err := os.MkdirTemp("", "mcs-update-")
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp, 0755); err != nil {
+	defer os.RemoveAll(work)
+
+	zipPath := filepath.Join(work, "update.zip")
+	if err := core.DownloadTo(url, zipPath); err != nil {
+		return err
+	}
+	extractDir := filepath.Join(work, "extract")
+	if err := exec.Command("ditto", "-x", "-k", zipPath, extractDir).Run(); err != nil {
+		return fmt.Errorf("extracting update archive: %w", err)
+	}
+	newBin, err := findTrayBinary(extractDir)
+	if err != nil {
+		return err
+	}
+
+	// Copy the extracted binary next to the current one so the final swap is a
+	// same-filesystem atomic rename (the scratch dir is likely a different fs).
+	tmp := exe + ".new"
+	if err := copyExecutable(newBin, tmp); err != nil {
 		os.Remove(tmp)
 		return err
 	}
-	// Strip the download quarantine so Gatekeeper doesn't block the relaunch.
+	// Strip any quarantine so Gatekeeper doesn't block the relaunch.
 	_ = exec.Command("xattr", "-dr", "com.apple.quarantine", tmp).Run()
 
 	// Swap: move the current binary aside, move the new one in; roll back on
@@ -157,4 +194,57 @@ func applyUpdate(url string) error {
 	notify("Updated", "Restarting on the new version.")
 	systray.Quit()
 	return nil
+}
+
+// errFound is a sentinel used to stop the walk early once the binary is located.
+var errFound = errors.New("found")
+
+// findTrayBinary locates the tray executable inside an extracted .app bundle
+// (…/Contents/MacOS/mcs-tray).
+func findTrayBinary(root string) (string, error) {
+	var found string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && info.Name() == "mcs-tray" &&
+			strings.Contains(path, filepath.Join("Contents", "MacOS")+string(filepath.Separator)) {
+			found = path
+			return errFound
+		}
+		return nil
+	})
+	if found != "" {
+		return found, nil
+	}
+	if err != nil && !errors.Is(err, errFound) {
+		return "", err
+	}
+	return "", fmt.Errorf("update archive did not contain the app binary")
+}
+
+// copyExecutable copies src to dst (0755), truncating dst. Used to move the
+// extracted binary from the scratch dir onto the app's filesystem before the
+// atomic swap.
+func copyExecutable(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	// Force the exec bit unconditionally: O_CREATE|0755 is umask-masked and won't
+	// reset the mode of a pre-existing stale dst, so a plain OpenFile is not a
+	// guarantee the swapped-in binary is runnable.
+	return os.Chmod(dst, 0755)
 }

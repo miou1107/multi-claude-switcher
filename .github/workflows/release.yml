@@ -1,9 +1,10 @@
 name: Release
 
 # Cut a release by pushing a version tag, e.g.:
-#   git tag v0.5.0 && git push origin v0.5.0
-# This builds universal (arm64 + Intel) macOS binaries with the version baked
-# in, packages them, and publishes a GitHub Release with the assets attached.
+#   git tag v0.6.1 && git push origin v0.6.1
+# This builds a universal (arm64 + Intel) tray binary with the version baked in,
+# packages it into Multi-Claude Switcher.app, and publishes a GitHub Release with
+# that single .app zip attached (the sole download and the self-updater's source).
 
 on:
   push:
@@ -27,35 +28,20 @@ jobs:
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build universal macOS binaries
+      - name: Build universal tray binary
         env:
           LDFLAGS: "-X github.com/miou1107/multi-claude-switcher/core.Version=${{ steps.ver.outputs.version }}"
         run: |
           set -euxo pipefail
           mkdir -p dist
-          for cmd in mcs mcs-tray; do
-            CGO_ENABLED=1 GOARCH=arm64 CC="clang -arch arm64" \
-              go build -ldflags "$LDFLAGS" -o "dist/${cmd}-arm64" "./cmd/${cmd}"
-            CGO_ENABLED=1 GOARCH=amd64 CC="clang -arch x86_64" \
-              go build -ldflags "$LDFLAGS" -o "dist/${cmd}-amd64" "./cmd/${cmd}"
-            lipo -create -output "dist/${cmd}-macos-universal" "dist/${cmd}-arm64" "dist/${cmd}-amd64"
-            rm "dist/${cmd}-arm64" "dist/${cmd}-amd64"
-            file "dist/${cmd}-macos-universal"
-          done
-
-      - name: Package
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          set -euxo pipefail
-          cd dist
-          cp mcs-macos-universal mcs
-          cp mcs-tray-macos-universal mcs-tray
-          cp ../README.md .
-          ZIP="multi-claude-switcher_${VERSION}_macos-universal.zip"
-          zip -j "$ZIP" mcs mcs-tray README.md
-          shasum -a 256 "$ZIP" > "$ZIP.sha256"
-          ls -la
+          CGO_ENABLED=1 GOARCH=arm64 CC="clang -arch arm64" \
+            go build -ldflags "$LDFLAGS" -o "dist/mcs-tray-arm64" ./cmd/mcs-tray
+          CGO_ENABLED=1 GOARCH=amd64 CC="clang -arch x86_64" \
+            go build -ldflags "$LDFLAGS" -o "dist/mcs-tray-amd64" ./cmd/mcs-tray
+          lipo -create -output "dist/mcs-tray-macos-universal" \
+            "dist/mcs-tray-arm64" "dist/mcs-tray-amd64"
+          rm "dist/mcs-tray-arm64" "dist/mcs-tray-amd64"
+          file "dist/mcs-tray-macos-universal"
 
       - name: Package .app bundle
         env:
@@ -67,12 +53,10 @@ jobs:
           ls -la dist
 
       - name: Publish GitHub Release
+        # Only the packaged .app is published. It is the sole download and the
+        # self-updater's source (it extracts the tray binary from this zip).
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/Multi-Claude-Switcher_*_macos.zip
-            dist/multi-claude-switcher_*_macos-universal.zip
-            dist/multi-claude-switcher_*_macos-universal.zip.sha256
-            dist/mcs-macos-universal
-            dist/mcs-tray-macos-universal
           generate_release_notes: true
