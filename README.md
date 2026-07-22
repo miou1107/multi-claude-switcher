@@ -1,4 +1,7 @@
 # multi-claude-switcher
+
+**English** | [繁體中文](README.zh-TW.md)
+
 <img src="docs/assets/icon.png" width="120" alt="Multi-Claude Switcher icon" />
 
 <img width="236" height="277" alt="image" src="https://github.com/user-attachments/assets/62f863dd-9545-4a5c-ac46-66c32517f21f" />

@@ -10,4 +10,4 @@ package core
 //
 // The GitHub release workflow injects the git tag here; local builds use the
 // default below.
-var Version = "0.7.3"
+var Version = "0.7.4"
