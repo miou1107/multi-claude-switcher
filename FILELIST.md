@@ -11,8 +11,11 @@
 - `bin/mcs-tray` — Compiled System Tray GUI binary executable.
 - `cmd/mcs/main.go` — Go CLI entry point (`mcs status`, `sync`, `switch`, `backup`, `restore`).
 - `cmd/mcs-tray/main.go` — Go System Tray GUI entry point for macOS menu bar quick switcher.
-- `cmd/mcs-tray/assets/icon.png` — Menu bar template icon (swap-arrows glyph; recolored by macOS for light/dark).
-- `cmd/mcs-tray/assets/appicon-1024.png` — Color 1024px app icon source, converted to icon.icns at packaging time.
+- `cmd/mcs-tray/assets/icon.png` — Menu bar template icon (eyes glyph; recolored by macOS for light/dark).
+- `cmd/mcs-tray/assets/appicon-1024.png` — Color 1024px app icon source (eyes), converted to icon.icns at packaging time.
+- `cmd/mcs-tray/assets/icon.ico` — Color multi-resolution Windows icon (16–256px) for the tray/exe.
+- `scripts/gen-icons/main.go` — Standalone generator (`go run`) that rasterizes the eyes mark from geometry into all icon assets (app PNG, menu-bar template, Windows .ico, doc PNG); no external tools needed.
+- `docs/assets/icon.png` — 512px color icon for README and documentation.
 - `core/version.go` — Single source of truth for the product version (imported by CLI and tray).
 - `core/logging.go` — Persistent per-component logging to ~/.multi-claude-switcher/logs (stderr + file).
 - `core/names.go` — User-chosen profile display names, stored in ~/.multi-claude-switcher/names.json.
