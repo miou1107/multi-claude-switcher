@@ -13,6 +13,15 @@
 - Note: updates are trusted via HTTPS to the project's own GitHub Releases; a
   per-binary checksum/signature verification step is a planned follow-up.
 
+### Documentation
+- **README Download section**: direct links to the prebuilt universal macOS
+  binaries on the latest GitHub Release (stable `releases/latest/download/…`
+  URLs) plus an install walkthrough (download → `chmod +x` → strip quarantine →
+  run). Also refreshed two stale notes: the resolved "known limitation" now
+  describes how account-aware sync stays correct, and the tray description
+  reflects the icon / active marker / auto-update instead of the old `☁️ Claude`
+  text.
+
 ## [0.5.0] - 2026-07-22
 
 ### Build / CI
