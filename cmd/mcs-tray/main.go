@@ -69,6 +69,7 @@ func onReady() {
 	systray.AddSeparator()
 
 	// Actions section
+	mUpdate := systray.AddMenuItem("Check for Updates…", "Check GitHub for a newer version and update")
 	mRename := systray.AddMenuItem("Rename a Profile…", "Give a profile a friendlier display name")
 	mBackup := systray.AddMenuItem("Backup All Profiles", "Take a snapshot backup of all profiles")
 	mOpenBackups := systray.AddMenuItem("Open Backup Directory", "Open backup folder in Finder")
@@ -148,10 +149,19 @@ func onReady() {
 	}()
 
 	go func() {
+		for range mUpdate.ClickedCh {
+			go checkForUpdate(false)
+		}
+	}()
+
+	go func() {
 		for range mRename.ClickedCh {
 			renameFlow(profileItems)
 		}
 	}()
+
+	// Auto-update: check on startup and periodically.
+	startUpdateChecker()
 
 	go func() {
 		<-mQuit.ClickedCh

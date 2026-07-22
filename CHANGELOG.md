@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Added
+- **Automatic updates** (`core/update.go`, `cmd/mcs-tray/update.go`): the tray
+  checks GitHub Releases on startup and every 6 hours, and when a newer version
+  is available it downloads the universal binary, strips the download quarantine,
+  atomically swaps it in for the running executable (with rollback on failure),
+  and relaunches. New tray menu item **Check for Updates…** for a manual check.
+  Verified end-to-end: a binary built as v0.4.9 self-updated to the real v0.5.0
+  release and its hash matched the published asset.
+- Note: updates are trusted via HTTPS to the project's own GitHub Releases; a
+  per-binary checksum/signature verification step is a planned follow-up.
+
 ## [0.5.0] - 2026-07-22
 
 ### Build / CI
