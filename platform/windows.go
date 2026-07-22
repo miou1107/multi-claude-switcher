@@ -245,14 +245,18 @@ func (w *WindowsPlatform) TerminateApp() error {
 
 	// Graceful close first: taskkill without /F posts WM_CLOSE to the tree.
 	for _, pid := range pids {
-		_ = exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T").Run()
+		c := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T")
+		hideConsole(c)
+		_ = c.Run()
 	}
 	time.Sleep(1 * time.Second)
 
 	if still, _, _ := w.IsAppRunning(); still {
 		// Force kill the tree.
 		for _, pid := range desktopPIDs() {
-			_ = exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid), "/T").Run()
+			c := exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid), "/T")
+			hideConsole(c)
+			_ = c.Run()
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -343,6 +347,7 @@ Get-CimInstance Win32_Process -Filter "Name='Claude.exe'" -ErrorAction SilentlyC
 // contain quotes, spaces and special characters) and needs no shell.
 func runPowerShell(script string) (string, error) {
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", psEncodedCommand(script))
+	hideConsole(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

@@ -1,8 +1,9 @@
 # FILELIST.md
 
 - `.gitignore` — Git ignore rules.
+- `.gitattributes` — Marks binary assets (`.syso`, `.ico`, `.icns`, `.png`, `.zip`) so Git never applies line-ending conversion that would corrupt them.
 - `go.mod` — Go module definition file.
-- `.github/workflows/release.yml` — GitHub Actions: on a `v*` tag, builds universal macOS binaries (version injected) and publishes a GitHub Release.
+- `.github/workflows/release.yml` — GitHub Actions: on a `v*` tag, builds the universal macOS `.app` (version injected) and the Windows `setup.exe` installer, and publishes them to a GitHub Release.
 - `go.sum` — Go module checksum file.
 - `README.md` — Project overview, architecture, and quick start CLI/GUI guide (English).
 - `README.zh-TW.md` — Traditional Chinese translation of the README.
@@ -18,6 +19,7 @@
 - `cmd/mcs-tray/assets/icon.png` — Menu bar template icon (eyes glyph; recolored by macOS for light/dark).
 - `cmd/mcs-tray/assets/appicon-1024.png` — Color 1024px app icon source (eyes), converted to icon.icns at packaging time.
 - `cmd/mcs-tray/assets/icon.ico` — Color multi-resolution Windows icon (16–256px) for the tray/exe.
+- `cmd/mcs-tray/rsrc_windows_amd64.syso` — Windows resource object (generated from `icon.ico` via `rsrc`) that compiles the app icon into `mcs-tray.exe`; auto-linked for windows/amd64 so the Start Menu / taskbar / Explorer show the icon.
 - `scripts/gen-icons/main.go` — Standalone generator (`go run`) that rasterizes the eyes mark from geometry into all icon assets (app PNG, menu-bar template, Windows .ico, doc PNG); no external tools needed.
 - `docs/assets/icon.png` — 512px color icon for README and documentation.
 - `core/version.go` — Single source of truth for the product version (imported by CLI and tray).
@@ -25,17 +27,19 @@
 - `core/names.go` — User-chosen profile display names, stored in ~/.multi-claude-switcher/names.json.
 - `core/loginitem_darwin.go` — Start-at-login LaunchAgent management on macOS (install/remove per-user plist).
 - `core/loginitem_windows.go` — Start-at-login on Windows via the per-user registry Run key (HKCU\...\Run).
+- `core/hidewindow_windows.go` — Windows helper: run the `reg` login-item commands with CREATE_NO_WINDOW so no console window flashes.
 - `core/loginitem_other.go` — Start-at-login stub for non-macOS/Windows builds (safe no-ops).
 - `core/loginitem_darwin_test.go` — Unit tests for macOS login-item enable/disable and plist contents (stubbed dir).
 - `core/loginitem_windows_test.go` — Unit tests for Windows login-item enable/disable via a throwaway registry key.
 - `core/update.go` — Update check against GitHub Releases (version compare, latest-release fetch, download).
 - `core/update_test.go` — Unit tests for version comparison and release JSON parsing.
-- `cmd/mcs-tray/update.go` — Tray auto-update: download the release .app zip, extract & atomically swap the tray binary, relaunch (bundle-aware).
-- `cmd/mcs-tray/update_test.go` — Unit tests for .app-bundle path detection and app-zip asset matching.
-- `cmd/mcs-tray/update_platform_darwin.go` — macOS self-update: `_macos.zip` suffix, ditto extraction, quarantine strip, .app binary lookup.
-- `cmd/mcs-tray/update_platform_windows.go` — Windows self-update: `_windows.zip` suffix, pure-Go unzip, mcs-tray.exe lookup.
+- `cmd/mcs-tray/update.go` — Update check plumbing shared by all OSes: find the platform's release asset, single-flight the check, periodic + manual triggers; delegates the actual install to the per-OS `installUpdate`.
+- `cmd/mcs-tray/update_test.go` — Unit tests for .app-bundle path detection and release-asset matching.
+- `cmd/mcs-tray/update_install_nonwindows.go` — macOS/Unix `installUpdate`: download the `.app` zip, atomically swap the tray binary, relaunch (bundle-aware).
+- `cmd/mcs-tray/update_install_windows.go` — Windows `installUpdate`: notify of a new version and open the download page (the setup.exe upgrades in place); no in-place binary swap.
+- `cmd/mcs-tray/update_platform_darwin.go` — macOS self-update helpers: `_macos.zip` suffix, ditto extraction, quarantine strip, .app binary lookup.
+- `cmd/mcs-tray/update_platform_windows.go` — Windows release-asset suffix (`_windows_setup.exe`); the installer is the update signal.
 - `cmd/mcs-tray/update_platform_other.go` — Self-update stubs for unsupported OSes.
-- `cmd/mcs-tray/update_platform_windows_test.go` — Unit tests for the Windows unzip + binary lookup.
 - `cmd/mcs-tray/instance.go` — Single-instance guard: shared skip-flag check + pure ps-output tray parser, plus the relaunch exemption flag.
 - `cmd/mcs-tray/instance_unix.go` — macOS/Unix instance check (ps scan).
 - `cmd/mcs-tray/instance_windows.go` — Windows instance check (tasklist filtered to mcs-tray.exe) and its pure parser.
@@ -43,6 +47,7 @@
 - `cmd/mcs-tray/instance_windows_test.go` — Unit tests for the Windows tasklist tray-detection parser.
 - `cmd/mcs-tray/relaunch_unix.go` — Self-update relaunch detach on Unix (own process group via Setpgid).
 - `cmd/mcs-tray/relaunch_windows.go` — Self-update relaunch detach on Windows (CREATE_NEW_PROCESS_GROUP).
+- `cmd/mcs-tray/hidewindow_windows.go` — Windows helper: launch a spawned console helper (powershell/tasklist) with CREATE_NO_WINDOW so no console window flashes.
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
 - `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller).
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon) and zips it via ditto.
@@ -68,6 +73,7 @@
 - `platform/darwin.go` — macOS implementation for platform interface.
 - `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).
 - `platform/windows.go` — Windows implementation for platform interface (process detection via Win32_Process, profile discovery, terminate-by-PID, launch; targets the standalone build).
+- `platform/hidewindow_windows.go` — Windows helper: run the spawned `powershell`/`taskkill` helpers with CREATE_NO_WINDOW so no console window flashes.
 - `platform/windows_test.go` — Unit tests for Windows `--user-data-dir` parsing, desktop-vs-CLI process detection, and path matching.
 - `platform/unsupported.go` — Platform stub for non-macOS/Windows builds (safe "not supported" errors).
 - `docs/plans/2026-07-22-phase-0-probe.md` — Phase 0 probe execution plan.

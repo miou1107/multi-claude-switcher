@@ -24,7 +24,9 @@ func psEnc(script string) string {
 // runPS runs a PowerShell script (STA, for WinForms) and returns trimmed stdout
 // plus the run error (a non-zero exit surfaces as *exec.ExitError).
 func runPS(script string) (string, error) {
-	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", psEnc(script)).Output()
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", psEnc(script))
+	hideConsole(cmd)
+	out, err := cmd.Output()
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -48,7 +50,9 @@ $n.Item(1).AppendChild($t.CreateTextNode(%s)) > $null
 $toast = [Windows.UI.Notifications.ToastNotification]::new($t)
 $appId = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)`, psQuote(title), psQuote(text))
-	_ = exec.Command("powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", psEnc(script)).Start()
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", psEnc(script))
+	hideConsole(cmd)
+	_ = cmd.Start()
 }
 
 // openFolder reveals a directory in File Explorer. explorer.exe returns a

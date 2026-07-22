@@ -13,7 +13,9 @@ import (
 // anotherInstanceRunning reports whether another mcs-tray.exe process is running.
 // Fail-open: if tasklist cannot be run, assume none so startup is never blocked.
 func anotherInstanceRunning() bool {
-	out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq mcs-tray.exe", "/FO", "CSV", "/NH").Output()
+	cmd := exec.Command("tasklist", "/FI", "IMAGENAME eq mcs-tray.exe", "/FO", "CSV", "/NH")
+	hideConsole(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		log.Printf("instance check: tasklist failed: %v (assuming no other instance)", err)
 		return false
