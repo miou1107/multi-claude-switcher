@@ -1,4 +1,4 @@
-# Design: Manual "Align" + Auto-Align-on-Switch
+# Design: Manual "Align" + Auto Sync-on-Switch
 
 - **Date:** 2026-07-22
 - **Status:** Approved (design), pending implementation
@@ -93,7 +93,7 @@ ordered pairs (acceptable at small N).
 **Note:** manual align is *not* a switch — it never leaves you on a different
 account. It only moves data and returns you to `R`.
 
-### 4.2 Auto-Align-on-Switch (toggle, default OFF)
+### 4.2 Auto Sync-on-Switch (toggle, default OFF)
 
 A checkable tray item (same pattern as **Start at Login**) that changes what a
 **switch** does:
@@ -115,7 +115,7 @@ bidirectional align safe without any background file-watching daemon.
    and `B` (bidirectional), so back up both. OFF writes nothing, so no backup is
    taken — a pure switch touches no session data. A backup failure on a profile
    about to be written aborts the switch.
-3. **If auto-align ON and both accounts are logged in:** `SyncSessions(A, B)`
+3. **If auto sync ON and both accounts are logged in:** `SyncSessions(A, B)`
    then `SyncSessions(B, A)` (bidirectional union). **If OFF:** skip sync
    entirely — no session files move.
 4. Launch `B`.
@@ -145,7 +145,7 @@ implemented as a **third button** rather than a checkbox — identical outcome:
 
 - **Cancel** → leave the toggle OFF.
 - **Enable** → turn ON; warn again next time it is enabled.
-- **Enable, don't ask again** → turn ON and set `autoAlignWarningDismissed`, so
+- **Enable, don't ask again** → turn ON and set `autoSyncWarningDismissed`, so
   future enables skip the warning.
 
 The dismiss flag only suppresses the warning; it never changes sync behavior.
@@ -153,10 +153,10 @@ The dismiss flag only suppresses the warning; it never changes sync behavior.
 ### 4.3 Settings storage
 
 A small `core/settings.go` persisting
-`{ "autoAlignOnSwitch": bool, "autoAlignWarningDismissed": bool }` to
+`{ "autoSyncOnSwitch": bool, "autoSyncWarningDismissed": bool }` to
 `~/.multi-claude-switcher/settings.json` (same directory and JSON pattern as
-`names.json`). API: `AutoAlignOnSwitch() bool` / `SetAutoAlignOnSwitch(bool)
-error`, and `AutoAlignWarningDismissed() bool` / `SetAutoAlignWarningDismissed(bool)
+`names.json`). API: `AutoSyncOnSwitch() bool` / `SetAutoSyncOnSwitch(bool)
+error`, and `AutoSyncWarningDismissed() bool` / `SetAutoSyncWarningDismissed(bool)
 error` (atomic temp+rename write). The tray checkbox reflects and toggles the
 first; `SafeSwitch` reads the first; the enable-time warning (§4.2) reads and
 sets the second.
@@ -165,7 +165,7 @@ sets the second.
 
 - **Never write into a live profile.** Every write path (manual align, auto
   align) first verifies Claude Desktop is terminated.
-- **Backup before every write.** Manual align backs up the target; auto-align
+- **Backup before every write.** Manual align backs up the target; auto sync
   switch backs up every profile it will write to; a backup failure aborts.
 - **Additive, newer-wins, conflicts reported** — never a silent overwrite
   (existing `SyncSessions` behavior).
@@ -192,8 +192,8 @@ Until both are done, both features operate on Code sessions only.
 
 ## 7. Testing
 
-- **`core/settings.go`:** both flags (`autoAlignOnSwitch`,
-  `autoAlignWarningDismissed`) round-trip; default false when the file is
+- **`core/settings.go`:** both flags (`autoSyncOnSwitch`,
+  `autoSyncWarningDismissed`) round-trip; default false when the file is
   absent; atomic write; one flag's change does not clobber the other (stub the
   settings dir to a temp `HOME`).
 - **Enable-warning gating:** the pure decision "should the warning show?" is a
@@ -204,7 +204,7 @@ Until both are done, both features operate on Code sessions only.
   buckets → after `SyncSessions(A,B)` + `SyncSessions(B,A)`, both buckets equal
   `A ∪ B`; identical files skipped (no duplicate work); a newer target file wins
   and is reported as conflict, not overwritten.
-- **`SafeSwitch` toggle branch:** with auto-align OFF, no session files move and
+- **`SafeSwitch` toggle branch:** with auto sync OFF, no session files move and
   no backup of the source is taken beyond existing behavior; with ON (both
   logged in), both profiles end with the union. Skip-sync-but-still-launch when a
   profile has no account UUID is preserved.
@@ -213,7 +213,7 @@ Until both are done, both features operate on Code sessions only.
 - **Manual on-device verification** (never inside the Claude Desktop Code tab):
   run a manual align between the two real profiles, confirm the target account
   shows the source's Code sessions after relaunch and that the active account is
-  unchanged; toggle auto-align on, switch both ways, confirm convergence.
+  unchanged; toggle auto sync on, switch both ways, confirm convergence.
 
 ## 8. Out of scope
 

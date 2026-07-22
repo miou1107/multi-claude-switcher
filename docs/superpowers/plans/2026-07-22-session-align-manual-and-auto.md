@@ -1,8 +1,8 @@
-# Manual Align + Auto-Align-on-Switch Implementation Plan
+# Manual Align + Auto Sync-on-Switch Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a manual directional "Align" tray action and an opt-in "Auto-Align on Switch" toggle, so a user can copy one account's Code sessions into another on demand, or have every switch keep both accounts identical.
+**Goal:** Add a manual directional "Align" tray action and an opt-in "Auto Sync on Switch" toggle, so a user can copy one account's Code sessions into another on demand, or have every switch keep both accounts identical.
 
 **Architecture:** Reuse the tested `core.SyncSessions` (directional, re-buckets into the target account, additive/newer-wins). Add a bidirectional union wrapper, a persisted settings store for the toggle, a `Switcher.ManualAlign` controller that closes → backs up → syncs → reopens the same account, and revise `SafeSwitch` to move data only when the toggle is ON. Tray wiring adds a checkbox (with an enable-time warning) and a directional submenu.
 
@@ -15,7 +15,7 @@
 - Git commits: **never** add `Co-Authored-By`; contributors show Vin only.
 - macOS only; unsigned (no Apple Developer account). Baseline macOS 11.
 - **Phase 1 scope = Code sessions only** (`claude-code-sessions`). Agent Mode is a separate gated Phase 2, not in this work.
-- **Auto-align defaults OFF** (privacy: cross-account conversation merge is opt-in).
+- **Auto sync defaults OFF** (privacy: cross-account conversation merge is opt-in).
 - **Safety invariants (never violate):** never write into a running Claude Desktop (terminate first); back up every profile before it is written; sync is additive and newer-wins (never a silent overwrite).
 - After code changes, keep `README.md`, `FILELIST.md`, `CHANGELOG.md` in sync.
 - Do NOT push or tag a release; that is user-triggered (`v*` tag → CI).
@@ -31,7 +31,7 @@ Persist two booleans to `~/.multi-claude-switcher/settings.json`, mirroring the 
 - Test: `core/settings_test.go`
 
 **Interfaces:**
-- Produces: `core.AutoAlignOnSwitch() bool`, `core.SetAutoAlignOnSwitch(bool) error`, `core.AutoAlignWarningDismissed() bool`, `core.SetAutoAlignWarningDismissed(bool) error`; test-only stub var `settingsPath func() string`.
+- Produces: `core.AutoSyncOnSwitch() bool`, `core.SetAutoSyncOnSwitch(bool) error`, `core.AutoSyncWarningDismissed() bool`, `core.SetAutoSyncWarningDismissed(bool) error`; test-only stub var `settingsPath func() string`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -57,31 +57,31 @@ func withStubbedSettings(t *testing.T) {
 
 func TestSettingsDefaultFalse(t *testing.T) {
 	withStubbedSettings(t)
-	if AutoAlignOnSwitch() {
-		t.Error("autoAlignOnSwitch should default false when no file exists")
+	if AutoSyncOnSwitch() {
+		t.Error("autoSyncOnSwitch should default false when no file exists")
 	}
-	if AutoAlignWarningDismissed() {
-		t.Error("autoAlignWarningDismissed should default false when no file exists")
+	if AutoSyncWarningDismissed() {
+		t.Error("autoSyncWarningDismissed should default false when no file exists")
 	}
 }
 
 func TestSettingsRoundTripAndNoClobber(t *testing.T) {
 	withStubbedSettings(t)
-	if err := SetAutoAlignOnSwitch(true); err != nil {
+	if err := SetAutoSyncOnSwitch(true); err != nil {
 		t.Fatal(err)
 	}
-	if !AutoAlignOnSwitch() {
-		t.Error("expected autoAlignOnSwitch true after set")
+	if !AutoSyncOnSwitch() {
+		t.Error("expected autoSyncOnSwitch true after set")
 	}
 	// Writing the second flag must not clobber the first.
-	if err := SetAutoAlignWarningDismissed(true); err != nil {
+	if err := SetAutoSyncWarningDismissed(true); err != nil {
 		t.Fatal(err)
 	}
-	if !AutoAlignOnSwitch() {
-		t.Error("setting warning-dismissed clobbered autoAlignOnSwitch")
+	if !AutoSyncOnSwitch() {
+		t.Error("setting warning-dismissed clobbered autoSyncOnSwitch")
 	}
-	if !AutoAlignWarningDismissed() {
-		t.Error("expected autoAlignWarningDismissed true after set")
+	if !AutoSyncWarningDismissed() {
+		t.Error("expected autoSyncWarningDismissed true after set")
 	}
 }
 ```
@@ -89,7 +89,7 @@ func TestSettingsRoundTripAndNoClobber(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./core/ -run TestSettings -v`
-Expected: FAIL — `undefined: settingsPath` / `undefined: AutoAlignOnSwitch`.
+Expected: FAIL — `undefined: settingsPath` / `undefined: AutoSyncOnSwitch`.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -117,8 +117,8 @@ var settingsPath = func() string {
 }
 
 type settings struct {
-	AutoAlignOnSwitch         bool `json:"autoAlignOnSwitch"`
-	AutoAlignWarningDismissed bool `json:"autoAlignWarningDismissed"`
+	AutoSyncOnSwitch         bool `json:"autoSyncOnSwitch"`
+	AutoSyncWarningDismissed bool `json:"autoSyncWarningDismissed"`
 }
 
 func loadSettingsLocked() settings {
@@ -147,35 +147,35 @@ func saveSettingsLocked(s settings) error {
 	return os.Rename(tmp, settingsPath())
 }
 
-// AutoAlignOnSwitch reports whether switching should bidirectionally sync.
-func AutoAlignOnSwitch() bool {
+// AutoSyncOnSwitch reports whether switching should bidirectionally sync.
+func AutoSyncOnSwitch() bool {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
-	return loadSettingsLocked().AutoAlignOnSwitch
+	return loadSettingsLocked().AutoSyncOnSwitch
 }
 
-// SetAutoAlignOnSwitch persists the auto-align-on-switch toggle.
-func SetAutoAlignOnSwitch(v bool) error {
+// SetAutoSyncOnSwitch persists the auto sync-on-switch toggle.
+func SetAutoSyncOnSwitch(v bool) error {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
 	s := loadSettingsLocked()
-	s.AutoAlignOnSwitch = v
+	s.AutoSyncOnSwitch = v
 	return saveSettingsLocked(s)
 }
 
-// AutoAlignWarningDismissed reports whether the enable-time warning is suppressed.
-func AutoAlignWarningDismissed() bool {
+// AutoSyncWarningDismissed reports whether the enable-time warning is suppressed.
+func AutoSyncWarningDismissed() bool {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
-	return loadSettingsLocked().AutoAlignWarningDismissed
+	return loadSettingsLocked().AutoSyncWarningDismissed
 }
 
-// SetAutoAlignWarningDismissed persists the "don't ask again" choice.
-func SetAutoAlignWarningDismissed(v bool) error {
+// SetAutoSyncWarningDismissed persists the "don't ask again" choice.
+func SetAutoSyncWarningDismissed(v bool) error {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
 	s := loadSettingsLocked()
-	s.AutoAlignWarningDismissed = v
+	s.AutoSyncWarningDismissed = v
 	return saveSettingsLocked(s)
 }
 ```
@@ -189,7 +189,7 @@ Expected: PASS (both tests).
 
 ```bash
 git add core/settings.go core/settings_test.go
-git commit -m "feat: settings store for auto-align toggle and warning-dismissed flag"
+git commit -m "feat: settings store for auto sync toggle and warning-dismissed flag"
 ```
 
 ---
@@ -277,14 +277,14 @@ git commit -m "feat: SyncBidirectional union helper (both accounts converge)"
 
 ### Task 3: Revise `SafeSwitch` to honor the toggle
 
-Switch moves data ONLY when auto-align is ON and both profiles are logged in; then it backs up BOTH profiles (bidirectional writes both) and unions them. OFF = pure switch, no write, no backup. This changes existing behavior (today's switch always one-way syncs), so existing switch tests are updated too.
+Switch moves data ONLY when auto sync is ON and both profiles are logged in; then it backs up BOTH profiles (bidirectional writes both) and unions them. OFF = pure switch, no write, no backup. This changes existing behavior (today's switch always one-way syncs), so existing switch tests are updated too.
 
 **Files:**
 - Modify: `core/switch.go` (rewrite `SafeSwitch` body)
 - Test: `core/switch_test.go` (stub settings in all tests; update backup-fail test; add OFF/ON tests)
 
 **Interfaces:**
-- Consumes: `AutoAlignOnSwitch()` (Task 1), `SyncBidirectional` (Task 2), `platform.GetProfileAccountUUID`, `BackupManager.BackupIfHasData`, `Platform.{IsAppRunning,TerminateApp,LaunchProfile}`.
+- Consumes: `AutoSyncOnSwitch()` (Task 1), `SyncBidirectional` (Task 2), `platform.GetProfileAccountUUID`, `BackupManager.BackupIfHasData`, `Platform.{IsAppRunning,TerminateApp,LaunchProfile}`.
 
 - [ ] **Step 1: Update the shared mock and existing tests, add new tests**
 
@@ -305,10 +305,10 @@ func (m *mockPlatform) DetectRunningProfile() (string, error) { return m.detecte
 
 ```go
 // core/switch_test.go — replace TestSafeSwitchAbortsWhenBackupFails with the
-// ON-path version (backup only happens when auto-align is ON and both logged in):
+// ON-path version (backup only happens when auto sync is ON and both logged in):
 func TestSafeSwitchAbortsWhenBackupFails(t *testing.T) {
 	withStubbedSettings(t)
-	if err := SetAutoAlignOnSwitch(true); err != nil { // ON so the backup step runs
+	if err := SetAutoSyncOnSwitch(true); err != nil { // ON so the backup step runs
 		t.Fatal(err)
 	}
 	tempDir := t.TempDir()
@@ -397,7 +397,7 @@ func TestSafeSwitchOffMovesNoData(t *testing.T) {
 // New: ON unions both accounts.
 func TestSafeSwitchOnUnionsBothAccounts(t *testing.T) {
 	withStubbedSettings(t)
-	if err := SetAutoAlignOnSwitch(true); err != nil {
+	if err := SetAutoSyncOnSwitch(true); err != nil {
 		t.Fatal(err)
 	}
 	tempDir := t.TempDir()
@@ -440,9 +440,9 @@ Expected: FAIL — new tests reference behavior not yet implemented (OFF still o
 // core/switch.go — replace the SafeSwitch function body:
 
 // SafeSwitch closes the running app, optionally aligns sessions, then launches
-// the target. Data is moved ONLY when auto-align is ON and both profiles are
+// the target. Data is moved ONLY when auto sync is ON and both profiles are
 // logged in: then it backs up BOTH profiles (bidirectional align writes both)
-// and unions their sessions. With auto-align OFF (default) the switch moves no
+// and unions their sessions. With auto sync OFF (default) the switch moves no
 // data at all — a pure account switch.
 func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 	log.Printf("[Safe Switch] Starting switch from %s to %s...", srcProfilePath, dstProfilePath)
@@ -460,11 +460,11 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 	}
 
 	// Step 2: align only when the user opted in AND both profiles are logged in.
-	if AutoAlignOnSwitch() {
+	if AutoSyncOnSwitch() {
 		_, srcErr := platform.GetProfileAccountUUID(srcProfilePath)
 		_, dstErr := platform.GetProfileAccountUUID(dstProfilePath)
 		if srcErr != nil || dstErr != nil {
-			log.Printf("[Safe Switch] Auto-align on, but a profile has no account yet (src: %v, dst: %v). Skipping align.", srcErr, dstErr)
+			log.Printf("[Safe Switch] Auto sync on, but a profile has no account yet (src: %v, dst: %v). Skipping align.", srcErr, dstErr)
 		} else {
 			// Bidirectional align writes into BOTH profiles, so back up both.
 			if _, err := s.BackupManager.BackupIfHasData(srcProfilePath); err != nil {
@@ -473,13 +473,13 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 			if _, err := s.BackupManager.BackupIfHasData(dstProfilePath); err != nil {
 				return fmt.Errorf("aborting switch: failed to back up target profile (refusing to overwrite without a backup): %w", err)
 			}
-			log.Printf("[Safe Switch] Auto-align on: unioning sessions between both accounts...")
+			log.Printf("[Safe Switch] Auto sync on: unioning sessions between both accounts...")
 			if err := SyncBidirectional(srcProfilePath, dstProfilePath); err != nil {
-				return fmt.Errorf("failed to auto-align sessions: %w", err)
+				return fmt.Errorf("failed to auto sync sessions: %w", err)
 			}
 		}
 	} else {
-		log.Printf("[Safe Switch] Auto-align off: pure switch, no session data moved.")
+		log.Printf("[Safe Switch] Auto sync off: pure switch, no session data moved.")
 	}
 
 	// Step 3: launch the target profile.
@@ -502,7 +502,7 @@ Expected: PASS (all five: NotLoggedIn, AbortsWhenBackupFails, ProceedsWhenTarget
 
 ```bash
 git add core/switch.go core/switch_test.go
-git commit -m "feat: switch aligns bidirectionally only when auto-align is on"
+git commit -m "feat: switch aligns bidirectionally only when auto sync is on"
 ```
 
 ---
@@ -651,21 +651,21 @@ git commit -m "feat: ManualAlign — directional sync that returns you to your a
 
 ---
 
-### Task 5: Tray "Auto-Align on Switch" toggle + enable warning
+### Task 5: Tray "Auto Sync on Switch" toggle + enable warning
 
 **Files:**
-- Create: `cmd/mcs-tray/autoalign.go`
-- Test: `cmd/mcs-tray/autoalign_test.go`
+- Create: `cmd/mcs-tray/autosync.go`
+- Test: `cmd/mcs-tray/autosync_test.go`
 - Modify: `cmd/mcs-tray/main.go` (add menu item + handler)
 
 **Interfaces:**
-- Consumes: `core.AutoAlignOnSwitch/SetAutoAlignOnSwitch/AutoAlignWarningDismissed/SetAutoAlignWarningDismissed`, existing `osaQuote`, `notify`.
-- Produces: `shouldWarnAutoAlign(enabling, dismissed bool) bool`, `parseAutoAlignChoice(out string, runErr error) autoAlignChoice`, `askEnableAutoAlign() autoAlignChoice`, `toggleAutoAlign(*systray.MenuItem)`.
+- Consumes: `core.AutoSyncOnSwitch/SetAutoSyncOnSwitch/AutoSyncWarningDismissed/SetAutoSyncWarningDismissed`, existing `osaQuote`, `notify`.
+- Produces: `shouldWarnAutoSync(enabling, dismissed bool) bool`, `parseAutoSyncChoice(out string, runErr error) autoSyncChoice`, `askEnableAutoSync() autoSyncChoice`, `toggleAutoSync(*systray.MenuItem)`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// cmd/mcs-tray/autoalign_test.go
+// cmd/mcs-tray/autosync_test.go
 package main
 
 import (
@@ -673,7 +673,7 @@ import (
 	"testing"
 )
 
-func TestShouldWarnAutoAlign(t *testing.T) {
+func TestShouldWarnAutoSync(t *testing.T) {
 	cases := []struct{ enabling, dismissed, want bool }{
 		{true, false, true},   // enabling, not dismissed -> warn
 		{true, true, false},   // enabling, dismissed -> no warn
@@ -681,20 +681,20 @@ func TestShouldWarnAutoAlign(t *testing.T) {
 		{false, true, false},
 	}
 	for _, c := range cases {
-		if got := shouldWarnAutoAlign(c.enabling, c.dismissed); got != c.want {
-			t.Errorf("shouldWarnAutoAlign(%v,%v)=%v want %v", c.enabling, c.dismissed, got, c.want)
+		if got := shouldWarnAutoSync(c.enabling, c.dismissed); got != c.want {
+			t.Errorf("shouldWarnAutoSync(%v,%v)=%v want %v", c.enabling, c.dismissed, got, c.want)
 		}
 	}
 }
 
-func TestParseAutoAlignChoice(t *testing.T) {
-	if parseAutoAlignChoice("", errors.New("cancelled")) != choiceCancel {
+func TestParseAutoSyncChoice(t *testing.T) {
+	if parseAutoSyncChoice("", errors.New("cancelled")) != choiceCancel {
 		t.Error("non-zero exit (cancel button) must map to choiceCancel")
 	}
-	if parseAutoAlignChoice("button returned:Enable\n", nil) != choiceEnable {
+	if parseAutoSyncChoice("button returned:Enable\n", nil) != choiceEnable {
 		t.Error("Enable button must map to choiceEnable")
 	}
-	if parseAutoAlignChoice("button returned:Enable, don't ask again\n", nil) != choiceEnableDontAsk {
+	if parseAutoSyncChoice("button returned:Enable, don't ask again\n", nil) != choiceEnableDontAsk {
 		t.Error("don't-ask button must map to choiceEnableDontAsk")
 	}
 }
@@ -702,13 +702,13 @@ func TestParseAutoAlignChoice(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./cmd/mcs-tray/ -run 'TestShouldWarn|TestParseAutoAlign' -v`
-Expected: FAIL — undefined `shouldWarnAutoAlign` / `parseAutoAlignChoice` / `choiceCancel`.
+Run: `go test ./cmd/mcs-tray/ -run 'TestShouldWarn|TestParseAutoSync' -v`
+Expected: FAIL — undefined `shouldWarnAutoSync` / `parseAutoSyncChoice` / `choiceCancel`.
 
 - [ ] **Step 3: Write the implementation**
 
 ```go
-// cmd/mcs-tray/autoalign.go
+// cmd/mcs-tray/autosync.go
 package main
 
 import (
@@ -720,25 +720,25 @@ import (
 	"github.com/miou1107/multi-claude-switcher/core"
 )
 
-// autoAlignChoice is the user's response to the enable-time warning.
-type autoAlignChoice int
+// autoSyncChoice is the user's response to the enable-time warning.
+type autoSyncChoice int
 
 const (
-	choiceCancel autoAlignChoice = iota
+	choiceCancel autoSyncChoice = iota
 	choiceEnable
 	choiceEnableDontAsk
 )
 
-// shouldWarnAutoAlign reports whether to show the enable-time warning: only when
+// shouldWarnAutoSync reports whether to show the enable-time warning: only when
 // turning the toggle ON and the user has not dismissed it. Turning OFF never warns.
-func shouldWarnAutoAlign(enabling, dismissed bool) bool {
+func shouldWarnAutoSync(enabling, dismissed bool) bool {
 	return enabling && !dismissed
 }
 
-// parseAutoAlignChoice maps an osascript `display dialog` result to a choice.
+// parseAutoSyncChoice maps an osascript `display dialog` result to a choice.
 // The cancel button makes osascript exit non-zero (runErr != nil); otherwise
 // stdout is "button returned:<label>".
-func parseAutoAlignChoice(out string, runErr error) autoAlignChoice {
+func parseAutoSyncChoice(out string, runErr error) autoSyncChoice {
 	if runErr != nil {
 		return choiceCancel
 	}
@@ -748,37 +748,37 @@ func parseAutoAlignChoice(out string, runErr error) autoAlignChoice {
 	return choiceEnable
 }
 
-// askEnableAutoAlign shows the enable-time warning and returns the user's choice.
-func askEnableAutoAlign() autoAlignChoice {
+// askEnableAutoSync shows the enable-time warning and returns the user's choice.
+func askEnableAutoSync() autoSyncChoice {
 	msg := "With this on, every account switch bidirectionally syncs — both accounts' conversations will merge. Enable?"
 	script := "display dialog " + osaQuote(msg) +
 		` buttons {"Cancel", "Enable", "Enable, don't ask again"}` +
 		` default button "Enable" cancel button "Cancel" with title "Multi-Claude Switcher"`
 	out, err := exec.Command("osascript", "-e", script).Output()
-	return parseAutoAlignChoice(string(out), err)
+	return parseAutoSyncChoice(string(out), err)
 }
 
-// toggleAutoAlign flips the auto-align-on-switch setting and syncs the menu
+// toggleAutoSync flips the auto sync-on-switch setting and syncs the menu
 // checkbox. Enabling shows a one-time warning (unless previously dismissed).
-func toggleAutoAlign(m *systray.MenuItem) {
-	if core.AutoAlignOnSwitch() {
-		if err := core.SetAutoAlignOnSwitch(false); err != nil {
-			log.Printf("Disable auto-align failed: %v", err)
-			notify("Couldn't update Auto-Align", err.Error())
+func toggleAutoSync(m *systray.MenuItem) {
+	if core.AutoSyncOnSwitch() {
+		if err := core.SetAutoSyncOnSwitch(false); err != nil {
+			log.Printf("Disable auto sync failed: %v", err)
+			notify("Couldn't update Auto Sync", err.Error())
 			return
 		}
 		m.Uncheck()
-		log.Println("Auto-align on switch disabled")
+		log.Println("Auto sync on switch disabled")
 		return
 	}
 
-	if shouldWarnAutoAlign(true, core.AutoAlignWarningDismissed()) {
-		switch askEnableAutoAlign() {
+	if shouldWarnAutoSync(true, core.AutoSyncWarningDismissed()) {
+		switch askEnableAutoSync() {
 		case choiceCancel:
-			log.Println("Auto-align enable cancelled by user")
+			log.Println("Auto sync enable cancelled by user")
 			return
 		case choiceEnableDontAsk:
-			if err := core.SetAutoAlignWarningDismissed(true); err != nil {
+			if err := core.SetAutoSyncWarningDismissed(true); err != nil {
 				log.Printf("Could not persist warning-dismissed: %v", err)
 			}
 		case choiceEnable:
@@ -786,19 +786,19 @@ func toggleAutoAlign(m *systray.MenuItem) {
 		}
 	}
 
-	if err := core.SetAutoAlignOnSwitch(true); err != nil {
-		log.Printf("Enable auto-align failed: %v", err)
-		notify("Couldn't update Auto-Align", err.Error())
+	if err := core.SetAutoSyncOnSwitch(true); err != nil {
+		log.Printf("Enable auto sync failed: %v", err)
+		notify("Couldn't update Auto Sync", err.Error())
 		return
 	}
 	m.Check()
-	log.Println("Auto-align on switch enabled")
+	log.Println("Auto sync on switch enabled")
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./cmd/mcs-tray/ -run 'TestShouldWarn|TestParseAutoAlign' -v`
+Run: `go test ./cmd/mcs-tray/ -run 'TestShouldWarn|TestParseAutoSync' -v`
 Expected: PASS.
 
 - [ ] **Step 5: Wire the menu item into `onReady`**
@@ -807,14 +807,14 @@ In `cmd/mcs-tray/main.go`, add the checkbox next to `mLogin` (after line 75) and
 
 ```go
 // in onReady, after mLogin:
-mAutoAlign := systray.AddMenuItemCheckbox("Auto-Align on Switch", "Keep both accounts' sessions identical on every switch", core.AutoAlignOnSwitch())
+mAutoSync := systray.AddMenuItemCheckbox("Auto Sync on Switch", "Keep both accounts' sessions identical on every switch", core.AutoSyncOnSwitch())
 ```
 
 ```go
 // in onReady, after the mLogin ClickedCh goroutine:
 go func() {
-	for range mAutoAlign.ClickedCh {
-		toggleAutoAlign(mAutoAlign)
+	for range mAutoSync.ClickedCh {
+		toggleAutoSync(mAutoSync)
 	}
 }()
 ```
@@ -827,8 +827,8 @@ Expected: build OK; all tests PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add cmd/mcs-tray/autoalign.go cmd/mcs-tray/autoalign_test.go cmd/mcs-tray/main.go
-git commit -m "feat: tray Auto-Align on Switch toggle with one-time enable warning"
+git add cmd/mcs-tray/autosync.go cmd/mcs-tray/autosync_test.go cmd/mcs-tray/main.go
+git commit -m "feat: tray Auto Sync on Switch toggle with one-time enable warning"
 ```
 
 ---
@@ -944,18 +944,18 @@ Prepend under the top `# CHANGELOG` header:
   up the target, syncs (re-bucketed under the target account), and reopens the
   account you were already on (`core/align.go` `Switcher.ManualAlign`,
   `cmd/mcs-tray/main.go`).
-- **"Auto-Align on Switch" toggle (default OFF):** when on, every switch
+- **"Auto Sync on Switch" toggle (default OFF):** when on, every switch
   bidirectionally unions both accounts' Code sessions so they converge to the
   same history; safe because both profiles are closed during the switch window.
   Enabling shows a one-time warning (with an "Enable, don't ask again" option),
   since it merges one account's conversations into the other
   (`core/settings.go`, `core/sync.go` `SyncBidirectional`,
-  `cmd/mcs-tray/autoalign.go`).
+  `cmd/mcs-tray/autosync.go`).
 
 ### Changed
 - **Switching no longer auto-syncs by default.** Previously every switch ran a
   one-way session sync; now a switch moves **no** session data unless
-  "Auto-Align on Switch" is enabled. This makes cross-account conversation
+  "Auto Sync on Switch" is enabled. This makes cross-account conversation
   merging an explicit opt-in (`core/switch.go`).
 
 ### Notes
@@ -967,19 +967,19 @@ Prepend under the top `# CHANGELOG` header:
 
 - [ ] **Step 3: Add a README section**
 
-Add a "Syncing sessions between accounts" subsection documenting: (a) the manual "Sync sessions →" submenu (copies one account's sessions into another without switching), (b) the "Auto-Align on Switch" toggle (default off; on = every switch keeps both accounts identical; one-time warning), and (c) the behavior note that a plain switch moves no session data unless the toggle is on. State plainly that only the Code sessions sync, and that regular chat stays per account. Match the existing README voice.
+Add a "Syncing sessions between accounts" subsection documenting: (a) the manual "Sync sessions →" submenu (copies one account's sessions into another without switching), (b) the "Auto Sync on Switch" toggle (default off; on = every switch keeps both accounts identical; one-time warning), and (c) the behavior note that a plain switch moves no session data unless the toggle is on. State plainly that only the Code sessions sync, and that regular chat stays per account. Match the existing README voice.
 
 - [ ] **Step 4: Update FILELIST**
 
 Add these lines under the relevant sections:
 
 ```markdown
-- `core/settings.go` — User settings store (~/.multi-claude-switcher/settings.json): auto-align toggle + warning-dismissed flag.
+- `core/settings.go` — User settings store (~/.multi-claude-switcher/settings.json): auto sync toggle + warning-dismissed flag.
 - `core/settings_test.go` — Unit tests for settings round-trip, defaults, and no-clobber.
 - `core/align.go` — Manual directional align (ManualAlign): close → backup → sync → reopen the same account.
 - `core/align_test.go` — Unit tests for ManualAlign (returns to running profile; no relaunch when nothing ran).
-- `cmd/mcs-tray/autoalign.go` — Tray Auto-Align toggle: enable-time warning dialog and choice parsing.
-- `cmd/mcs-tray/autoalign_test.go` — Unit tests for the warning-gating and dialog-choice parsing helpers.
+- `cmd/mcs-tray/autosync.go` — Tray Auto Sync toggle: enable-time warning dialog and choice parsing.
+- `cmd/mcs-tray/autosync_test.go` — Unit tests for the warning-gating and dialog-choice parsing helpers.
 ```
 
 Also update the `core/sync.go` and `core/switch.go` descriptions to mention `SyncBidirectional` and the toggle-gated align.
@@ -1003,16 +1003,16 @@ Expected: `dist/Multi-Claude-Switcher_0.7.0_macos.zip` produced.
 
 ```bash
 git add core/version.go CHANGELOG.md README.md FILELIST.md
-git commit -m "docs: document manual align + auto-align, bump to 0.7.0"
+git commit -m "docs: document manual align + auto sync, bump to 0.7.0"
 ```
 
 - [ ] **Step 8: Manual on-device verification (REQUIRED — not inside the Claude Desktop Code tab)**
 
 Run the built app from `dist/` (or install it) in a standalone environment. Verify:
 1. **Manual align:** while on the personal account, pick `From Company → To Personal`, confirm the dialog closes/reopens Claude, and after relaunch the target account shows the source's Code sessions, and the **active account is unchanged** (still personal).
-2. **Auto-align toggle OFF (default):** switch accounts; confirm no session data moved (each account still shows only its own).
-3. **Auto-align enable warning:** click the checkbox; confirm the 3-button warning appears; "Enable, don't ask again" enables and suppresses the warning on the next enable.
-4. **Auto-align ON:** switch both ways; confirm both accounts converge to the same Code-session history.
+2. **Auto sync toggle OFF (default):** switch accounts; confirm no session data moved (each account still shows only its own).
+3. **Auto sync enable warning:** click the checkbox; confirm the 3-button warning appears; "Enable, don't ask again" enables and suppresses the warning on the next enable.
+4. **Auto sync ON:** switch both ways; confirm both accounts converge to the same Code-session history.
 5. Clean up any throwaway test sessions/backups created during verification.
 
 Report actual results (per verification-before-completion). Do **not** push or tag — the release is user-triggered.
@@ -1024,7 +1024,7 @@ Report actual results (per verification-before-completion). Do **not** push or t
 **Spec coverage:**
 - §3 mechanics (directional/bidirectional, additive) → Tasks 2, 4. ✅
 - §4.1 manual align (close→backup→sync→reopen R, submenu) → Tasks 4, 6. ✅
-- §4.2 auto-align toggle (default off, bidirectional at switch, both-closed safety, behavior change) → Tasks 3, 5. ✅
+- §4.2 auto sync toggle (default off, bidirectional at switch, both-closed safety, behavior change) → Tasks 3, 5. ✅
 - §4.2 enable warning + "don't ask again" (3-button) → Task 5. ✅
 - §4.3 settings store (two flags) → Task 1. ✅
 - §5 safety (never live, backup before write, additive) → Tasks 3, 4 (reuse existing guarantees). ✅
@@ -1033,4 +1033,4 @@ Report actual results (per verification-before-completion). Do **not** push or t
 
 **Placeholder scan:** README Step 3 describes content rather than pasting final prose — acceptable, as the README voice/section layout is established and the required facts are enumerated; the implementer writes to the existing style. All code steps contain complete code.
 
-**Type consistency:** `SyncBidirectional(a, b string) error`, `ManualAlign(src, dst string) (*SyncReport, error)`, `AutoAlignOnSwitch() bool`, `autoAlignChoice`/`choiceCancel|choiceEnable|choiceEnableDontAsk`, `mockPlatform.detected` — used identically across tasks. `SyncReport` fields (`CopiedCount`, `SkippedCount`, `ConflictCount`) match `core/sync.go`. ✅
+**Type consistency:** `SyncBidirectional(a, b string) error`, `ManualAlign(src, dst string) (*SyncReport, error)`, `AutoSyncOnSwitch() bool`, `autoSyncChoice`/`choiceCancel|choiceEnable|choiceEnableDontAsk`, `mockPlatform.detected` — used identically across tasks. `SyncReport` fields (`CopiedCount`, `SkippedCount`, `ConflictCount`) match `core/sync.go`. ✅
