@@ -68,7 +68,7 @@ func onReady() {
 		if !p.HasSessionsDir && p.Name != "Claude" && p.Name != "Claude_Profile2" {
 			continue
 		}
-		item := systray.AddMenuItem(fmt.Sprintf("Switch to: %s", core.DisplayName(p.Name)), fmt.Sprintf("Switch active profile to %s", p.Name))
+		item := systray.AddMenuItem(core.DisplayName(p.Name), fmt.Sprintf("Switch active profile to %s", p.Name))
 		profileItems[item] = p
 	}
 
@@ -248,9 +248,10 @@ func onExit() {
 }
 
 // markActive relabels the profile menu items so the one matching activePath is
-// shown as the current profile (checkmark + "(current)"), and the rest as
-// "Switch to: …". Called at startup, after a switch, and by the background
-// poller so the marker stays correct however the profile changed.
+// shown as the current profile (checkmark + "(current)"), and the rest as just
+// their display name (clicking one switches to it; the tooltip says so). Called
+// at startup, after a switch, and by the background poller so the marker stays
+// correct however the profile changed.
 // markMu serializes menu-item relabeling, which is driven concurrently by the
 // switch handler, the rename handler, and the background poller.
 var markMu sync.Mutex
@@ -261,10 +262,10 @@ func markActive(items map[*systray.MenuItem]*platform.ProfileInfo, activePath st
 	for item, p := range items {
 		name := core.DisplayName(p.Name)
 		if samePath(p.Path, activePath) {
-			item.SetTitle(fmt.Sprintf("✓ %s  (current)", name))
+			item.SetTitle(fmt.Sprintf("%s  (current)", name))
 			item.Check()
 		} else {
-			item.SetTitle(fmt.Sprintf("Switch to: %s", name))
+			item.SetTitle(name)
 			item.Uncheck()
 		}
 	}
