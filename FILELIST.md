@@ -20,8 +20,8 @@
 - `core/loginitem_test.go` — Unit tests for login-item enable/disable and plist contents (stubbed dir + launchctl).
 - `core/update.go` — Update check against GitHub Releases (version compare, latest-release fetch, download).
 - `core/update_test.go` — Unit tests for version comparison and release JSON parsing.
-- `cmd/mcs-tray/update.go` — Tray auto-update: download the new binary, atomically swap it in, relaunch (bundle-aware).
-- `cmd/mcs-tray/update_test.go` — Unit tests for .app-bundle path detection.
+- `cmd/mcs-tray/update.go` — Tray auto-update: download the release .app zip, extract & atomically swap the tray binary, relaunch (bundle-aware).
+- `cmd/mcs-tray/update_test.go` — Unit tests for .app-bundle path detection and app-zip asset matching.
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon) and zips it via ditto.
 - `core/backup.go` — Profile backup & snapshot restoration module (atomic restore).
