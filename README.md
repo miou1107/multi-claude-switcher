@@ -12,10 +12,43 @@ Seamless Multi-Account Switching & Sync for Claude Desktop (macOS & Windows).
 - **Conflict-safe Sync**: When both profiles changed the same session, the newer target copy is preserved and reported as a conflict instead of being silently overwritten.
 - **Probe Validation Tool**: Includes `scripts/probe/probe_runner.py` for inspecting profiles and validating local session synchronization.
 
-> **Known limitation**: sync reliably surfaces conversation buckets that already
-> exist on *both* profiles. Whether a bucket that exists only in the source
-> profile shows up in the target app is not yet verified on-device and needs a
-> real end-to-end test before you rely on it.
+## 📥 Download
+
+[![Download latest](https://img.shields.io/github/v/release/miou1107/multi-claude-switcher?label=Download&style=for-the-badge)](https://github.com/miou1107/multi-claude-switcher/releases/latest)
+
+Prebuilt **universal macOS binaries** (Apple Silicon + Intel) are attached to
+every release — no need to build from source.
+
+- **[⬇︎ Menu bar app (`mcs-tray`)](https://github.com/miou1107/multi-claude-switcher/releases/latest/download/mcs-tray-macos-universal)** — the one-click switcher (recommended)
+- **[⬇︎ CLI (`mcs`)](https://github.com/miou1107/multi-claude-switcher/releases/latest/download/mcs-macos-universal)** — for terminal use
+- **[All releases & the `.zip` bundle](https://github.com/miou1107/multi-claude-switcher/releases/latest)** — both binaries + checksum
+
+### Install (menu bar app)
+
+```bash
+# 1. Download the tray app to your Applications-ish location of choice
+curl -L -o mcs-tray \
+  https://github.com/miou1107/multi-claude-switcher/releases/latest/download/mcs-tray-macos-universal
+
+# 2. Make it executable and clear the "downloaded from the internet" quarantine
+chmod +x mcs-tray
+xattr -dr com.apple.quarantine mcs-tray
+
+# 3. Run it — a swap-arrows icon appears in the menu bar
+./mcs-tray
+```
+
+The binaries are unsigned, so the quarantine-strip step (2) is what lets macOS
+Gatekeeper open them. Once running, the app **updates itself** — it checks
+GitHub for newer releases and swaps itself in automatically, so you only do this
+once.
+
+> **How sync stays correct**: the Code tab only lists conversations from the
+> bucket named after the profile's own logged-in account. Sync reads the source
+> profile's account bucket and re-homes those sessions under the *target*
+> profile's account bucket, so cross-account switches surface correctly (verified
+> on-device) rather than silently dropping sessions in a bucket the target app
+> never reads.
 
 ## 📁 Repository Structure
 
@@ -53,7 +86,7 @@ go build -o bin/mcs-tray ./cmd/mcs-tray
 ```bash
 ./bin/mcs-tray
 ```
-Appears as a menu bar item (`☁️ Claude`) on macOS for 1-click profile switching and backups.
+Appears as a swap-arrows icon in the macOS menu bar for 1-click profile switching and backups. The icon marks the profile currently in use, and the app checks GitHub for updates and installs them automatically.
 
 ### CLI Commands
 
