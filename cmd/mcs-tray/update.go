@@ -182,9 +182,14 @@ func applyUpdate(url string) error {
 		// LSUIElement) is honored; exec'ing the raw binary would drop the
 		// menu-bar-agent treatment and flash a Dock icon. `open` detaches on its
 		// own, so no Setpgid is needed here.
-		cmd = exec.Command("open", "-n", bundle)
+		// `open -n <bundle> --args <flag>` forwards the flag into the new app's argv.
+		cmd = exec.Command("open", "-n", bundle, "--args", relaunchSkipInstanceCheckFlag)
 	} else {
-		cmd = exec.Command(exe, os.Args[1:]...)
+		args := append([]string{}, os.Args[1:]...)
+		if !hasSkipInstanceFlag(args) {
+			args = append(args, relaunchSkipInstanceCheckFlag)
+		}
+		cmd = exec.Command(exe, args...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // detach so it outlives us
 	}
 	if err := cmd.Start(); err != nil {

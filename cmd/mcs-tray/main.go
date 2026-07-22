@@ -32,6 +32,15 @@ func main() {
 		log.Printf("Warning: could not open log file, logging to stderr only: %v", err)
 	}
 
+	// Refuse to start a second menu-bar instance (two icons / two auto-updaters).
+	// The self-updater relaunch is exempt via the skip flag, since the old
+	// instance is still quitting when the new one starts.
+	if !hasSkipInstanceFlag(os.Args) && anotherInstanceRunning() {
+		log.Printf("Another Multi-Claude Switcher tray is already running; exiting.")
+		notify("Multi-Claude Switcher is already running", "It's already in your menu bar — this extra copy will close.")
+		return
+	}
+
 	plat = platform.New()
 	bm = core.NewBackupManager("")
 	switcher = core.NewSwitcher(plat, bm)

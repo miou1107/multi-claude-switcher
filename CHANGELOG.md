@@ -15,6 +15,10 @@
   since it merges one account's conversations into the other
   (`core/settings.go`, `core/sync.go` `SyncBidirectional`,
   `cmd/mcs-tray/autoalign.go`).
+- **Single-instance guard:** launching a second tray while one is already running
+  now shows an "already running" notice and quietly exits, so the menu bar never
+  gets duplicate icons/updaters. The self-update relaunch is exempt
+  (`cmd/mcs-tray/instance.go`).
 
 ### Changed
 - **Switching no longer auto-syncs by default.** Previously every switch ran a
