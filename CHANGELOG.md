@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.7.3] - 2026-07-23
 
 ### Added
 - **Windows support (in progress).** The platform layer, start-at-login, single-
