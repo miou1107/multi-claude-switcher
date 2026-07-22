@@ -175,12 +175,11 @@ func TestRestoreStagingFailurePreservesTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Make the profile dir read-only so os.MkdirAll of "<sessions>.restoring"
-	// fails. Restore permissions afterward so t.TempDir cleanup succeeds.
-	if err := os.Chmod(target, 0555); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chmod(target, 0755)
+	// Block writes into the profile dir so staging the ".restoring" copy fails.
+	// POSIX mode bits are ignored for access control on Windows, so denyDirWrites
+	// uses an OS-appropriate mechanism (chmod on Unix, an icacls deny ACE on
+	// Windows) and restores access on cleanup so t.TempDir removal succeeds.
+	denyDirWrites(t, target)
 
 	if err := bm.RestoreBackup(backupPath, target); err == nil {
 		t.Fatal("expected RestoreBackup to fail when staging cannot be written")

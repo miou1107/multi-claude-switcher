@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -10,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/getlantern/systray"
@@ -34,10 +32,9 @@ func isInsideAppBundle(exePath string) (string, bool) {
 // app (e.g. "Multi-Claude-Switcher_0.6.1_macos.zip"). The version is in the
 // middle so we match by prefix+suffix rather than an exact name. This is the
 // only published download — the self-updater extracts the binary from it.
-const (
-	appZipPrefix = "Multi-Claude-Switcher_"
-	appZipSuffix = "_macos.zip"
-)
+// appZipSuffix is OS-specific and defined in update_platform_*.go
+// (e.g. "_macos.zip", "_windows.zip").
+const appZipPrefix = "Multi-Claude-Switcher_"
 
 // findAppZip returns the download URL of the packaged-app asset in a release.
 func findAppZip(assets map[string]string) (string, bool) {
@@ -142,7 +139,7 @@ func applyUpdate(url string) error {
 		return err
 	}
 	extractDir := filepath.Join(work, "extract")
-	if err := exec.Command("ditto", "-x", "-k", zipPath, extractDir).Run(); err != nil {
+	if err := extractUpdateArchive(zipPath, extractDir); err != nil {
 		return fmt.Errorf("extracting update archive: %w", err)
 	}
 	newBin, err := findTrayBinary(extractDir)
@@ -157,8 +154,8 @@ func applyUpdate(url string) error {
 		os.Remove(tmp)
 		return err
 	}
-	// Strip any quarantine so Gatekeeper doesn't block the relaunch.
-	_ = exec.Command("xattr", "-dr", "com.apple.quarantine", tmp).Run()
+	// Strip any quarantine so Gatekeeper doesn't block the relaunch (macOS only).
+	stripQuarantine(tmp)
 
 	// Swap: move the current binary aside, move the new one in; roll back on
 	// failure so we never leave the app without an executable.
@@ -190,7 +187,7 @@ func applyUpdate(url string) error {
 			args = append(args, relaunchSkipInstanceCheckFlag)
 		}
 		cmd = exec.Command(exe, args...)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // detach so it outlives us
+		detachRelaunch(cmd) // detach so it outlives us
 	}
 	if err := cmd.Start(); err != nil {
 		// The new binary is already swapped in; only the auto-relaunch failed.
@@ -199,33 +196,6 @@ func applyUpdate(url string) error {
 	notify("Updated", "Restarting on the new version.")
 	systray.Quit()
 	return nil
-}
-
-// errFound is a sentinel used to stop the walk early once the binary is located.
-var errFound = errors.New("found")
-
-// findTrayBinary locates the tray executable inside an extracted .app bundle
-// (…/Contents/MacOS/mcs-tray).
-func findTrayBinary(root string) (string, error) {
-	var found string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && info.Name() == "mcs-tray" &&
-			strings.Contains(path, filepath.Join("Contents", "MacOS")+string(filepath.Separator)) {
-			found = path
-			return errFound
-		}
-		return nil
-	})
-	if found != "" {
-		return found, nil
-	}
-	if err != nil && !errors.Is(err, errFound) {
-		return "", err
-	}
-	return "", fmt.Errorf("update archive did not contain the app binary")
 }
 
 // copyExecutable copies src to dst (0755), truncating dst. Used to move the

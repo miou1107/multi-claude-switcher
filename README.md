@@ -42,13 +42,16 @@ switch never touches session data unless you turn on auto sync.
 
 [![Download latest](https://img.shields.io/github/v/release/miou1107/multi-claude-switcher?label=Download%20app&style=for-the-badge)](https://github.com/miou1107/multi-claude-switcher/releases/latest)
 
-**One download: the macOS app.** On the [latest release](https://github.com/miou1107/multi-claude-switcher/releases/latest), download
+On the [latest release](https://github.com/miou1107/multi-claude-switcher/releases/latest), download the zip for your platform:
 
-> **`Multi-Claude-Switcher_<version>_macos.zip`** — the ready-to-run
+> **macOS — `Multi-Claude-Switcher_<version>_macos.zip`** — the ready-to-run
 > **Multi-Claude Switcher.app** (a universal macOS application, Apple Silicon +
-> Intel). This is the app itself: unzip and run it, nothing to build or compile.
+> Intel). Unzip and run it, nothing to build or compile.
+>
+> **Windows — `Multi-Claude-Switcher_<version>_windows.zip`** — contains
+> **`mcs-tray.exe`** (the tray app) and **`mcs.exe`** (the CLI).
 
-### Install & run
+### macOS
 
 1. Download the `Multi-Claude-Switcher_<version>_macos.zip` above and **unzip** it (double-click the zip). You get **Multi-Claude Switcher.app**.
 2. Drag **Multi-Claude Switcher.app** into your **Applications** folder.
@@ -58,6 +61,21 @@ The app runs in the **menu bar** (top-right), shown as a pair-of-eyes icon —
 it has no Dock icon. Click it to switch profiles; a checkmark marks the profile
 in use. Enable **Start at Login** from the menu to launch it automatically. The
 app **updates itself** from GitHub Releases, so you only install once.
+
+### Windows
+
+1. Download the `Multi-Claude-Switcher_<version>_windows.zip` above and unzip it.
+2. Run **`mcs-tray.exe`**. It appears as a pair-of-eyes icon in the system tray
+   (bottom-right; you may need the "show hidden icons" arrow). Click it to switch
+   profiles; a checkmark marks the one in use. Enable **Start at Login** from the
+   menu to launch it automatically. It **updates itself** from GitHub Releases.
+
+> **Requires the standalone Claude Desktop build.** Install Claude Desktop from
+> [claude.com/download](https://claude.com/download) (the regular per-user
+> installer). The **Microsoft Store / MSIX** build is **not supported yet**: it
+> stores its data in a virtualized location and cannot be relaunched with a custom
+> profile directory, which is how switching works. If you have the Store version,
+> replace it with the standalone build to use the switcher.
 
 > **How sync stays correct**: the Code tab only lists conversations from the
 > bucket named after the profile's own logged-in account. Sync reads the source
@@ -102,6 +120,13 @@ go build -o bin/mcs-tray ./cmd/mcs-tray
 
 # Package a double-clickable macOS .app (universal, into dist/)
 ./scripts/package-app.sh 0.6.0
+```
+
+On **Windows** (PowerShell), build the tray + CLI — pure Go, no CGO / C toolchain:
+
+```powershell
+go build -o bin/mcs-tray.exe ./cmd/mcs-tray
+go build -o bin/mcs.exe ./cmd/mcs
 ```
 
 ### Launch System Tray App

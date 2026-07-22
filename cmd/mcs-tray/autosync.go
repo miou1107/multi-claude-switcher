@@ -2,8 +2,6 @@ package main
 
 import (
 	"log"
-	"os/exec"
-	"strings"
 
 	"github.com/getlantern/systray"
 	"github.com/miou1107/multi-claude-switcher/core"
@@ -24,27 +22,10 @@ func shouldWarnAutoSync(enabling, dismissed bool) bool {
 	return enabling && !dismissed
 }
 
-// parseAutoSyncChoice maps an osascript `display dialog` result to a choice.
-// The cancel button makes osascript exit non-zero (runErr != nil); otherwise
-// stdout is "button returned:<label>".
-func parseAutoSyncChoice(out string, runErr error) autoSyncChoice {
-	if runErr != nil {
-		return choiceCancel
-	}
-	if strings.Contains(strings.ToLower(out), "don't ask") {
-		return choiceEnableDontAsk
-	}
-	return choiceEnable
-}
-
 // askEnableAutoSync shows the enable-time warning and returns the user's choice.
 func askEnableAutoSync() autoSyncChoice {
 	msg := "With this on, every account switch bidirectionally syncs — both accounts' conversations will merge. Enable?"
-	script := "display dialog " + osaQuote(msg) +
-		` buttons {"Cancel", "Enable", "Enable, don't ask again"}` +
-		` default button "Enable" cancel button "Cancel" with title "Multi-Claude Switcher"`
-	out, err := exec.Command("osascript", "-e", script).Output()
-	return parseAutoSyncChoice(string(out), err)
+	return askEnableAutoSyncChoice(msg)
 }
 
 // toggleAutoSync flips the auto sync-on-switch setting and syncs the menu

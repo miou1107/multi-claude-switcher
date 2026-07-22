@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -208,13 +207,13 @@ func onReady() {
 
 	go func() {
 		for range mOpenBackups.ClickedCh {
-			_ = exec.Command("open", bm.BackupRootDir).Run()
+			openFolder(bm.BackupRootDir)
 		}
 	}()
 
 	go func() {
 		for range mOpenLogs.ClickedCh {
-			_ = exec.Command("open", core.LogDir()).Run()
+			openFolder(core.LogDir())
 		}
 	}()
 
@@ -327,9 +326,8 @@ func renameFlow(items map[*systray.MenuItem]*platform.ProfileInfo) {
 	markActive(items, active)
 }
 
-// toggleLoginItem flips the start-at-login LaunchAgent and syncs the menu
-// checkbox. When enabling, it registers the resolved path of the running
-// executable (the binary inside the .app bundle once packaged).
+// toggleLoginItem flips the start-at-login setting and syncs the menu checkbox.
+// When enabling, it registers the resolved path of the running executable.
 func toggleLoginItem(m *systray.MenuItem) {
 	if core.LoginItemEnabled() {
 		if err := core.DisableLoginItem(); err != nil {
@@ -360,52 +358,18 @@ func toggleLoginItem(m *systray.MenuItem) {
 	log.Printf("Start at Login enabled (%s)", exe)
 }
 
-// chooseFromList shows a native macOS "choose from list" dialog and returns the
-// selected item, or "" if cancelled.
-func chooseFromList(options []string, prompt string) string {
-	var quoted []string
-	for _, o := range options {
-		quoted = append(quoted, osaQuote(o))
-	}
-	script := fmt.Sprintf(`set sel to choose from list {%s} with prompt %s
-if sel is false then
-	return ""
-end if
-return item 1 of sel`, strings.Join(quoted, ", "), osaQuote(prompt))
-	out, err := exec.Command("osascript", "-e", script).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// askText shows a native text-input dialog and returns the entered string, or
-// "" if cancelled.
-func askText(prompt, defaultAnswer string) string {
-	script := fmt.Sprintf(`set r to display dialog %s default answer %s buttons {"Cancel", "OK"} default button "OK" cancel button "Cancel" with title "Multi-Claude Switcher"
-return text returned of r`, osaQuote(prompt), osaQuote(defaultAnswer))
-	out, err := exec.Command("osascript", "-e", script).Output()
-	if err != nil {
-		return "" // cancelled
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// confirmSwitch shows a native macOS confirmation dialog. Returns true only if
-// the user explicitly confirms; the "Cancel" button (osascript non-zero exit)
-// returns false, so a mis-click never kills a running Claude session.
+// confirmSwitch asks the user to confirm a switch. Returns true only on explicit
+// confirmation, so a mis-click never kills a running Claude session.
 func confirmSwitch(targetName string) bool {
 	msg := fmt.Sprintf("Switch to %q? Claude Desktop will be closed and reopened with this profile.", targetName)
-	script := fmt.Sprintf(`display dialog %s buttons {"Cancel", "Switch"} default button "Switch" cancel button "Cancel" with title "Multi-Claude Switcher"`, osaQuote(msg))
-	return exec.Command("osascript", "-e", script).Run() == nil
+	return confirmDialog(msg, "Switch")
 }
 
 // confirmAlign asks before a manual align, which closes and reopens Claude
 // Desktop on the SAME account (it copies data, it does not switch accounts).
 func confirmAlign(src, dst string) bool {
 	msg := fmt.Sprintf("Copy %q's sessions into %q? Claude Desktop will be closed, synced, and reopened on the account you're using now.", src, dst)
-	script := fmt.Sprintf(`display dialog %s buttons {"Cancel", "Sync"} default button "Sync" cancel button "Cancel" with title "Multi-Claude Switcher"`, osaQuote(msg))
-	return exec.Command("osascript", "-e", script).Run() == nil
+	return confirmDialog(msg, "Sync")
 }
 
 // showAbout displays a small About dialog with the app name, version, and link.
@@ -417,28 +381,7 @@ func showAbout() {
 		"Seamless multi-account switcher for Claude Desktop.",
 		"github.com/miou1107/multi-claude-switcher",
 	}
-	quoted := make([]string, len(lines))
-	for i, l := range lines {
-		quoted[i] = osaQuote(l)
-	}
-	script := "display dialog " + strings.Join(quoted, " & return & ") +
-		` buttons {"OK"} default button "OK" with title "About Multi-Claude Switcher"`
-	_ = exec.Command("osascript", "-e", script).Run()
-}
-
-// notify shows a native macOS notification (best-effort).
-func notify(title, text string) {
-	script := fmt.Sprintf(`display notification %s with title %s`, osaQuote(text), osaQuote(title))
-	_ = exec.Command("osascript", "-e", script).Run()
-}
-
-// osaQuote wraps a string as an AppleScript string literal, escaping backslashes
-// and double quotes.
-func osaQuote(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	s = strings.ReplaceAll(s, "\n", " ")
-	return `"` + s + `"`
+	infoDialog("About Multi-Claude Switcher", strings.Join(lines, "\n"))
 }
 
 func getSourceProfilePath(targetPath string, profiles []*platform.ProfileInfo) string {
