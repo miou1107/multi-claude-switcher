@@ -149,3 +149,18 @@ func filesEqual(a, b string) (bool, error) {
 	}
 	return bytes.Equal(ba, bb), nil
 }
+
+// SyncBidirectional makes both profiles' Code sessions converge to the union of
+// the two. It syncs source->target first (so the target then holds the union),
+// then target->source, leaving both accounts with A ∪ B. SyncSessions is
+// additive and skips identical files, so this is safe and idempotent. Both
+// profiles must be logged in (SyncSessions errors otherwise).
+func SyncBidirectional(profileA, profileB string) error {
+	if _, err := SyncSessions(profileA, profileB); err != nil {
+		return err
+	}
+	if _, err := SyncSessions(profileB, profileA); err != nil {
+		return err
+	}
+	return nil
+}

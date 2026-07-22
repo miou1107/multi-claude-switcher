@@ -239,3 +239,30 @@ func TestSyncSkipsIdenticalContent(t *testing.T) {
 		t.Errorf("expected 1 skipped, got %d", report.SkippedCount)
 	}
 }
+
+func TestSyncBidirectionalUnion(t *testing.T) {
+	tempDir := t.TempDir()
+	a := filepath.Join(tempDir, "A")
+	b := filepath.Join(tempDir, "B")
+	writeAccountConfig(t, a, "a-uuid")
+	writeAccountConfig(t, b, "b-uuid")
+	// Each account has one distinct session under its OWN account bucket.
+	writeSessionFile(t, a, filepath.Join("a-uuid", "local_a.json"), `{"v":"A"}`, time.Now())
+	writeSessionFile(t, b, filepath.Join("b-uuid", "local_b.json"), `{"v":"B"}`, time.Now())
+
+	if err := SyncBidirectional(a, b); err != nil {
+		t.Fatalf("SyncBidirectional failed: %v", err)
+	}
+
+	// After union, BOTH accounts hold BOTH sessions, each under its own bucket.
+	for _, want := range []string{
+		filepath.Join(platformSessions(a), "a-uuid", "local_a.json"),
+		filepath.Join(platformSessions(a), "a-uuid", "local_b.json"),
+		filepath.Join(platformSessions(b), "b-uuid", "local_a.json"),
+		filepath.Join(platformSessions(b), "b-uuid", "local_b.json"),
+	} {
+		if _, err := os.Stat(want); err != nil {
+			t.Errorf("expected %s after bidirectional union: %v", want, err)
+		}
+	}
+}
