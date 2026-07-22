@@ -19,18 +19,32 @@
 - `core/version.go` — Single source of truth for the product version (imported by CLI and tray).
 - `core/logging.go` — Persistent per-component logging to ~/.multi-claude-switcher/logs (stderr + file).
 - `core/names.go` — User-chosen profile display names, stored in ~/.multi-claude-switcher/names.json.
-- `core/loginitem.go` — Start-at-login LaunchAgent management (install/remove per-user plist).
-- `core/loginitem_test.go` — Unit tests for login-item enable/disable and plist contents (stubbed dir + launchctl).
+- `core/loginitem_darwin.go` — Start-at-login LaunchAgent management on macOS (install/remove per-user plist).
+- `core/loginitem_windows.go` — Start-at-login on Windows via the per-user registry Run key (HKCU\...\Run).
+- `core/loginitem_other.go` — Start-at-login stub for non-macOS/Windows builds (safe no-ops).
+- `core/loginitem_darwin_test.go` — Unit tests for macOS login-item enable/disable and plist contents (stubbed dir).
+- `core/loginitem_windows_test.go` — Unit tests for Windows login-item enable/disable via a throwaway registry key.
 - `core/update.go` — Update check against GitHub Releases (version compare, latest-release fetch, download).
 - `core/update_test.go` — Unit tests for version comparison and release JSON parsing.
 - `cmd/mcs-tray/update.go` — Tray auto-update: download the release .app zip, extract & atomically swap the tray binary, relaunch (bundle-aware).
 - `cmd/mcs-tray/update_test.go` — Unit tests for .app-bundle path detection and app-zip asset matching.
-- `cmd/mcs-tray/instance.go` — Single-instance guard: detect another running tray (ps scan) and the self-update relaunch exemption flag.
+- `cmd/mcs-tray/update_platform_darwin.go` — macOS self-update: `_macos.zip` suffix, ditto extraction, quarantine strip, .app binary lookup.
+- `cmd/mcs-tray/update_platform_windows.go` — Windows self-update: `_windows.zip` suffix, pure-Go unzip, mcs-tray.exe lookup.
+- `cmd/mcs-tray/update_platform_other.go` — Self-update stubs for unsupported OSes.
+- `cmd/mcs-tray/update_platform_windows_test.go` — Unit tests for the Windows unzip + binary lookup.
+- `cmd/mcs-tray/instance.go` — Single-instance guard: shared skip-flag check + pure ps-output tray parser, plus the relaunch exemption flag.
+- `cmd/mcs-tray/instance_unix.go` — macOS/Unix instance check (ps scan).
+- `cmd/mcs-tray/instance_windows.go` — Windows instance check (tasklist filtered to mcs-tray.exe) and its pure parser.
 - `cmd/mcs-tray/instance_test.go` — Unit tests for the skip-flag check and the ps-output tray-detection parser.
+- `cmd/mcs-tray/instance_windows_test.go` — Unit tests for the Windows tasklist tray-detection parser.
+- `cmd/mcs-tray/relaunch_unix.go` — Self-update relaunch detach on Unix (own process group via Setpgid).
+- `cmd/mcs-tray/relaunch_windows.go` — Self-update relaunch detach on Windows (CREATE_NEW_PROCESS_GROUP).
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon) and zips it via ditto.
 - `core/backup.go` — Profile backup & snapshot restoration module (atomic restore).
 - `core/backup_test.go` — Unit tests for backup & restore manager.
+- `core/backup_perm_unix_test.go` — Test helper (non-Windows): make a dir reject new children via chmod, to exercise staging-failure paths.
+- `core/backup_perm_windows_test.go` — Test helper (Windows): make a dir reject new children via an icacls deny ACE, to exercise staging-failure paths.
 - `core/sync.go` — Session index synchronization module with conflict detection, plus `SyncBidirectional` (unions both profiles' sessions for auto sync).
 - `core/sync_test.go` — Unit tests for session sync (copy, conflict, identical, overwrite).
 - `core/switch.go` — Safe Switch controller (Terminate -> Backup -> Sync -> Launch); session data only moves when the auto sync toggle is on (bidirectional align), otherwise a switch is a pure account change.
@@ -40,11 +54,17 @@
 - `core/align.go` — Manual directional align (ManualAlign): close → backup → sync → reopen the same account.
 - `core/align_test.go` — Unit tests for ManualAlign (returns to running profile; no relaunch when nothing ran).
 - `cmd/mcs-tray/autosync.go` — Tray Auto Sync toggle: enable-time warning dialog and choice parsing.
-- `cmd/mcs-tray/autosync_test.go` — Unit tests for the warning-gating and dialog-choice parsing helpers.
+- `cmd/mcs-tray/autosync_test.go` — Unit tests for the auto-sync warning-gating helper.
+- `cmd/mcs-tray/dialog_darwin.go` — macOS tray dialogs / notifications (osascript).
+- `cmd/mcs-tray/dialog_windows.go` — Windows tray dialogs / notifications (PowerShell + WinForms).
+- `cmd/mcs-tray/dialog_other.go` — Dialog stubs for non-macOS/Windows builds (no-ops).
+- `cmd/mcs-tray/dialog_darwin_test.go` — Unit tests for the macOS auto-sync dialog result parser.
 - `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
 - `platform/darwin.go` — macOS implementation for platform interface.
 - `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).
-- `platform/windows.go` — Windows stub implementation for platform interface.
+- `platform/windows.go` — Windows implementation for platform interface (process detection via Win32_Process, profile discovery, terminate-by-PID, launch; targets the standalone build).
+- `platform/windows_test.go` — Unit tests for Windows `--user-data-dir` parsing, desktop-vs-CLI process detection, and path matching.
+- `platform/unsupported.go` — Platform stub for non-macOS/Windows builds (safe "not supported" errors).
 - `docs/plans/2026-07-22-phase-0-probe.md` — Phase 0 probe execution plan.
 - `docs/plans/2026-07-22-phase-2-gui.md` — Phase 2 GUI execution plan.
 - `docs/superpowers/plans/2026-07-22-session-align-manual-and-auto.md` — Implementation plan for manual align + auto sync-on-switch (0.7.0).
@@ -52,4 +72,5 @@
 - `docs/superpowers/specs/2026-07-22-macos-app-bundle-design.md` — Design spec for the macOS .app bundle packaging.
 - `docs/superpowers/specs/2026-07-22-session-align-manual-and-auto-design.md` — Design spec for manual "Align" + auto sync-on-switch (with default-off toggle).
 - `docs/superpowers/specs/2026-07-22-probe-results.md` — Findings report from Phase 0 probe execution.
+- `docs/superpowers/specs/2026-07-23-windows-port-foundation-design-draft.md` — Windows port foundation design (MSIX findings, Option A/B analysis, B-only decision).
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.

@@ -2,9 +2,11 @@ name: Release
 
 # Cut a release by pushing a version tag, e.g.:
 #   git tag v0.6.1 && git push origin v0.6.1
-# This builds a universal (arm64 + Intel) tray binary with the version baked in,
-# packages it into Multi-Claude Switcher.app, and publishes a GitHub Release with
-# that single .app zip attached (the sole download and the self-updater's source).
+# macOS: builds a universal (arm64 + Intel) tray binary with the version baked in,
+# packages it into Multi-Claude Switcher.app, and attaches that _macos.zip.
+# Windows: builds mcs-tray.exe + mcs.exe (pure Go, no CGO) and attaches a
+# _windows.zip. Each OS's zip is that platform's sole download and the
+# self-updater's source (it extracts the tray binary from the zip).
 
 on:
   push:
@@ -59,4 +61,48 @@ jobs:
         with:
           files: |
             dist/Multi-Claude-Switcher_*_macos.zip
+          generate_release_notes: true
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Derive version from tag
+        id: ver
+        shell: pwsh
+        run: |
+          $v = '${{ github.ref_name }}'.TrimStart('v')
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build Windows binaries
+        shell: pwsh
+        # systray is pure-Go on Windows, so no C toolchain / CGO is needed.
+        env:
+          CGO_ENABLED: '0'
+          LDFLAGS: '-X github.com/miou1107/multi-claude-switcher/core.Version=${{ steps.ver.outputs.version }}'
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          go build -ldflags "$env:LDFLAGS" -o dist/mcs-tray.exe ./cmd/mcs-tray
+          go build -ldflags "$env:LDFLAGS" -o dist/mcs.exe ./cmd/mcs
+
+      - name: Package Windows zip
+        shell: pwsh
+        # The zip must contain mcs-tray.exe: the self-updater extracts it from here.
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          $zip = "dist/Multi-Claude-Switcher_$($env:VERSION)_windows.zip"
+          Compress-Archive -Path dist/mcs-tray.exe, dist/mcs.exe -DestinationPath $zip -Force
+          Get-ChildItem dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Multi-Claude-Switcher_*_windows.zip
           generate_release_notes: true
