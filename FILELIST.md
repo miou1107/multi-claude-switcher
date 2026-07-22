@@ -4,13 +4,17 @@
 - `go.mod` — Go module definition file.
 - `.github/workflows/release.yml` — GitHub Actions: on a `v*` tag, builds universal macOS binaries (version injected) and publishes a GitHub Release.
 - `go.sum` — Go module checksum file.
-- `README.md` — Project overview, architecture, and quick start CLI/GUI guide.
+- `README.md` — Project overview, architecture, and quick start CLI/GUI guide (English).
+- `README.zh-TW.md` — Traditional Chinese translation of the README.
 - `FILELIST.md` — Inventory of project files and purpose.
 - `CHANGELOG.md` — Project version and change history.
 - `bin/mcs` — Compiled CLI binary executable.
 - `bin/mcs-tray` — Compiled System Tray GUI binary executable.
 - `cmd/mcs/main.go` — Go CLI entry point (`mcs status`, `sync`, `switch`, `backup`, `restore`).
-- `cmd/mcs-tray/main.go` — Go System Tray GUI entry point for macOS menu bar quick switcher.
+- `cmd/mcs-tray/main.go` — Go System Tray GUI entry point (cross-platform menu-bar / tray quick switcher).
+- `cmd/mcs-tray/trayicon_darwin.go` — macOS tray icon (template PNG via SetTemplateIcon).
+- `cmd/mcs-tray/trayicon_windows.go` — Windows tray icon (icon.ico via SetIcon).
+- `cmd/mcs-tray/trayicon_other.go` — Tray-icon no-op for unsupported OSes.
 - `cmd/mcs-tray/assets/icon.png` — Menu bar template icon (eyes glyph; recolored by macOS for light/dark).
 - `cmd/mcs-tray/assets/appicon-1024.png` — Color 1024px app icon source (eyes), converted to icon.icns at packaging time.
 - `cmd/mcs-tray/assets/icon.ico` — Color multi-resolution Windows icon (16–256px) for the tray/exe.

@@ -1,7 +1,6 @@
 package main
 
 import (
-	_ "embed"
 	"fmt"
 	"log"
 	"os"
@@ -14,9 +13,6 @@ import (
 	"github.com/miou1107/multi-claude-switcher/core"
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
-
-//go:embed assets/icon.png
-var trayIcon []byte
 
 var (
 	plat     platform.Platform
@@ -48,9 +44,9 @@ func main() {
 }
 
 func onReady() {
-	// Template icon: black-on-transparent glyph that macOS recolors to match a
-	// light or dark menu bar automatically. Icon only, no text title.
-	systray.SetTemplateIcon(trayIcon, trayIcon)
+	// Set the menu-bar / tray icon (per-OS: a macOS template PNG that the system
+	// recolors for light/dark, a Windows .ico via SetIcon).
+	setTrayIcon()
 	systray.SetTooltip("Multi-Claude Switcher")
 
 	// Profiles section

@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [0.7.4] - 2026-07-23
+
+### Fixed
+- **Windows tray icon failed to load** ("Unable to set icon"). Startup used
+  `SetTemplateIcon` with a macOS template PNG, which systray rejects on Windows.
+  The icon is now set per-OS (`setTrayIcon`): a template PNG on macOS, the
+  multi-resolution `icon.ico` via `SetIcon` on Windows
+  (`cmd/mcs-tray/trayicon_{darwin,windows,other}.go`).
+
+### Documentation
+- Added a **Traditional Chinese README** (`README.zh-TW.md`) and an
+  `English | 繁體中文` language switcher at the top of both READMEs.
+
 ## [0.7.3] - 2026-07-23
 
 ### Added
