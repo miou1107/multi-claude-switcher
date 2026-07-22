@@ -1,6 +1,9 @@
 # multi-claude-switcher
+<img width="236" height="277" alt="image" src="https://github.com/user-attachments/assets/62f863dd-9545-4a5c-ac46-66c32517f21f" />
 
-Seamless Multi-Account Switching & Sync for Claude Desktop (macOS).
+<img width="2457" height="829" alt="image" src="https://github.com/user-attachments/assets/fa5eef07-356a-4f8a-8eba-4f82d8e9f531" />
+
+Seamless Multi-Account Switching & Sync for Claude Desktop (macOS & Windows).
 
 ## 📌 Features
 
