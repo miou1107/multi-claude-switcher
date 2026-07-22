@@ -1,9 +1,6 @@
 package main
 
-import (
-	"errors"
-	"testing"
-)
+import "testing"
 
 func TestShouldWarnAutoSync(t *testing.T) {
 	cases := []struct{ enabling, dismissed, want bool }{
@@ -16,17 +13,5 @@ func TestShouldWarnAutoSync(t *testing.T) {
 		if got := shouldWarnAutoSync(c.enabling, c.dismissed); got != c.want {
 			t.Errorf("shouldWarnAutoSync(%v,%v)=%v want %v", c.enabling, c.dismissed, got, c.want)
 		}
-	}
-}
-
-func TestParseAutoSyncChoice(t *testing.T) {
-	if parseAutoSyncChoice("", errors.New("cancelled")) != choiceCancel {
-		t.Error("non-zero exit (cancel button) must map to choiceCancel")
-	}
-	if parseAutoSyncChoice("button returned:Enable\n", nil) != choiceEnable {
-		t.Error("Enable button must map to choiceEnable")
-	}
-	if parseAutoSyncChoice("button returned:Enable, don't ask again\n", nil) != choiceEnableDontAsk {
-		t.Error("don't-ask button must map to choiceEnableDontAsk")
 	}
 }

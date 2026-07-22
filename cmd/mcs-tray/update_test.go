@@ -3,21 +3,24 @@ package main
 import "testing"
 
 func TestFindAppZip(t *testing.T) {
+	// The packaged-app asset is matched by prefix + the OS-specific suffix, so
+	// build the expected name from appZipSuffix to stay correct on every OS.
+	appAsset := "Multi-Claude-Switcher_0.6.1" + appZipSuffix
 	assets := map[string]string{
-		"mcs-macos-universal":                             "https://x/cli",
-		"Multi-Claude-Switcher_0.6.1_macos.zip":           "https://x/app",
-		"multi-claude-switcher_0.6.1_macos-universal.zip": "https://x/raw",
+		"mcs-cli-binary":                      "https://x/cli",
+		appAsset:                              "https://x/app",
+		"multi-claude-switcher_0.6.1_raw.zip": "https://x/raw", // lowercase prefix: not a match
 	}
 	url, ok := findAppZip(assets)
 	if !ok || url != "https://x/app" {
 		t.Fatalf("findAppZip = (%q,%v), want the app zip URL", url, ok)
 	}
 
-	// A release with no packaged app must report not-found (not match the
-	// lowercase raw-binary zip).
+	// A release with no packaged app (only the lowercase raw-binary zip and a
+	// bare binary) must report not-found.
 	if _, ok := findAppZip(map[string]string{
-		"multi-claude-switcher_0.6.1_macos-universal.zip": "https://x/raw",
-		"mcs-tray-macos-universal":                        "https://x/tray",
+		"multi-claude-switcher_0.6.1_raw.zip": "https://x/raw",
+		"mcs-tray-binary":                     "https://x/tray",
 	}); ok {
 		t.Fatal("findAppZip matched a non-app asset")
 	}
