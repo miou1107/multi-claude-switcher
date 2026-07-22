@@ -20,7 +20,7 @@ switch never touches session data unless you turn on auto sync.
 - **Plain switch (default):** clicking a profile in the menu just closes
   Claude Desktop and reopens it on that profile. No session data moves. Each
   account keeps only its own Code conversation history.
-- **Manual align — "Sync sessions →" submenu:** pick a direction (e.g. `From
+- **Manual align — "Sync sessions" submenu:** pick a direction (e.g. `From
   Company → To Personal`) to copy one account's Code sessions into another
   **without switching which account you're on**. It closes Claude Desktop,
   backs up the target account, copies the sessions over, and reopens the
