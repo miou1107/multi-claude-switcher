@@ -36,6 +36,7 @@
 - `platform/windows.go` — Windows stub implementation for platform interface.
 - `docs/plans/2026-07-22-phase-0-probe.md` — Phase 0 probe execution plan.
 - `docs/plans/2026-07-22-phase-2-gui.md` — Phase 2 GUI execution plan.
+- `docs/superpowers/plans/2026-07-22-session-align-manual-and-auto.md` — Implementation plan for manual align + auto-align-on-switch (0.7.0).
 - `docs/superpowers/specs/2026-07-22-multi-claude-account-sync-design.md` — Core design spec for multi-claude switcher.
 - `docs/superpowers/specs/2026-07-22-macos-app-bundle-design.md` — Design spec for the macOS .app bundle packaging.
 - `docs/superpowers/specs/2026-07-22-session-align-manual-and-auto-design.md` — Design spec for manual "Align" + auto-align-on-switch (with default-off toggle).
