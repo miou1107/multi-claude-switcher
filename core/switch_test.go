@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
@@ -14,6 +15,7 @@ type mockPlatform struct {
 	launched     bool
 	launchedPath string
 	terminated   bool
+	detected     string // DetectRunningProfile result
 }
 
 func (m *mockPlatform) AppSupportDir() string                          { return "" }
@@ -24,7 +26,7 @@ func (m *mockPlatform) TerminateApp() error {
 	m.running = false
 	return nil
 }
-func (m *mockPlatform) DetectRunningProfile() (string, error) { return "", nil }
+func (m *mockPlatform) DetectRunningProfile() (string, error) { return m.detected, nil }
 func (m *mockPlatform) LaunchProfile(profilePath string) error {
 	m.launched = true
 	m.launchedPath = profilePath
@@ -35,6 +37,7 @@ func (m *mockPlatform) LaunchProfile(profilePath string) error {
 // fresh profile with no account yet (no config.json) skips the sync but still
 // launches it — so `switch` can be used to open a profile in order to log in.
 func TestSafeSwitchLaunchesWhenTargetNotLoggedIn(t *testing.T) {
+	withStubbedSettings(t)
 	tempDir := t.TempDir()
 
 	src := filepath.Join(tempDir, "Src")
@@ -60,16 +63,19 @@ func TestSafeSwitchLaunchesWhenTargetNotLoggedIn(t *testing.T) {
 	}
 }
 
-// TestSafeSwitchAbortsWhenBackupFails verifies that if the target profile has
-// data but the backup step fails, SafeSwitch aborts BEFORE overwriting the
-// target (never destroy data without a backup). Note: the switch aborts at the
-// backup step, so the sync (and its account-UUID lookup) is never reached — that
-// is why this test intentionally omits writeAccountConfig.
+// TestSafeSwitchAbortsWhenBackupFails verifies that if a profile has data but
+// the backup step fails, SafeSwitch aborts BEFORE aligning (never destroy data
+// without a backup). Backup only runs when auto-align is ON and both profiles
+// are logged in, so this test turns auto-align ON.
 func TestSafeSwitchAbortsWhenBackupFails(t *testing.T) {
+	withStubbedSettings(t)
+	if err := SetAutoAlignOnSwitch(true); err != nil { // ON so the backup step runs
+		t.Fatal(err)
+	}
 	tempDir := t.TempDir()
 
-	// Source profile with one session file.
 	src := filepath.Join(tempDir, "Src")
+	writeAccountConfig(t, src, "uuid1")
 	srcSessions := filepath.Join(platform.GetProfileSessionsDir(src), "uuid1")
 	if err := os.MkdirAll(srcSessions, 0755); err != nil {
 		t.Fatal(err)
@@ -78,9 +84,10 @@ func TestSafeSwitchAbortsWhenBackupFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Target profile that ALREADY has real data we must not lose.
+	// Target has real data we must not lose.
 	dst := filepath.Join(tempDir, "Dst")
-	dstSessions := filepath.Join(platform.GetProfileSessionsDir(dst), "uuid1")
+	writeAccountConfig(t, dst, "uuid2")
+	dstSessions := filepath.Join(platform.GetProfileSessionsDir(dst), "uuid2")
 	if err := os.MkdirAll(dstSessions, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -90,24 +97,22 @@ func TestSafeSwitchAbortsWhenBackupFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Force backup to fail: place a regular file where the backup root needs a dir.
+	// Force backup to fail: a regular file where the backup root needs a dir.
 	blocker := filepath.Join(tempDir, "blocker")
 	if err := os.WriteFile(blocker, []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	bm := NewBackupManager(filepath.Join(blocker, "backups")) // MkdirAll under a file -> fails
+	bm := NewBackupManager(filepath.Join(blocker, "backups"))
 
 	mp := &mockPlatform{}
 	s := NewSwitcher(mp, bm)
 
-	err := s.SafeSwitch(src, dst)
-	if err == nil {
+	if err := s.SafeSwitch(src, dst); err == nil {
 		t.Fatal("expected SafeSwitch to abort when backup fails, got nil error")
 	}
 	if mp.launched {
 		t.Error("target profile must NOT be launched after a failed backup")
 	}
-	// Target data must be untouched (sync must not have run).
 	got, readErr := os.ReadFile(dstFile)
 	if readErr != nil {
 		t.Fatalf("target file disappeared: %v", readErr)
@@ -117,9 +122,72 @@ func TestSafeSwitchAbortsWhenBackupFails(t *testing.T) {
 	}
 }
 
+// TestSafeSwitchOffMovesNoData verifies that with auto-align OFF (the
+// default), SafeSwitch is a pure account switch — no session data moves.
+func TestSafeSwitchOffMovesNoData(t *testing.T) {
+	withStubbedSettings(t) // default OFF
+	tempDir := t.TempDir()
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfig(t, src, "src-uuid")
+	writeAccountConfig(t, dst, "dst-uuid")
+	writeSessionFile(t, src, filepath.Join("src-uuid", "local_a.json"), `{"v":"A"}`, time.Now())
+
+	bm := NewBackupManager(filepath.Join(tempDir, "backups"))
+	mp := &mockPlatform{}
+	s := NewSwitcher(mp, bm)
+
+	if err := s.SafeSwitch(src, dst); err != nil {
+		t.Fatalf("pure switch should succeed: %v", err)
+	}
+	if !mp.launched {
+		t.Error("target must still be launched on a pure switch")
+	}
+	// The source session must NOT have been copied into the target.
+	if _, err := os.Stat(filepath.Join(platformSessions(dst), "dst-uuid", "local_a.json")); err == nil {
+		t.Error("OFF switch moved session data — it must be a pure switch")
+	}
+}
+
+// TestSafeSwitchOnUnionsBothAccounts verifies that with auto-align ON,
+// SafeSwitch backs up and unions both accounts' sessions bidirectionally.
+func TestSafeSwitchOnUnionsBothAccounts(t *testing.T) {
+	withStubbedSettings(t)
+	if err := SetAutoAlignOnSwitch(true); err != nil {
+		t.Fatal(err)
+	}
+	tempDir := t.TempDir()
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfig(t, src, "src-uuid")
+	writeAccountConfig(t, dst, "dst-uuid")
+	writeSessionFile(t, src, filepath.Join("src-uuid", "local_a.json"), `{"v":"A"}`, time.Now())
+	writeSessionFile(t, dst, filepath.Join("dst-uuid", "local_b.json"), `{"v":"B"}`, time.Now())
+
+	bm := NewBackupManager(filepath.Join(tempDir, "backups"))
+	mp := &mockPlatform{}
+	s := NewSwitcher(mp, bm)
+
+	if err := s.SafeSwitch(src, dst); err != nil {
+		t.Fatalf("ON switch failed: %v", err)
+	}
+	if !mp.launched {
+		t.Error("target must be launched")
+	}
+	for _, want := range []string{
+		filepath.Join(platformSessions(dst), "dst-uuid", "local_a.json"),
+		filepath.Join(platformSessions(src), "src-uuid", "local_b.json"),
+	} {
+		if _, err := os.Stat(want); err != nil {
+			t.Errorf("expected union file %s: %v", want, err)
+		}
+	}
+}
+
 // TestSafeSwitchProceedsWhenTargetIsEmpty verifies a brand-new target profile
 // (no sessions dir, nothing to lose) does not block the switch.
 func TestSafeSwitchProceedsWhenTargetIsEmpty(t *testing.T) {
+	withStubbedSettings(t)
 	tempDir := t.TempDir()
 
 	src := filepath.Join(tempDir, "Src")
