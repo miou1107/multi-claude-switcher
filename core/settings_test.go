@@ -19,30 +19,30 @@ func withStubbedSettings(t *testing.T) {
 
 func TestSettingsDefaultFalse(t *testing.T) {
 	withStubbedSettings(t)
-	if AutoAlignOnSwitch() {
-		t.Error("autoAlignOnSwitch should default false when no file exists")
+	if AutoSyncOnSwitch() {
+		t.Error("autoSyncOnSwitch should default false when no file exists")
 	}
-	if AutoAlignWarningDismissed() {
-		t.Error("autoAlignWarningDismissed should default false when no file exists")
+	if AutoSyncWarningDismissed() {
+		t.Error("autoSyncWarningDismissed should default false when no file exists")
 	}
 }
 
 func TestSettingsRoundTripAndNoClobber(t *testing.T) {
 	withStubbedSettings(t)
-	if err := SetAutoAlignOnSwitch(true); err != nil {
+	if err := SetAutoSyncOnSwitch(true); err != nil {
 		t.Fatal(err)
 	}
-	if !AutoAlignOnSwitch() {
-		t.Error("expected autoAlignOnSwitch true after set")
+	if !AutoSyncOnSwitch() {
+		t.Error("expected autoSyncOnSwitch true after set")
 	}
 	// Writing the second flag must not clobber the first.
-	if err := SetAutoAlignWarningDismissed(true); err != nil {
+	if err := SetAutoSyncWarningDismissed(true); err != nil {
 		t.Fatal(err)
 	}
-	if !AutoAlignOnSwitch() {
-		t.Error("setting warning-dismissed clobbered autoAlignOnSwitch")
+	if !AutoSyncOnSwitch() {
+		t.Error("setting warning-dismissed clobbered autoSyncOnSwitch")
 	}
-	if !AutoAlignWarningDismissed() {
-		t.Error("expected autoAlignWarningDismissed true after set")
+	if !AutoSyncWarningDismissed() {
+		t.Error("expected autoSyncWarningDismissed true after set")
 	}
 }

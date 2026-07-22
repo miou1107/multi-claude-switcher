@@ -28,25 +28,25 @@
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon) and zips it via ditto.
 - `core/backup.go` — Profile backup & snapshot restoration module (atomic restore).
 - `core/backup_test.go` — Unit tests for backup & restore manager.
-- `core/sync.go` — Session index synchronization module with conflict detection, plus `SyncBidirectional` (unions both profiles' sessions for auto-align).
+- `core/sync.go` — Session index synchronization module with conflict detection, plus `SyncBidirectional` (unions both profiles' sessions for auto sync).
 - `core/sync_test.go` — Unit tests for session sync (copy, conflict, identical, overwrite).
-- `core/switch.go` — Safe Switch controller (Terminate -> Backup -> Sync -> Launch); session data only moves when the auto-align toggle is on (bidirectional align), otherwise a switch is a pure account change.
+- `core/switch.go` — Safe Switch controller (Terminate -> Backup -> Sync -> Launch); session data only moves when the auto sync toggle is on (bidirectional align), otherwise a switch is a pure account change.
 - `core/switch_test.go` — Unit tests for Safe Switch (aborts on backup failure).
-- `core/settings.go` — User settings store (~/.multi-claude-switcher/settings.json): auto-align toggle + warning-dismissed flag.
+- `core/settings.go` — User settings store (~/.multi-claude-switcher/settings.json): auto sync toggle + warning-dismissed flag.
 - `core/settings_test.go` — Unit tests for settings round-trip, defaults, and no-clobber.
 - `core/align.go` — Manual directional align (ManualAlign): close → backup → sync → reopen the same account.
 - `core/align_test.go` — Unit tests for ManualAlign (returns to running profile; no relaunch when nothing ran).
-- `cmd/mcs-tray/autoalign.go` — Tray Auto-Align toggle: enable-time warning dialog and choice parsing.
-- `cmd/mcs-tray/autoalign_test.go` — Unit tests for the warning-gating and dialog-choice parsing helpers.
+- `cmd/mcs-tray/autosync.go` — Tray Auto Sync toggle: enable-time warning dialog and choice parsing.
+- `cmd/mcs-tray/autosync_test.go` — Unit tests for the warning-gating and dialog-choice parsing helpers.
 - `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
 - `platform/darwin.go` — macOS implementation for platform interface.
 - `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).
 - `platform/windows.go` — Windows stub implementation for platform interface.
 - `docs/plans/2026-07-22-phase-0-probe.md` — Phase 0 probe execution plan.
 - `docs/plans/2026-07-22-phase-2-gui.md` — Phase 2 GUI execution plan.
-- `docs/superpowers/plans/2026-07-22-session-align-manual-and-auto.md` — Implementation plan for manual align + auto-align-on-switch (0.7.0).
+- `docs/superpowers/plans/2026-07-22-session-align-manual-and-auto.md` — Implementation plan for manual align + auto sync-on-switch (0.7.0).
 - `docs/superpowers/specs/2026-07-22-multi-claude-account-sync-design.md` — Core design spec for multi-claude switcher.
 - `docs/superpowers/specs/2026-07-22-macos-app-bundle-design.md` — Design spec for the macOS .app bundle packaging.
-- `docs/superpowers/specs/2026-07-22-session-align-manual-and-auto-design.md` — Design spec for manual "Align" + auto-align-on-switch (with default-off toggle).
+- `docs/superpowers/specs/2026-07-22-session-align-manual-and-auto-design.md` — Design spec for manual "Align" + auto sync-on-switch (with default-off toggle).
 - `docs/superpowers/specs/2026-07-22-probe-results.md` — Findings report from Phase 0 probe execution.
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.

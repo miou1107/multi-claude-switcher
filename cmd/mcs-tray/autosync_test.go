@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestShouldWarnAutoAlign(t *testing.T) {
+func TestShouldWarnAutoSync(t *testing.T) {
 	cases := []struct{ enabling, dismissed, want bool }{
 		{true, false, true},   // enabling, not dismissed -> warn
 		{true, true, false},   // enabling, dismissed -> no warn
@@ -13,20 +13,20 @@ func TestShouldWarnAutoAlign(t *testing.T) {
 		{false, true, false},
 	}
 	for _, c := range cases {
-		if got := shouldWarnAutoAlign(c.enabling, c.dismissed); got != c.want {
-			t.Errorf("shouldWarnAutoAlign(%v,%v)=%v want %v", c.enabling, c.dismissed, got, c.want)
+		if got := shouldWarnAutoSync(c.enabling, c.dismissed); got != c.want {
+			t.Errorf("shouldWarnAutoSync(%v,%v)=%v want %v", c.enabling, c.dismissed, got, c.want)
 		}
 	}
 }
 
-func TestParseAutoAlignChoice(t *testing.T) {
-	if parseAutoAlignChoice("", errors.New("cancelled")) != choiceCancel {
+func TestParseAutoSyncChoice(t *testing.T) {
+	if parseAutoSyncChoice("", errors.New("cancelled")) != choiceCancel {
 		t.Error("non-zero exit (cancel button) must map to choiceCancel")
 	}
-	if parseAutoAlignChoice("button returned:Enable\n", nil) != choiceEnable {
+	if parseAutoSyncChoice("button returned:Enable\n", nil) != choiceEnable {
 		t.Error("Enable button must map to choiceEnable")
 	}
-	if parseAutoAlignChoice("button returned:Enable, don't ask again\n", nil) != choiceEnableDontAsk {
+	if parseAutoSyncChoice("button returned:Enable, don't ask again\n", nil) != choiceEnableDontAsk {
 		t.Error("don't-ask button must map to choiceEnableDontAsk")
 	}
 }

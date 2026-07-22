@@ -65,11 +65,11 @@ func TestSafeSwitchLaunchesWhenTargetNotLoggedIn(t *testing.T) {
 
 // TestSafeSwitchAbortsWhenBackupFails verifies that if a profile has data but
 // the backup step fails, SafeSwitch aborts BEFORE aligning (never destroy data
-// without a backup). Backup only runs when auto-align is ON and both profiles
-// are logged in, so this test turns auto-align ON.
+// without a backup). Backup only runs when auto sync is ON and both profiles
+// are logged in, so this test turns auto sync ON.
 func TestSafeSwitchAbortsWhenBackupFails(t *testing.T) {
 	withStubbedSettings(t)
-	if err := SetAutoAlignOnSwitch(true); err != nil { // ON so the backup step runs
+	if err := SetAutoSyncOnSwitch(true); err != nil { // ON so the backup step runs
 		t.Fatal(err)
 	}
 	tempDir := t.TempDir()
@@ -122,7 +122,7 @@ func TestSafeSwitchAbortsWhenBackupFails(t *testing.T) {
 	}
 }
 
-// TestSafeSwitchOffMovesNoData verifies that with auto-align OFF (the
+// TestSafeSwitchOffMovesNoData verifies that with auto sync OFF (the
 // default), SafeSwitch is a pure account switch — no session data moves.
 func TestSafeSwitchOffMovesNoData(t *testing.T) {
 	withStubbedSettings(t) // default OFF
@@ -149,11 +149,11 @@ func TestSafeSwitchOffMovesNoData(t *testing.T) {
 	}
 }
 
-// TestSafeSwitchOnUnionsBothAccounts verifies that with auto-align ON,
+// TestSafeSwitchOnUnionsBothAccounts verifies that with auto sync ON,
 // SafeSwitch backs up and unions both accounts' sessions bidirectionally.
 func TestSafeSwitchOnUnionsBothAccounts(t *testing.T) {
 	withStubbedSettings(t)
-	if err := SetAutoAlignOnSwitch(true); err != nil {
+	if err := SetAutoSyncOnSwitch(true); err != nil {
 		t.Fatal(err)
 	}
 	tempDir := t.TempDir()

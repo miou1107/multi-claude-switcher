@@ -103,7 +103,7 @@ func onReady() {
 	mUpdate := systray.AddMenuItem("Check for Updates…", "Check GitHub for a newer version and update")
 	mRename := systray.AddMenuItem("Rename a Profile…", "Give a profile a friendlier display name")
 	mLogin := systray.AddMenuItemCheckbox("Start at Login", "Launch automatically when you log in", core.LoginItemEnabled())
-	mAutoAlign := systray.AddMenuItemCheckbox("Auto-Align on Switch", "Keep both accounts' sessions identical on every switch", core.AutoAlignOnSwitch())
+	mAutoSync := systray.AddMenuItemCheckbox("Auto Sync on Switch", "Keep both accounts' sessions identical on every switch", core.AutoSyncOnSwitch())
 	mBackup := systray.AddMenuItem("Backup All Profiles", "Take a snapshot backup of all profiles")
 	mOpenBackups := systray.AddMenuItem("Open Backup Directory", "Open backup folder in Finder")
 	mOpenLogs := systray.AddMenuItem("Open Log Folder", "Open the log folder in Finder")
@@ -219,8 +219,8 @@ func onReady() {
 	}()
 
 	go func() {
-		for range mAutoAlign.ClickedCh {
-			toggleAutoAlign(mAutoAlign)
+		for range mAutoSync.ClickedCh {
+			toggleAutoSync(mAutoSync)
 		}
 	}()
 
