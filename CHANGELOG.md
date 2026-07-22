@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **Active-profile marker in the tray**: the profile currently in use is shown
+  with a checkmark and "(current)", updated after a switch and by a background
+  poller so it stays correct even when the profile is changed outside the tray
+  (`cmd/mcs-tray/main.go`, `platform.DetectRunningProfile`).
+- **Custom profile display names**: rename profiles to friendlier labels via the
+  new tray item **Rename a Profile…** (native dialogs); stored in
+  `~/.multi-claude-switcher/names.json` (`core/names.go`). Names are used in the
+  menu, the switch confirmation, and the active marker.
 - **Menu bar icon** for the tray instead of the literal text "Claude": a
   swap-arrows template glyph that macOS recolors for light/dark menu bars
   (`cmd/mcs-tray/assets/icon.png`, embedded via `go:embed`).
