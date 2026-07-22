@@ -48,7 +48,11 @@ func saveSettingsLocked(s settings) error {
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, settingsPath())
+	if err := os.Rename(tmp, settingsPath()); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // AutoAlignOnSwitch reports whether switching should bidirectionally sync.

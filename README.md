@@ -8,7 +8,7 @@ Seamless Multi-Account Switching & Sync for Claude Desktop (macOS & Windows).
 ## 📌 Features
 
 - **Safe Switch**: Switch between multiple Claude Desktop profiles (`~/Library/Application Support/Claude*`) without re-authenticating or losing conversation sidebar history.
-- **Automated Backup**: Automatic timestamped snapshots of `claude-code-sessions` before every switch/sync. If the backup fails, the switch aborts rather than overwriting unprotected data.
+- **Automated Backup**: Automatic timestamped snapshots of `claude-code-sessions` before any operation that writes sessions — a manual align, `mcs sync`, or a switch with Auto-Align on. A plain switch (the default, Auto-Align off) never touches session data, so it takes no backup. If the backup fails, the write aborts rather than overwriting unprotected data.
 - **Conflict-safe Sync**: When both profiles changed the same session, the newer target copy is preserved and reported as a conflict instead of being silently overwritten.
 - **Probe Validation Tool**: Includes `scripts/probe/probe_runner.py` for inspecting profiles and validating local session synchronization.
 

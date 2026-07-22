@@ -30,21 +30,29 @@ func (s *Switcher) ManualAlign(srcProfilePath, dstProfilePath string) (*SyncRepo
 		}
 	}
 
+	// From here Claude Desktop is closed. On ANY outcome we must reopen the
+	// profile the user was on (if any), or they are stranded with it shut.
+	report, alignErr := s.alignAfterClose(srcProfilePath, dstProfilePath)
+	if relaunch != "" {
+		if lerr := s.Platform.LaunchProfile(relaunch); lerr != nil && alignErr == nil {
+			// The align itself succeeded; only reopening failed.
+			return report, fmt.Errorf("sync done but could not reopen Claude Desktop (%s): %w", relaunch, lerr)
+		}
+	}
+	return report, alignErr
+}
+
+// alignAfterClose backs up the target and syncs source->target. It is separated
+// from ManualAlign so the caller can guarantee the user's profile is reopened
+// whether or not these steps succeed.
+func (s *Switcher) alignAfterClose(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 	// Never overwrite the target's data without a backup.
 	if _, err := s.BackupManager.BackupIfHasData(dstProfilePath); err != nil {
 		return nil, fmt.Errorf("aborting align: failed to back up target profile: %w", err)
 	}
-
 	report, err := SyncSessions(srcProfilePath, dstProfilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync sessions: %w", err)
-	}
-
-	// Put the user back on the account they were using.
-	if relaunch != "" {
-		if err := s.Platform.LaunchProfile(relaunch); err != nil {
-			return report, fmt.Errorf("sync done but could not reopen Claude Desktop (%s): %w", relaunch, err)
-		}
 	}
 	return report, nil
 }
