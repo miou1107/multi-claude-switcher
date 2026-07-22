@@ -72,7 +72,7 @@ On a single machine, a user has multiple Claude Desktop app accounts (e.g., a co
 ## 5. Architecture
 
 ```
-multi-cloude-switcher (Go project, cross-platform structure)
+multi-claude-switcher (Go project, cross-platform structure)
 ├─ core/            Shared logic: switch, sync/reconcile, diff, backup/restore, health check
 │                   (no OS specifics; everything goes through the platform interface)
 ├─ platform/
@@ -142,5 +142,5 @@ Validation checklist (incl. codex adversarial suggestions):
 
 ## 9. Repo & Naming
 
-- Repo: `github.com/miou1107/multi-cloude-switcher` (public); local at `/Users/vincentkao/SourceCode/multi-cloude` (standalone git repo, `main`)
-- Product name: `multi-cloude-switcher` (revisit before release if desired)
+- Repo: `github.com/miou1107/multi-claude-switcher` (public); local at `/Users/vincentkao/SourceCode/multi-cloude` (standalone git repo, `main`)
+- Product name: `multi-claude-switcher`
