@@ -83,3 +83,26 @@ func TestManualAlignAbortsWhenRunningProfileUnknown(t *testing.T) {
 		t.Error("align wrote data despite aborting before close")
 	}
 }
+
+func TestManualAlignReopensAfterSyncError(t *testing.T) {
+	tempDir := t.TempDir()
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfig(t, src, "src-uuid")
+	// dst has NO config.json -> SyncSessions errors at the account-UUID lookup.
+	writeSessionFile(t, src, filepath.Join("src-uuid", "local_a.json"), `{"v":"x"}`, time.Now())
+
+	bm := NewBackupManager(filepath.Join(tempDir, "backups"))
+	mp := &mockPlatform{running: true, detected: src}
+	s := NewSwitcher(mp, bm)
+
+	if _, err := s.ManualAlign(src, dst); err == nil {
+		t.Fatal("expected an error when the target isn't logged in")
+	}
+	if !mp.terminated {
+		t.Error("app should have been terminated before the failing sync")
+	}
+	if mp.launchedPath != src {
+		t.Errorf("must reopen the original profile %q even when the sync fails, got %q", src, mp.launchedPath)
+	}
+}
