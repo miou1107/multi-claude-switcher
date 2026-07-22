@@ -51,8 +51,8 @@ On the [latest release](https://github.com/miou1107/multi-claude-switcher/releas
 > **Multi-Claude Switcher.app** (a universal macOS application, Apple Silicon +
 > Intel). Unzip and run it, nothing to build or compile.
 >
-> **Windows — `Multi-Claude-Switcher_<version>_windows.zip`** — contains
-> **`mcs-tray.exe`**, the ready-to-run tray app (nothing to install).
+> **Windows — `Multi-Claude-Switcher_<version>_windows_setup.exe`** — the
+> installer (per-user, no administrator prompt); run it and launch from the Start Menu.
 
 ### macOS
 
@@ -67,11 +67,14 @@ app **updates itself** from GitHub Releases, so you only install once.
 
 ### Windows
 
-1. Download the `Multi-Claude-Switcher_<version>_windows.zip` above and unzip it.
-2. Run **`mcs-tray.exe`**. It appears as a pair-of-eyes icon in the system tray
-   (bottom-right; you may need the "show hidden icons" arrow). Click it to switch
-   profiles; a checkmark marks the one in use. Enable **Start at Login** from the
-   menu to launch it automatically. It **updates itself** from GitHub Releases.
+1. Download **`Multi-Claude-Switcher_<version>_windows_setup.exe`** above and run
+   it. It is a per-user install (no administrator prompt) that installs the app,
+   adds a Start Menu shortcut, and registers an entry in Add/Remove Programs.
+2. Launch **Multi-Claude Switcher** from the Start Menu. It appears as a
+   pair-of-eyes icon in the system tray (bottom-right; you may need the "show
+   hidden icons" arrow). Click it to switch profiles; a checkmark marks the one in
+   use. Enable **Start at Login** from the menu to launch it automatically. It
+   **updates itself** from GitHub Releases.
 
 > **Requires the standalone Claude Desktop build.** Install Claude Desktop from
 > [claude.com/download](https://claude.com/download) (the regular per-user

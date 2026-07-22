@@ -37,8 +37,8 @@
 > **Multi-Claude Switcher.app**（通用版 macOS 應用程式，Apple Silicon +
 > Intel 都可）。解壓後直接執行，不用建置或編譯。
 >
-> **Windows — `Multi-Claude-Switcher_<版本>_windows.zip`** — 內含
-> **`mcs-tray.exe`**，解壓即用的工具列程式（不用安裝）。
+> **Windows — `Multi-Claude-Switcher_<版本>_windows_setup.exe`** — 安裝程式
+> （每位使用者、不需系統管理員權限）；執行它、再從開始選單啟動。
 
 ### macOS
 
@@ -50,8 +50,8 @@
 
 ### Windows
 
-1. 下載上面的 `Multi-Claude-Switcher_<版本>_windows.zip` 並解壓。
-2. 執行 **`mcs-tray.exe`**。它會出現在系統匣（右下角，可能要點「顯示隱藏的圖示」那個箭頭）成為一對眼睛的圖示。點它就能切換設定檔，打勾的那個是目前正在用的。從選單開啟 **Start at Login** 可讓它開機自動啟動。它會**自我更新**（從 GitHub Releases 抓）。
+1. 下載上面的 **`Multi-Claude-Switcher_<版本>_windows_setup.exe`** 並執行。這是「每位使用者」安裝（不會跳系統管理員權限），會裝好程式、建立開始選單捷徑，並在「新增/移除程式」登記一項。
+2. 從**開始選單**啟動 **Multi-Claude Switcher**。它會出現在系統匣（右下角，可能要點「顯示隱藏的圖示」那個箭頭）成為一對眼睛的圖示。點它就能切換設定檔，打勾的那個是目前正在用的。從選單開啟 **Start at Login** 可讓它開機自動啟動。它會**自我更新**（從 GitHub Releases 抓）。
 
 > **需要獨立安裝版的 Claude Desktop。** 請到 [claude.com/download](https://claude.com/download) 安裝 Claude Desktop（一般的個人安裝版）。**Microsoft Store / MSIX** 版**目前尚未支援**：它把資料存在一個虛擬化的位置，而且沒辦法用自訂的設定檔目錄重新啟動，而切換正是靠這個機制運作的。如果你裝的是商店版，請改裝獨立安裝版才能使用本工具。
 

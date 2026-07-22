@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [0.7.6] - 2026-07-23
+
+### Added
+- **Windows installer.** Releases now include
+  `Multi-Claude-Switcher_<version>_windows_setup.exe`, a per-user Inno Setup
+  installer (no administrator prompt) that installs the tray app, adds a Start
+  Menu shortcut, and registers an uninstaller in Add/Remove Programs
+  (`packaging/windows-setup.iss`, `.github/workflows/release.yml`). The
+  `_windows.zip` is retained for the in-app self-updater.
+
 ## [0.7.5] - 2026-07-23
 
 ### Fixed

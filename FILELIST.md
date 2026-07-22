@@ -44,6 +44,7 @@
 - `cmd/mcs-tray/relaunch_unix.go` — Self-update relaunch detach on Unix (own process group via Setpgid).
 - `cmd/mcs-tray/relaunch_windows.go` — Self-update relaunch detach on Windows (CREATE_NEW_PROCESS_GROUP).
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
+- `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller).
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon) and zips it via ditto.
 - `core/backup.go` — Profile backup & snapshot restoration module (atomic restore).
 - `core/backup_test.go` — Unit tests for backup & restore manager.
