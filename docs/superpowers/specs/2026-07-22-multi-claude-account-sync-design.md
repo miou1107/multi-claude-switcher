@@ -46,6 +46,8 @@ On a single machine, a user has multiple Claude Desktop app accounts (e.g., a co
 3. **Sync the index** — update the **target** profile's conversation index to match the source, including the source's newest conversations; the invariant is "both sides have identical content"; detect two-sided changes, and on conflict prompt the user (never silently merge)
 4. Launch the target profile via `--user-data-dir`
 
+> **Bucket-naming invariant (proven in Phase 0, do not skip).** The Code tab reads **only** `claude-code-sessions/<lastKnownAccountUuid>/`, where the UUID is the target profile's logged-in account. Sync therefore MUST write the source sessions into a bucket **named after the *target* profile's `lastKnownAccountUuid`**, not the source's bucket name. A verbatim source-bucket copy is a **silent failure**: files land on disk but never appear in the sidebar (this is the exact bug that left `Claude_Profile2` empty — see probe-results Q3/Q4). Post-sync, the tool MUST assert the written bucket == target `lastKnownAccountUuid`, else warn. Read `lastKnownAccountUuid` from the target's `config.json` (identity file, itself never synced).
+
 > Why not default to "always-identical" symlinks: a symlink bets that Claude Desktop's private on-disk format is a stable interface. An app update that rebuilds the folder, an atomic write via temp-file rename, or temp cleanup can replace the symlink with a real directory → both sides silently diverge and the user won't notice immediately. Treating the Desktop index as a "corruptible, rebuildable cache" is more robust.
 >
 > **Key: Safe Switch is still one click for the user.** Because switching accounts already requires relaunching the app (Desktop doesn't live-refresh), "close → sync → open the other" feels just as seamless to the user, while adding backups and safety.
@@ -58,7 +60,8 @@ On a single machine, a user has multiple Claude Desktop app accounts (e.g., a co
 |---|---|---|
 | `claude-code-sessions/<UUID>/` (Desktop conversation index) | **Synced** (safe switch) / optional symlink | Sidebar source; the main thing to sync |
 | `~/.claude/` (skills, memory, commands, CLAUDE.md, conversation bodies) | **Already shared, untouched** | Globally shared, account-independent |
-| Login/identity: `Cookies`, `buddy-tokens.json`, `config.json`, `Local State`, `ant-did` | **Isolated, never synced** | Sharing these = same account = switching does nothing |
+| Login/identity: `Cookies`, `buddy-tokens.json`, `ant-device-registry.json`, `Local State`, `ant-did`, and the identity keys *inside* `config.json` (`oauth:tokenCache*`, `lastKnownAccountUuid`, `remoteToolsDeviceName`) | **Isolated, never synced** | Sharing these = same account = switching does nothing |
+| Preferences *inside* `config.json` / `claude_desktop_config.json` (theme, scale, locale, `mcpServers`, `bypassPermissionsModeEnabled`, and per-account maps like `bypassPermissionsOptInByAccount`) | **Optional field-level sync** (separate opt-in feature): whitelist global prefs (copy), per-account maps (**merge by key, never overwrite**), everything else / unknown keys (do not sync) | User wants consistent UX/preferences across profiles; safe *only* because it excludes the identity keys in the same file. See probe-results "Config / Preferences Sync Analysis". |
 | Browser storage: `IndexedDB`, `Local/Session Storage`, `Preferences`, `Network Persistent State`, `Service Worker` | **Isolated, never synced** (treated as identity-bound until the probe proves otherwise) | Identity/account state may hide here (mixed state) |
 | Caches: `Cache`, `Code Cache`, `GPUCache`, `Crashpad`, etc. | **Isolated** | Per-profile artifacts; sharing only cross-pollutes |
 
