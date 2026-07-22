@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Added
+- **Windows support (in progress).** The platform layer, start-at-login, single-
+  instance guard, self-update, and tray dialogs now have Windows implementations
+  behind build tags, and a `windows-latest` CI job publishes a
+  `Multi-Claude-Switcher_<version>_windows.zip`. Switching targets the
+  **standalone** Claude Desktop build (launched with `--user-data-dir`); the
+  Microsoft Store / MSIX build is detected but not yet supported for launching.
+  - `platform/windows.go` — process detection (`Win32_Process`), profile
+    discovery, terminate-by-PID (never the identically named Claude Code CLI),
+    and standalone-exe launch.
+  - `core/loginitem_windows.go` — start-at-login via the `HKCU\...\Run` key.
+  - `cmd/mcs-tray/instance_windows.go` — single-instance guard via `tasklist`.
+  - `cmd/mcs-tray/dialog_windows.go` — tray dialogs / notifications via PowerShell.
+  - `cmd/mcs-tray/update_platform_windows.go` — self-update: `_windows.zip` asset,
+    pure-Go unzip, `.exe` relaunch.
+
+### Fixed
+- `core/backup_test.go` now induces a staging-write failure in an OS-appropriate
+  way (an `icacls` deny ACE on Windows, `chmod` on Unix), so the
+  restore-preserves-target test passes on Windows instead of relying on POSIX
+  permission bits.
+
 ## [0.7.2] - 2026-07-23
 
 ### Fixed
