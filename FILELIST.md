@@ -1,0 +1,25 @@
+# FILELIST.md
+
+- `.gitignore` — Git ignore rules.
+- `go.mod` — Go module definition file.
+- `go.sum` — Go module checksum file.
+- `README.md` — Project overview, architecture, and quick start CLI/GUI guide.
+- `FILELIST.md` — Inventory of project files and purpose.
+- `CHANGELOG.md` — Project version and change history.
+- `bin/mcs` — Compiled CLI binary executable.
+- `bin/mcs-tray` — Compiled System Tray GUI binary executable.
+- `cmd/mcs/main.go` — Go CLI entry point (`mcs status`, `sync`, `switch`, `backup`, `restore`).
+- `cmd/mcs-tray/main.go` — Go System Tray GUI entry point for macOS menu bar quick switcher.
+- `core/backup.go` — Profile backup & snapshot restoration module.
+- `core/backup_test.go` — Unit tests for backup & restore manager.
+- `core/sync.go` — Session index synchronization module across profile directories.
+- `core/sync_test.go` — Unit tests for session sync.
+- `core/switch.go` — Safe Switch controller (Terminate -> Backup -> Sync -> Launch).
+- `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
+- `platform/darwin.go` — macOS implementation for platform interface.
+- `platform/windows.go` — Windows stub implementation for platform interface.
+- `docs/plans/2026-07-22-phase-0-probe.md` — Phase 0 probe execution plan.
+- `docs/plans/2026-07-22-phase-2-gui.md` — Phase 2 GUI execution plan.
+- `docs/superpowers/specs/2026-07-22-multi-claude-account-sync-design.md` — Core design spec for multi-claude switcher.
+- `docs/superpowers/specs/2026-07-22-probe-results.md` — Findings report from Phase 0 probe execution.
+- `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.
