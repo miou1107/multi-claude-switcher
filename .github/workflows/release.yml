@@ -102,9 +102,21 @@ jobs:
           Compress-Archive -Path dist/mcs-tray.exe -DestinationPath $zip -Force
           Get-ChildItem dist
 
+      - name: Build Windows installer (Inno Setup)
+        shell: pwsh
+        # A proper Setup.exe: per-user install, Start Menu shortcut, uninstaller.
+        # The zip above is kept for the in-app self-updater; humans run the installer.
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Qp "/DMyAppVersion=$($env:VERSION)" packaging\windows-setup.iss
+          Get-ChildItem dist
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            dist/Multi-Claude-Switcher_*_windows_setup.exe
             dist/Multi-Claude-Switcher_*_windows.zip
           generate_release_notes: true
