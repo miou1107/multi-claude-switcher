@@ -12,7 +12,10 @@
   **target** profile's `lastKnownAccountUuid` bucket, copying only that one bucket
   (`core/sync.go`, new `platform.GetProfileAccountUUID`). `SyncReport` now reports
   `SourceAccount` / `TargetAccount`, surfaced by `mcs sync` and the Safe Switch log.
-  Test: `TestSyncRebucketsIntoTargetAccount`.
+  Safe Switch gracefully **skips sync but still launches** when a profile has no
+  logged-in account yet, so `switch` can still open a fresh profile to log into.
+  Tests: `TestSyncRebucketsIntoTargetAccount`, `TestSyncErrorsWhenNotLoggedIn`,
+  `TestSyncNoOpWhenSourceBucketMissing`, `TestSafeSwitchLaunchesWhenTargetNotLoggedIn`.
 
 ### Documentation
 - **Phase 0 findings corrected with live-machine evidence** (`docs/superpowers/specs/2026-07-22-probe-results.md`):

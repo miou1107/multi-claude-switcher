@@ -31,9 +31,40 @@ func (m *mockPlatform) LaunchProfile(profilePath string) error {
 	return nil
 }
 
+// TestSafeSwitchLaunchesWhenTargetNotLoggedIn verifies that switching to a
+// fresh profile with no account yet (no config.json) skips the sync but still
+// launches it — so `switch` can be used to open a profile in order to log in.
+func TestSafeSwitchLaunchesWhenTargetNotLoggedIn(t *testing.T) {
+	tempDir := t.TempDir()
+
+	src := filepath.Join(tempDir, "Src")
+	writeAccountConfig(t, src, "uuid1")
+	srcSessions := filepath.Join(platform.GetProfileSessionsDir(src), "uuid1")
+	if err := os.MkdirAll(srcSessions, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcSessions, "local_src.json"), []byte(`{"src":1}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(tempDir, "Dst") // no config.json -> not logged in
+	bm := NewBackupManager(filepath.Join(tempDir, "backups"))
+	mp := &mockPlatform{}
+	s := NewSwitcher(mp, bm)
+
+	if err := s.SafeSwitch(src, dst); err != nil {
+		t.Fatalf("expected switch to a not-logged-in target to succeed (skip sync, still launch), got %v", err)
+	}
+	if !mp.launched {
+		t.Error("target profile must still be launched even though sync was skipped")
+	}
+}
+
 // TestSafeSwitchAbortsWhenBackupFails verifies that if the target profile has
 // data but the backup step fails, SafeSwitch aborts BEFORE overwriting the
-// target (never destroy data without a backup).
+// target (never destroy data without a backup). Note: the switch aborts at the
+// backup step, so the sync (and its account-UUID lookup) is never reached — that
+// is why this test intentionally omits writeAccountConfig.
 func TestSafeSwitchAbortsWhenBackupFails(t *testing.T) {
 	tempDir := t.TempDir()
 
