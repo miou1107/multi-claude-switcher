@@ -98,6 +98,8 @@ multi-cloude（Go 專案，跨平台結構）
 
 不寫正式碼，用手動 / 快速腳本回答下列問題。**全程先備份、優先用丟棄式臨時 profile 指向資料複本，不直接動兩個真帳號；測完即刪、不留垃圾。**
 
+**測試/開發環境要求（強制）**：測試與開發必須在**獨立環境**進行 —— 終端機的 Claude Code CLI，**或 Antigravity（或其他非 Claude Desktop 的 IDE）**。**禁止在 Claude Desktop app 的 Code 分頁裡跑**。原因：探針會關閉 / 重開 Claude Desktop、搬動其 profile 資料夾；若開發 session 寄生在 Desktop app 上，會打斷自己、甚至弄壞正在使用的資料（#692 踩過、對應 iron rule 693）。注意：Claude CLI 與 Desktop app 共用 `~/.claude/`，但探針只動 Desktop 的 profile 資料夾（`~/Library/Application Support/Claude*`）、不碰 `~/.claude/`，故 CLI / Antigravity 皆安全。
+
 實測清單（含 codex 對抗審查建議）：
 
 1. Claude Desktop 啟動是否接受任意 `--user-data-dir`，改版後是否仍接受
