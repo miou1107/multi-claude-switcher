@@ -25,6 +25,10 @@
   one-way session sync; now a switch moves **no** session data unless
   "Auto Sync on Switch" is enabled. This makes cross-account conversation
   merging an explicit opt-in (`core/switch.go`).
+- **Tidier tray menu:** the growing action list is grouped into **Settings** and
+  **Maintenance** submenus, the version moved into a new **About** item, and only
+  the frequent actions (switch, Sync sessions) stay at the top level
+  (`cmd/mcs-tray/main.go`).
 
 ### Notes
 - Scope is Code sessions (`claude-code-sessions`) only. Agent Mode / Cowork
