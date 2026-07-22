@@ -11,6 +11,8 @@ import (
 )
 
 type SyncReport struct {
+	SourceAccount string   `json:"source_account"`
+	TargetAccount string   `json:"target_account"`
 	CopiedCount   int      `json:"copied_count"`
 	SkippedCount  int      `json:"skipped_count"`
 	ConflictCount int      `json:"conflict_count"`
@@ -18,36 +20,51 @@ type SyncReport struct {
 	Conflicts     []string `json:"conflicts"`
 }
 
-// SyncSessions copies session JSON files from the source profile to the target
-// profile, preserving each file's bucket-relative path (<UUID>/<OrgUUID>/local_*.json).
+// SyncSessions makes the target account's conversation history include the
+// source account's conversations.
 //
-// Bucketing note: this copies files at their EXACT relative path; it does NOT
-// remap a source-only <AccountUUID> bucket into the target account's bucket.
-// Buckets that already exist on both profiles sync correctly. Whether the target
-// app surfaces a bucket that exists only in the source is unverified on-device
-// (Phase 0 probe Q3/Q4 open item) and must be confirmed with a real end-to-end
-// test before relying on it.
+// Account re-bucketing (the whole point): Claude Desktop's Code tab reads ONLY
+// from claude-code-sessions/<lastKnownAccountUuid>/. So sync reads the SOURCE
+// profile's own account bucket and writes those sessions into the TARGET
+// profile's own account bucket, renaming the top-level bucket from the source
+// account UUID to the target account UUID. This is what makes history follow you
+// across accounts. A verbatim path-preserving copy (the previous behavior) would
+// drop the sessions under the source account's bucket name, where the target app
+// never looks (silent failure) — and would drag along any foreign/orphaned
+// buckets, re-polluting the target. We copy ONLY the source account bucket.
 //
 // Conflict handling: to avoid silently destroying data, when the target already
 // holds a DIFFERENT version of a file, the source only wins if it is strictly
 // newer (mtime). If the target's copy is newer or same-age, the file is left
 // untouched and recorded as a conflict for the caller to resolve.
 func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
-	srcSessions := platform.GetProfileSessionsDir(srcProfilePath)
-	dstSessions := platform.GetProfileSessionsDir(dstProfilePath)
-
-	if fi, err := os.Stat(srcSessions); err != nil || !fi.IsDir() {
-		return nil, fmt.Errorf("source sessions directory does not exist: %s", srcSessions)
+	srcAccount, err := platform.GetProfileAccountUUID(srcProfilePath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot determine source account (needed to know which bucket to sync): %w", err)
+	}
+	dstAccount, err := platform.GetProfileAccountUUID(dstProfilePath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot determine target account (needed to know which bucket to write): %w", err)
 	}
 
-	if err := os.MkdirAll(dstSessions, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create destination sessions directory: %w", err)
+	report := &SyncReport{SourceAccount: srcAccount, TargetAccount: dstAccount}
+
+	// Only the source's OWN account bucket is synced; foreign/orphaned buckets
+	// are deliberately left behind so we never re-pollute the target.
+	srcBucket := filepath.Join(platform.GetProfileSessionsDir(srcProfilePath), srcAccount)
+	if fi, statErr := os.Stat(srcBucket); statErr != nil || !fi.IsDir() {
+		// Nothing to sync (source account has no local sessions yet).
+		return report, nil
 	}
 
-	report := &SyncReport{}
+	// Re-bucket: everything under the source account bucket lands under the
+	// target account bucket.
+	dstBucket := filepath.Join(platform.GetProfileSessionsDir(dstProfilePath), dstAccount)
+	if err := os.MkdirAll(dstBucket, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create destination account bucket: %w", err)
+	}
 
-	// Walk source sessions
-	err := filepath.Walk(srcSessions, func(path string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(srcBucket, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -55,12 +72,12 @@ func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 			return nil
 		}
 
-		relPath, err := filepath.Rel(srcSessions, path)
+		relPath, err := filepath.Rel(srcBucket, path)
 		if err != nil {
 			return err
 		}
 
-		targetPath := filepath.Join(dstSessions, relPath)
+		targetPath := filepath.Join(dstBucket, relPath)
 
 		dstInfo, statErr := os.Stat(targetPath)
 		if statErr != nil {
@@ -98,8 +115,8 @@ func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 		return nil
 	})
 
-	if err != nil {
-		return nil, fmt.Errorf("error during sync walk: %w", err)
+	if walkErr != nil {
+		return nil, fmt.Errorf("error during sync walk: %w", walkErr)
 	}
 
 	return report, nil

@@ -59,7 +59,7 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to sync sessions: %w", err)
 	}
-	log.Printf("[Safe Switch] Sync complete: %d copied, %d skipped, %d conflict(s).", report.CopiedCount, report.SkippedCount, report.ConflictCount)
+	log.Printf("[Safe Switch] Sync complete: re-bucketed %s -> %s; %d copied, %d skipped, %d conflict(s).", report.SourceAccount, report.TargetAccount, report.CopiedCount, report.SkippedCount, report.ConflictCount)
 	if report.ConflictCount > 0 {
 		log.Printf("[Safe Switch Warning] %d conflict(s) left untouched (target had newer content). Review before relying on these sessions:", report.ConflictCount)
 		for _, c := range report.Conflicts {

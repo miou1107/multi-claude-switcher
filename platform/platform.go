@@ -1,6 +1,9 @@
 package platform
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 )
 
@@ -38,4 +41,33 @@ type Platform interface {
 // GetProfileSessionsDir returns the path to claude-code-sessions under a given profile path.
 func GetProfileSessionsDir(profilePath string) string {
 	return filepath.Join(profilePath, "claude-code-sessions")
+}
+
+// GetProfileConfigPath returns the path to config.json under a given profile path.
+func GetProfileConfigPath(profilePath string) string {
+	return filepath.Join(profilePath, "config.json")
+}
+
+// GetProfileAccountUUID reads the logged-in account UUID (lastKnownAccountUuid)
+// from a profile's config.json.
+//
+// This is the single most important identifier for sync: Claude Desktop's Code
+// tab enumerates sessions ONLY from claude-code-sessions/<lastKnownAccountUuid>/.
+// Copying sessions under any other bucket name is invisible to the app, so sync
+// must always target the bucket named after this UUID.
+func GetProfileAccountUUID(profilePath string) (string, error) {
+	data, err := os.ReadFile(GetProfileConfigPath(profilePath))
+	if err != nil {
+		return "", fmt.Errorf("read config.json for %s: %w", profilePath, err)
+	}
+	var cfg struct {
+		LastKnownAccountUUID string `json:"lastKnownAccountUuid"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return "", fmt.Errorf("parse config.json for %s: %w", profilePath, err)
+	}
+	if cfg.LastKnownAccountUUID == "" {
+		return "", fmt.Errorf("no lastKnownAccountUuid in %s (profile not logged in?)", GetProfileConfigPath(profilePath))
+	}
+	return cfg.LastKnownAccountUUID, nil
 }

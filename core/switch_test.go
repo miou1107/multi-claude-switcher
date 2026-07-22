@@ -92,6 +92,7 @@ func TestSafeSwitchProceedsWhenTargetIsEmpty(t *testing.T) {
 	tempDir := t.TempDir()
 
 	src := filepath.Join(tempDir, "Src")
+	writeAccountConfig(t, src, "uuid1")
 	srcSessions := filepath.Join(platform.GetProfileSessionsDir(src), "uuid1")
 	if err := os.MkdirAll(srcSessions, 0755); err != nil {
 		t.Fatal(err)
@@ -101,6 +102,7 @@ func TestSafeSwitchProceedsWhenTargetIsEmpty(t *testing.T) {
 	}
 
 	dst := filepath.Join(tempDir, "Dst") // no sessions dir at all
+	writeAccountConfig(t, dst, "uuid1")
 	bm := NewBackupManager(filepath.Join(tempDir, "backups"))
 	mp := &mockPlatform{}
 	s := NewSwitcher(mp, bm)

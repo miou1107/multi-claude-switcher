@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed (correctness)
+- **Sync is now account-aware — the switch's core actually works cross-account.**
+  `SyncSessions` previously copied buckets at their verbatim path, so switching
+  between two different accounts (a) dropped sessions under the *source* account's
+  bucket name where the target app never looks (silent no-op), and (b) dragged
+  foreign/orphaned buckets into the target, re-polluting it. It now reads the
+  source profile's own account bucket and re-homes those sessions under the
+  **target** profile's `lastKnownAccountUuid` bucket, copying only that one bucket
+  (`core/sync.go`, new `platform.GetProfileAccountUUID`). `SyncReport` now reports
+  `SourceAccount` / `TargetAccount`, surfaced by `mcs sync` and the Safe Switch log.
+  Test: `TestSyncRebucketsIntoTargetAccount`.
+
 ### Documentation
 - **Phase 0 findings corrected with live-machine evidence** (`docs/superpowers/specs/2026-07-22-probe-results.md`):
   - The Code tab enumerates sessions **only** from `claude-code-sessions/<lastKnownAccountUuid>/`; copying a session bucket under any other name is a silent failure (files on disk, empty sidebar). Sync MUST re-bucket under the *target* profile's account UUID. Confirmed by a real natural experiment on two live profiles.
