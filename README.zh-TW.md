@@ -38,7 +38,7 @@
 > Intel 都可）。解壓後直接執行，不用建置或編譯。
 >
 > **Windows — `Multi-Claude-Switcher_<版本>_windows.zip`** — 內含
-> **`mcs-tray.exe`**（工具列程式）與 **`mcs.exe`**（命令列工具）。
+> **`mcs-tray.exe`**，解壓即用的工具列程式（不用安裝）。
 
 ### macOS
 

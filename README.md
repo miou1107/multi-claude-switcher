@@ -52,7 +52,7 @@ On the [latest release](https://github.com/miou1107/multi-claude-switcher/releas
 > Intel). Unzip and run it, nothing to build or compile.
 >
 > **Windows — `Multi-Claude-Switcher_<version>_windows.zip`** — contains
-> **`mcs-tray.exe`** (the tray app) and **`mcs.exe`** (the CLI).
+> **`mcs-tray.exe`**, the ready-to-run tray app (nothing to install).
 
 ### macOS
 

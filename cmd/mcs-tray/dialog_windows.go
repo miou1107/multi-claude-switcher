@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/base64"
+	"fmt"
 	"os/exec"
 	"strings"
 	"unicode/utf16"
@@ -32,18 +33,21 @@ func psQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
-// notify shows a best-effort tray balloon. Fired detached so it never blocks the
-// caller; the short-lived PowerShell process owns the NotifyIcon lifetime.
+// notify shows a best-effort Windows toast notification. Fired detached so it
+// never blocks the caller. A toast (rather than a NotifyIcon balloon) avoids
+// adding a second tray icon and displays reliably on modern Windows; if the user
+// has notifications disabled it simply does nothing. The toast is attributed to
+// the built-in PowerShell app id so it has a valid, always-present source.
 func notify(title, text string) {
-	script := `Add-Type -AssemblyName System.Windows.Forms,System.Drawing
-$n = New-Object System.Windows.Forms.NotifyIcon
-$n.Icon = [System.Drawing.SystemIcons]::Information
-$n.Visible = $true
-$n.BalloonTipTitle = ` + psQuote(title) + `
-$n.BalloonTipText = ` + psQuote(text) + `
-$n.ShowBalloonTip(4000)
-Start-Sleep -Milliseconds 4500
-$n.Dispose()`
+	script := fmt.Sprintf(`$ErrorActionPreference = "SilentlyContinue"
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null
+$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+$n = $t.GetElementsByTagName("text")
+$n.Item(0).AppendChild($t.CreateTextNode(%s)) > $null
+$n.Item(1).AppendChild($t.CreateTextNode(%s)) > $null
+$toast = [Windows.UI.Notifications.ToastNotification]::new($t)
+$appId = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)`, psQuote(title), psQuote(text))
 	_ = exec.Command("powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", psEnc(script)).Start()
 }
 

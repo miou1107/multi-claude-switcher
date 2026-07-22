@@ -79,16 +79,18 @@ jobs:
           $v = '${{ github.ref_name }}'.TrimStart('v')
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Build Windows binaries
+      - name: Build Windows tray binary
         shell: pwsh
         # systray is pure-Go on Windows, so no C toolchain / CGO is needed.
+        # -H=windowsgui makes it a GUI-subsystem exe, so it runs from the tray
+        # with no console window. Only the tray app ships (CLI omitted, matching
+        # the macOS release which ships just the app).
         env:
           CGO_ENABLED: '0'
-          LDFLAGS: '-X github.com/miou1107/multi-claude-switcher/core.Version=${{ steps.ver.outputs.version }}'
+          LDFLAGS: '-H=windowsgui -X github.com/miou1107/multi-claude-switcher/core.Version=${{ steps.ver.outputs.version }}'
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           go build -ldflags "$env:LDFLAGS" -o dist/mcs-tray.exe ./cmd/mcs-tray
-          go build -ldflags "$env:LDFLAGS" -o dist/mcs.exe ./cmd/mcs
 
       - name: Package Windows zip
         shell: pwsh
@@ -97,7 +99,7 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           $zip = "dist/Multi-Claude-Switcher_$($env:VERSION)_windows.zip"
-          Compress-Archive -Path dist/mcs-tray.exe, dist/mcs.exe -DestinationPath $zip -Force
+          Compress-Archive -Path dist/mcs-tray.exe -DestinationPath $zip -Force
           Get-ChildItem dist
 
       - name: Publish GitHub Release
