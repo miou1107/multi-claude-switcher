@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [0.7.2] - 2026-07-23
+
+### Fixed
+- **Menu-bar icon was squished.** systray forces the tray image to a 16x16
+  square (`[image setSize:NSMakeSize(16, 16)]`), so the 0.7.1 template — a
+  non-square 69x44 — got compressed horizontally and the eyes looked distorted.
+  The template now renders on a square canvas (eyes centered with vertical
+  padding), so it displays at the correct aspect
+  (`scripts/gen-icons/main.go` `renderTemplate`, `cmd/mcs-tray/assets/icon.png`).
+
 ## [0.7.1] - 2026-07-23
 
 ### Changed
