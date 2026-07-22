@@ -21,7 +21,9 @@ var (
 // LoginItemEnabled reports whether the start-at-login Run value is present.
 func LoginItemEnabled() bool {
 	// `reg query` exits non-zero when the value (or key) does not exist.
-	return exec.Command("reg", "query", loginRunKey, "/v", loginRunValue).Run() == nil
+	cmd := exec.Command("reg", "query", loginRunKey, "/v", loginRunValue)
+	hideConsole(cmd)
+	return cmd.Run() == nil
 }
 
 // EnableLoginItem writes a Run value pointing at exePath so Windows launches it
@@ -33,8 +35,10 @@ func EnableLoginItem(exePath string) error {
 		return fmt.Errorf("cannot enable login item: empty executable path")
 	}
 	data := `"` + exePath + `"`
-	out, err := exec.Command("reg", "add", loginRunKey,
-		"/v", loginRunValue, "/t", "REG_SZ", "/d", data, "/f").CombinedOutput()
+	cmd := exec.Command("reg", "add", loginRunKey,
+		"/v", loginRunValue, "/t", "REG_SZ", "/d", data, "/f")
+	hideConsole(cmd)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("enable login item: %v: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -47,7 +51,9 @@ func DisableLoginItem() error {
 	if !LoginItemEnabled() {
 		return nil
 	}
-	out, err := exec.Command("reg", "delete", loginRunKey, "/v", loginRunValue, "/f").CombinedOutput()
+	cmd := exec.Command("reg", "delete", loginRunKey, "/v", loginRunValue, "/f")
+	hideConsole(cmd)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("disable login item: %v: %s", err, strings.TrimSpace(string(out)))
 	}

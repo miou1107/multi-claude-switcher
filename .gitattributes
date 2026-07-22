@@ -1,0 +1,8 @@
+# Binary assets — never apply line-ending (CRLF) conversion or text diffing.
+# The .syso is a compiled Windows resource object linked into mcs-tray.exe;
+# any newline "normalization" would corrupt it and break the build.
+*.syso binary
+*.ico  binary
+*.icns binary
+*.png  binary
+*.zip  binary

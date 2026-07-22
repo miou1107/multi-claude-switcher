@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [0.7.7] - 2026-07-23
+
+### Fixed
+- **Windows: PowerShell windows flashed on screen periodically.** The tray is a
+  GUI process with no console of its own, so every console helper it spawned —
+  the 4-second running-profile poll's `powershell`, plus `taskkill` / `tasklist`
+  / `reg` — popped its own black window. Each is now launched with
+  `CREATE_NO_WINDOW` (`platform/hidewindow_windows.go`,
+  `core/hidewindow_windows.go`, `cmd/mcs-tray/hidewindow_windows.go`).
+- **Windows: the app showed a generic Start Menu / taskbar / Explorer icon.**
+  `mcs-tray.exe` carried no icon resource (`SetIcon` only themes the live tray
+  glyph, not the file). A Windows icon resource generated from `icon.ico` is now
+  compiled into the executable (`cmd/mcs-tray/rsrc_windows_amd64.syso`).
+
+### Changed
+- **Windows releases ship only the installer.** The `_windows.zip` is dropped, so
+  `Multi-Claude-Switcher_<version>_windows_setup.exe` is the single Windows
+  download. When a newer version is released the app notifies you, and a manual
+  "Check for Updates" opens the download page; running the new installer upgrades
+  in place. macOS keeps its silent binary-swap self-update. The self-updater is
+  split into `cmd/mcs-tray/update_install_{nonwindows,windows}.go`
+  (`cmd/mcs-tray/update.go`, `.github/workflows/release.yml`).
+
 ## [0.7.6] - 2026-07-23
 
 ### Added

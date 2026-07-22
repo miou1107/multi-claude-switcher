@@ -73,8 +73,10 @@ app **updates itself** from GitHub Releases, so you only install once.
 2. Launch **Multi-Claude Switcher** from the Start Menu. It appears as a
    pair-of-eyes icon in the system tray (bottom-right; you may need the "show
    hidden icons" arrow). Click it to switch profiles; a checkmark marks the one in
-   use. Enable **Start at Login** from the menu to launch it automatically. It
-   **updates itself** from GitHub Releases.
+   use. Enable **Start at Login** from the menu to launch it automatically. When a
+   new version is released it notifies you; use **Check for Updates** to open the
+   download page, then run the new installer to upgrade (it installs over the old
+   version).
 
 > **Requires the standalone Claude Desktop build.** Install Claude Desktop from
 > [claude.com/download](https://claude.com/download) (the regular per-user

@@ -6,8 +6,8 @@
 ;   dist\Multi-Claude-Switcher_<version>_windows_setup.exe
 ;
 ; Per-user install (PrivilegesRequired=lowest): installs under the user's
-; %LOCALAPPDATA%\Programs, with no UAC / administrator prompt. The self-updater
-; still swaps the exe in place, so installed copies keep auto-updating.
+; %LOCALAPPDATA%\Programs, with no UAC / administrator prompt. Upgrades are done
+; by running a newer installer, which replaces the exe in place (same AppId).
 
 #define MyAppName "Multi-Claude Switcher"
 #define MyAppExeName "mcs-tray.exe"
