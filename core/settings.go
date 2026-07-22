@@ -21,8 +21,8 @@ var settingsPath = func() string {
 }
 
 type settings struct {
-	AutoAlignOnSwitch         bool `json:"autoAlignOnSwitch"`
-	AutoAlignWarningDismissed bool `json:"autoAlignWarningDismissed"`
+	AutoSyncOnSwitch         bool `json:"autoSyncOnSwitch"`
+	AutoSyncWarningDismissed bool `json:"autoSyncWarningDismissed"`
 }
 
 func loadSettingsLocked() settings {
@@ -55,34 +55,34 @@ func saveSettingsLocked(s settings) error {
 	return nil
 }
 
-// AutoAlignOnSwitch reports whether switching should bidirectionally sync.
-func AutoAlignOnSwitch() bool {
+// AutoSyncOnSwitch reports whether switching should bidirectionally sync.
+func AutoSyncOnSwitch() bool {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
-	return loadSettingsLocked().AutoAlignOnSwitch
+	return loadSettingsLocked().AutoSyncOnSwitch
 }
 
-// SetAutoAlignOnSwitch persists the auto-align-on-switch toggle.
-func SetAutoAlignOnSwitch(v bool) error {
+// SetAutoSyncOnSwitch persists the auto sync-on-switch toggle.
+func SetAutoSyncOnSwitch(v bool) error {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
 	s := loadSettingsLocked()
-	s.AutoAlignOnSwitch = v
+	s.AutoSyncOnSwitch = v
 	return saveSettingsLocked(s)
 }
 
-// AutoAlignWarningDismissed reports whether the enable-time warning is suppressed.
-func AutoAlignWarningDismissed() bool {
+// AutoSyncWarningDismissed reports whether the enable-time warning is suppressed.
+func AutoSyncWarningDismissed() bool {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
-	return loadSettingsLocked().AutoAlignWarningDismissed
+	return loadSettingsLocked().AutoSyncWarningDismissed
 }
 
-// SetAutoAlignWarningDismissed persists the "don't ask again" choice.
-func SetAutoAlignWarningDismissed(v bool) error {
+// SetAutoSyncWarningDismissed persists the "don't ask again" choice.
+func SetAutoSyncWarningDismissed(v bool) error {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
 	s := loadSettingsLocked()
-	s.AutoAlignWarningDismissed = v
+	s.AutoSyncWarningDismissed = v
 	return saveSettingsLocked(s)
 }

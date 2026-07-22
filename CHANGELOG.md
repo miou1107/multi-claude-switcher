@@ -8,13 +8,13 @@
   up the target, syncs (re-bucketed under the target account), and reopens the
   account you were already on (`core/align.go` `Switcher.ManualAlign`,
   `cmd/mcs-tray/main.go`).
-- **"Auto-Align on Switch" toggle (default OFF):** when on, every switch
+- **"Auto Sync on Switch" toggle (default OFF):** when on, every switch
   bidirectionally unions both accounts' Code sessions so they converge to the
   same history; safe because both profiles are closed during the switch window.
   Enabling shows a one-time warning (with an "Enable, don't ask again" option),
   since it merges one account's conversations into the other
   (`core/settings.go`, `core/sync.go` `SyncBidirectional`,
-  `cmd/mcs-tray/autoalign.go`).
+  `cmd/mcs-tray/autosync.go`).
 - **Single-instance guard:** launching a second tray while one is already running
   now shows an "already running" notice and quietly exits, so the menu bar never
   gets duplicate icons/updaters. The self-update relaunch is exempt
@@ -23,7 +23,7 @@
 ### Changed
 - **Switching no longer auto-syncs by default.** Previously every switch ran a
   one-way session sync; now a switch moves **no** session data unless
-  "Auto-Align on Switch" is enabled. This makes cross-account conversation
+  "Auto Sync on Switch" is enabled. This makes cross-account conversation
   merging an explicit opt-in (`core/switch.go`).
 
 ### Notes

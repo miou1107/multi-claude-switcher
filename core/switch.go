@@ -23,9 +23,9 @@ func NewSwitcher(p platform.Platform, bm *BackupManager) *Switcher {
 }
 
 // SafeSwitch closes the running app, optionally aligns sessions, then launches
-// the target. Data is moved ONLY when auto-align is ON and both profiles are
+// the target. Data is moved ONLY when auto sync is ON and both profiles are
 // logged in: then it backs up BOTH profiles (bidirectional align writes both)
-// and unions their sessions. With auto-align OFF (default) the switch moves no
+// and unions their sessions. With auto sync OFF (default) the switch moves no
 // data at all — a pure account switch.
 func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 	log.Printf("[Safe Switch] Starting switch from %s to %s...", srcProfilePath, dstProfilePath)
@@ -43,11 +43,11 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 	}
 
 	// Step 2: align only when the user opted in AND both profiles are logged in.
-	if AutoAlignOnSwitch() {
+	if AutoSyncOnSwitch() {
 		_, srcErr := platform.GetProfileAccountUUID(srcProfilePath)
 		_, dstErr := platform.GetProfileAccountUUID(dstProfilePath)
 		if srcErr != nil || dstErr != nil {
-			log.Printf("[Safe Switch] Auto-align on, but a profile has no account yet (src: %v, dst: %v). Skipping align.", srcErr, dstErr)
+			log.Printf("[Safe Switch] Auto sync on, but a profile has no account yet (src: %v, dst: %v). Skipping align.", srcErr, dstErr)
 		} else {
 			// Bidirectional align writes into BOTH profiles, so back up both.
 			if _, err := s.BackupManager.BackupIfHasData(srcProfilePath); err != nil {
@@ -56,13 +56,13 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 			if _, err := s.BackupManager.BackupIfHasData(dstProfilePath); err != nil {
 				return fmt.Errorf("aborting switch: failed to back up target profile (refusing to overwrite without a backup): %w", err)
 			}
-			log.Printf("[Safe Switch] Auto-align on: unioning sessions between both accounts...")
+			log.Printf("[Safe Switch] Auto sync on: unioning sessions between both accounts...")
 			if err := SyncBidirectional(srcProfilePath, dstProfilePath); err != nil {
-				return fmt.Errorf("failed to auto-align sessions: %w", err)
+				return fmt.Errorf("failed to auto sync sessions: %w", err)
 			}
 		}
 	} else {
-		log.Printf("[Safe Switch] Auto-align off: pure switch, no session data moved.")
+		log.Printf("[Safe Switch] Auto sync off: pure switch, no session data moved.")
 	}
 
 	// Step 3: launch the target profile.

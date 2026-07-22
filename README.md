@@ -8,14 +8,14 @@ Seamless Multi-Account Switching & Sync for Claude Desktop (macOS & Windows).
 ## 📌 Features
 
 - **Safe Switch**: Switch between multiple Claude Desktop profiles (`~/Library/Application Support/Claude*`) without re-authenticating or losing conversation sidebar history.
-- **Automated Backup**: Automatic timestamped snapshots of `claude-code-sessions` before any operation that writes sessions — a manual align, `mcs sync`, or a switch with Auto-Align on. A plain switch (the default, Auto-Align off) never touches session data, so it takes no backup. If the backup fails, the write aborts rather than overwriting unprotected data.
+- **Automated Backup**: Automatic timestamped snapshots of `claude-code-sessions` before any operation that writes sessions — a manual align, `mcs sync`, or a switch with Auto Sync on. A plain switch (the default, Auto Sync off) never touches session data, so it takes no backup. If the backup fails, the write aborts rather than overwriting unprotected data.
 - **Conflict-safe Sync**: When both profiles changed the same session, the newer target copy is preserved and reported as a conflict instead of being silently overwritten.
 - **Probe Validation Tool**: Includes `scripts/probe/probe_runner.py` for inspecting profiles and validating local session synchronization.
 
 ## 🔄 Syncing sessions between accounts
 
 Switching accounts and syncing sessions are two separate actions — a plain
-switch never touches session data unless you turn on auto-align.
+switch never touches session data unless you turn on auto sync.
 
 - **Plain switch (default):** clicking a profile in the menu just closes
   Claude Desktop and reopens it on that profile. No session data moves. Each
@@ -25,7 +25,7 @@ switch never touches session data unless you turn on auto-align.
   **without switching which account you're on**. It closes Claude Desktop,
   backs up the target account, copies the sessions over, and reopens the
   account you were already using.
-- **"Auto-Align on Switch" toggle (default OFF):** turn this on and every
+- **"Auto Sync on Switch" toggle (default OFF):** turn this on and every
   switch bidirectionally unions both accounts' Code sessions, so the two
   accounts converge to the same conversation history over time. Because
   turning it on merges one account's conversations into the other, enabling it
