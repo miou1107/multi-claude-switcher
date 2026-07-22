@@ -142,5 +142,5 @@ Validation checklist (incl. codex adversarial suggestions):
 
 ## 9. Repo & Naming
 
-- Repo: `github.com/miou1107/multi-claude-switcher` (public); local at `/Users/vincentkao/SourceCode/multi-claude` (standalone git repo, `main`)
+- Repo: `github.com/miou1107/multi-claude-switcher` (public); local at `/Users/vincentkao/SourceCode/multi-claude-switcher` (standalone git repo, `main`)
 - Product name: `multi-claude-switcher`
