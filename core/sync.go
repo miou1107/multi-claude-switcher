@@ -36,7 +36,11 @@ type SyncReport struct {
 // Conflict handling: to avoid silently destroying data, when the target already
 // holds a DIFFERENT version of a file, the source only wins if it is strictly
 // newer (mtime). If the target's copy is newer or same-age, the file is left
-// untouched and recorded as a conflict for the caller to resolve.
+// untouched and recorded as a conflict for the caller to resolve. (After
+// re-bucketing, two accounts could in principle hold different content at the
+// same bucket-relative path; that resolves through this same newer-wins/conflict
+// rule. In practice local_<UUID>.json names are session-scoped, so a genuine
+// collision is effectively impossible.)
 func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 	srcAccount, err := platform.GetProfileAccountUUID(srcProfilePath)
 	if err != nil {

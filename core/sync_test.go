@@ -74,6 +74,43 @@ func platformSessions(profile string) string {
 	return filepath.Join(profile, "claude-code-sessions")
 }
 
+// TestSyncErrorsWhenNotLoggedIn verifies sync fails clearly (rather than
+// silently doing the wrong thing) when a profile has no account UUID.
+func TestSyncErrorsWhenNotLoggedIn(t *testing.T) {
+	tempDir := t.TempDir()
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfig(t, src, "uuid1")
+	// dst has no config.json.
+	writeSessionFile(t, src, filepath.Join("uuid1", "local_a.json"), `{"v":1}`, time.Now())
+
+	if _, err := SyncSessions(src, dst); err == nil {
+		t.Fatal("expected SyncSessions to error when the target is not logged in")
+	}
+}
+
+// TestSyncNoOpWhenSourceBucketMissing verifies that when the source account has
+// no local sessions, sync is a clean no-op: no error, nothing copied, and no
+// empty bucket created in the target.
+func TestSyncNoOpWhenSourceBucketMissing(t *testing.T) {
+	tempDir := t.TempDir()
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfig(t, src, "src-uuid") // logged in, but no sessions under src-uuid
+	writeAccountConfig(t, dst, "dst-uuid")
+
+	report, err := SyncSessions(src, dst)
+	if err != nil {
+		t.Fatalf("expected no-op, got error: %v", err)
+	}
+	if report.CopiedCount != 0 || report.ConflictCount != 0 || report.SkippedCount != 0 {
+		t.Errorf("expected empty report, got %+v", report)
+	}
+	if _, err := os.Stat(filepath.Join(platformSessions(dst), "dst-uuid")); err == nil {
+		t.Error("no-op sync should not have created an empty target bucket")
+	}
+}
+
 // TestSyncRebucketsIntoTargetAccount is the core cross-account guarantee: when
 // source and target are logged into DIFFERENT accounts, the source's sessions
 // must be re-homed under the TARGET account's bucket (where the app will read

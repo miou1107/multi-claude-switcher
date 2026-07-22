@@ -53,17 +53,26 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 		log.Printf("[Safe Switch] Backup created at: %s", backupPath)
 	}
 
-	// Step 3: Sync session indices from source to destination
-	log.Printf("[Safe Switch] Syncing sessions from source to target...")
-	report, err := SyncSessions(srcProfilePath, dstProfilePath)
-	if err != nil {
-		return fmt.Errorf("failed to sync sessions: %w", err)
-	}
-	log.Printf("[Safe Switch] Sync complete: re-bucketed %s -> %s; %d copied, %d skipped, %d conflict(s).", report.SourceAccount, report.TargetAccount, report.CopiedCount, report.SkippedCount, report.ConflictCount)
-	if report.ConflictCount > 0 {
-		log.Printf("[Safe Switch Warning] %d conflict(s) left untouched (target had newer content). Review before relying on these sessions:", report.ConflictCount)
-		for _, c := range report.Conflicts {
-			log.Printf("    conflict: %s", c)
+	// Step 3: Sync session indices from source to destination, re-bucketed under
+	// the target account. If either profile isn't logged in yet (no account
+	// UUID), there is nothing meaningful to re-bucket — skip the sync but still
+	// launch, so `switch` can be used to open a fresh profile in order to log in.
+	_, srcAcctErr := platform.GetProfileAccountUUID(srcProfilePath)
+	_, dstAcctErr := platform.GetProfileAccountUUID(dstProfilePath)
+	if srcAcctErr != nil || dstAcctErr != nil {
+		log.Printf("[Safe Switch] Skipping sync — a profile has no logged-in account yet (src: %v, dst: %v). Launching target only.", srcAcctErr, dstAcctErr)
+	} else {
+		log.Printf("[Safe Switch] Syncing sessions from source to target...")
+		report, err := SyncSessions(srcProfilePath, dstProfilePath)
+		if err != nil {
+			return fmt.Errorf("failed to sync sessions: %w", err)
+		}
+		log.Printf("[Safe Switch] Sync complete: re-bucketed %s -> %s; %d copied, %d skipped, %d conflict(s).", report.SourceAccount, report.TargetAccount, report.CopiedCount, report.SkippedCount, report.ConflictCount)
+		if report.ConflictCount > 0 {
+			log.Printf("[Safe Switch Warning] %d conflict(s) left untouched (target had newer content). Review before relying on these sessions:", report.ConflictCount)
+			for _, c := range report.Conflicts {
+				log.Printf("    conflict: %s", c)
+			}
 		}
 	}
 
