@@ -69,6 +69,27 @@ func onReady() {
 
 	systray.AddSeparator()
 
+	// Manual align: copy one account's sessions into another WITHOUT switching.
+	mSync := systray.AddMenuItem("Sync sessions →", "Copy one account's sessions into another (without switching accounts)")
+	type alignPair struct{ src, dst *platform.ProfileInfo }
+	alignItems := map[*systray.MenuItem]alignPair{}
+	var shown []*platform.ProfileInfo
+	for _, p := range profiles {
+		if p.HasSessionsDir || p.Name == "Claude" || p.Name == "Claude_Profile2" {
+			shown = append(shown, p)
+		}
+	}
+	for _, a := range shown {
+		for _, b := range shown {
+			if a.Path == b.Path {
+				continue
+			}
+			label := fmt.Sprintf("From %s → To %s", core.DisplayName(a.Name), core.DisplayName(b.Name))
+			child := mSync.AddSubMenuItem(label, "Copy the first account's sessions into the second")
+			alignItems[child] = alignPair{src: a, dst: b}
+		}
+	}
+
 	// Actions section
 	mUpdate := systray.AddMenuItem("Check for Updates…", "Check GitHub for a newer version and update")
 	mRename := systray.AddMenuItem("Rename a Profile…", "Give a profile a friendlier display name")
@@ -106,6 +127,25 @@ func onReady() {
 				}
 			}
 		}(item, prof)
+	}
+
+	for item, pair := range alignItems {
+		go func(m *systray.MenuItem, pr alignPair) {
+			for range m.ClickedCh {
+				if !confirmAlign(core.DisplayName(pr.src.Name), core.DisplayName(pr.dst.Name)) {
+					log.Printf("Align %s -> %s cancelled by user.", pr.src.Name, pr.dst.Name)
+					continue
+				}
+				report, err := switcher.ManualAlign(pr.src.Path, pr.dst.Path)
+				if err != nil {
+					log.Printf("Manual align error: %v", err)
+					notify("Align failed", err.Error())
+					continue
+				}
+				log.Printf("Align %s -> %s: %d copied, %d skipped, %d conflict(s).", pr.src.Name, pr.dst.Name, report.CopiedCount, report.SkippedCount, report.ConflictCount)
+				notify("Align complete", fmt.Sprintf("%d copied, %d skipped, %d conflict(s).", report.CopiedCount, report.SkippedCount, report.ConflictCount))
+			}
+		}(item, pair)
 	}
 
 	// Mark the currently-active profile now, and keep the marker fresh even if
@@ -320,6 +360,14 @@ return text returned of r`, osaQuote(prompt), osaQuote(defaultAnswer))
 func confirmSwitch(targetName string) bool {
 	msg := fmt.Sprintf("Switch to %q? Claude Desktop will be closed and reopened with this profile.", targetName)
 	script := fmt.Sprintf(`display dialog %s buttons {"Cancel", "Switch"} default button "Switch" cancel button "Cancel" with title "Multi-Claude Switcher"`, osaQuote(msg))
+	return exec.Command("osascript", "-e", script).Run() == nil
+}
+
+// confirmAlign asks before a manual align, which closes and reopens Claude
+// Desktop on the SAME account (it copies data, it does not switch accounts).
+func confirmAlign(src, dst string) bool {
+	msg := fmt.Sprintf("Copy %q's sessions into %q? Claude Desktop will be closed, synced, and reopened on the account you're using now.", src, dst)
+	script := fmt.Sprintf(`display dialog %s buttons {"Cancel", "Sync"} default button "Sync" cancel button "Cancel" with title "Multi-Claude Switcher"`, osaQuote(msg))
 	return exec.Command("osascript", "-e", script).Run() == nil
 }
 
