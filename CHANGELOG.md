@@ -16,6 +16,12 @@
 - **Atomic restore**: `RestoreBackup` stages into a temp dir and swaps in only on
   success, so a mid-restore failure no longer half-destroys the target
   (`core/backup.go`).
+- **Restore is reversible**: `RestoreBackup` now snapshots the current target
+  before overwriting it, and aborts if that snapshot fails. Restoring the wrong
+  backup is no longer a one-way loss of whatever the target held (`core/backup.go`).
+- **Restore refuses to run while Claude Desktop is open**: `mcs restore`
+  overwrites the live session index, so it now guards on `IsAppRunning` like
+  `mcs sync` (`cmd/mcs/main.go`).
 - **Standalone `mcs sync` is now safe**: refuses to run while Claude Desktop is
   open (avoids writing into a live-writing profile), and aborts on a genuine
   backup failure instead of silently overwriting (`cmd/mcs/main.go`).

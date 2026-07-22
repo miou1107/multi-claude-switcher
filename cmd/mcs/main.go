@@ -148,6 +148,15 @@ func main() {
 		}
 		backupPath := os.Args[2]
 		dst := resolveProfilePath(plat, os.Args[3])
+
+		// Restore overwrites the destination's live session index. Refuse while
+		// Claude Desktop is open: renaming the sessions dir out from under a
+		// live-writing app can corrupt it (same guard as `mcs sync`).
+		if running, _, _ := plat.IsAppRunning(); running {
+			fmt.Println("Claude Desktop is running. Quit it first before restoring (restore overwrites the live session index).")
+			os.Exit(1)
+		}
+
 		if err := bm.RestoreBackup(backupPath, dst); err != nil {
 			fmt.Printf("Restore failed: %v\n", err)
 			os.Exit(1)
