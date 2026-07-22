@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [0.7.5] - 2026-07-23
+
+### Fixed
+- **Windows tray app opened a console window and stayed attached to it.** It is
+  now built with `-H=windowsgui`, so it runs from the tray with no console window
+  (`.github/workflows/release.yml`).
+- **Windows "Check for Updates" left a stray tray icon and showed no message.**
+  The NotifyIcon-balloon approach is replaced with a proper Windows toast
+  notification, which adds no extra tray icon (`cmd/mcs-tray/dialog_windows.go`
+  `notify`).
+
+### Changed
+- **The Windows zip now contains only `mcs-tray.exe`.** The `mcs.exe` CLI is no
+  longer bundled, matching the macOS release which ships just the app.
+
 ## [0.7.4] - 2026-07-23
 
 ### Fixed
