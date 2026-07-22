@@ -82,6 +82,15 @@ func (bm *BackupManager) RestoreBackup(backupPath, targetProfilePath string) err
 
 	targetSessionsDir := platform.GetProfileSessionsDir(targetProfilePath)
 
+	// A successful restore overwrites (and then discards) whatever the target
+	// currently holds. Snapshot the current target first so the restore is
+	// itself reversible — restoring the wrong backup must not be a one-way loss.
+	// Abort if the snapshot fails: never discard live data without a recoverable
+	// backup (same invariant as switch/sync).
+	if _, err := bm.BackupIfHasData(targetProfilePath); err != nil {
+		return fmt.Errorf("refusing to restore: failed to back up the current target first: %w", err)
+	}
+
 	// Stage the restore into a temp dir first. A mid-copy failure (disk full,
 	// permissions) then leaves the existing target untouched instead of half
 	// destroyed.

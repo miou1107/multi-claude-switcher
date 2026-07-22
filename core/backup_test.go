@@ -78,6 +78,70 @@ func TestRestoreInvalidBackupPreservesTarget(t *testing.T) {
 	}
 }
 
+// TestRestoreBacksUpCurrentTargetBeforeSwap verifies that a SUCCESSFUL restore
+// is itself reversible: before overwriting the target, RestoreBackup snapshots
+// the current target into the backup root, so restoring the wrong backup is not
+// a one-way loss of the data that was there.
+func TestRestoreBacksUpCurrentTargetBeforeSwap(t *testing.T) {
+	tempDir := t.TempDir()
+	backupRoot := filepath.Join(tempDir, "backups")
+	bm := NewBackupManager(backupRoot)
+
+	// A valid backup holding the "new" content we will restore.
+	src := filepath.Join(tempDir, "SrcProfile")
+	srcSessions := filepath.Join(src, "claude-code-sessions", "uuid1")
+	if err := os.MkdirAll(srcSessions, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcSessions, "local_a.json"), []byte(`{"v":"new"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	backupPath, err := bm.CreateBackup(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Target already holds different, "old" content that must remain recoverable.
+	target := filepath.Join(tempDir, "Target")
+	targetSessions := filepath.Join(target, "claude-code-sessions", "uuid1")
+	if err := os.MkdirAll(targetSessions, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetSessions, "local_a.json"), []byte(`{"v":"old"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := bm.RestoreBackup(backupPath, target); err != nil {
+		t.Fatalf("RestoreBackup failed: %v", err)
+	}
+
+	// Target was overwritten with the restored "new" content.
+	got, _ := os.ReadFile(filepath.Join(targetSessions, "local_a.json"))
+	if string(got) != `{"v":"new"}` {
+		t.Fatalf("restore did not apply: target content = %q", got)
+	}
+
+	// A backup of the pre-restore target ("old") must now exist in the backup
+	// root — i.e. the restore did not irreversibly discard the previous data.
+	backups, err := bm.ListBackups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundOld := false
+	for _, b := range backups {
+		if b == backupPath {
+			continue // this is the "new" source backup, not the pre-restore one
+		}
+		data, rerr := os.ReadFile(filepath.Join(b, "claude-code-sessions", "uuid1", "local_a.json"))
+		if rerr == nil && string(data) == `{"v":"old"}` {
+			foundOld = true
+		}
+	}
+	if !foundOld {
+		t.Error("successful restore left no recoverable backup of the pre-restore target data")
+	}
+}
+
 // TestRestoreStagingFailurePreservesTarget exercises the atomic-restore path:
 // with a VALID backup, if staging the restore fails, the existing target must
 // be left untouched (the fix stages into a temp dir before swapping).
