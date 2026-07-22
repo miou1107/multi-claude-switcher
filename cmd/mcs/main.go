@@ -9,10 +9,8 @@ import (
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
 
-const Version = "0.1.0"
-
 func printUsage() {
-	fmt.Printf("multi-claude-switcher (mcs) CLI v%s\n", Version)
+	fmt.Printf("multi-claude-switcher (mcs) CLI v%s\n", core.Version)
 	fmt.Println("\nUsage:")
 	fmt.Println("  mcs status                     Show detected profiles and running status")
 	fmt.Println("  mcs backup [ProfileName]       Backup sessions for a profile")
@@ -98,12 +96,37 @@ func main() {
 		src := resolveProfilePath(plat, os.Args[2])
 		dst := resolveProfilePath(plat, os.Args[3])
 
+		// Refuse to write while Claude is running: syncing into (or reading
+		// from) a live-writing profile can corrupt the shared index. Use
+		// `mcs switch` for the close-then-sync flow instead.
+		if running, _, _ := plat.IsAppRunning(); running {
+			fmt.Println("Claude Desktop is running. Quit it first, or use `mcs switch` which closes it safely.")
+			os.Exit(1)
+		}
+
+		// Back up the destination first: sync can overwrite target files.
+		// Abort on a genuine backup failure so we never overwrite unprotected.
+		backupPath, berr := bm.BackupIfHasData(dst)
+		if berr != nil {
+			fmt.Printf("Aborting sync: failed to back up target (refusing to overwrite without a backup): %v\n", berr)
+			os.Exit(1)
+		}
+		if backupPath != "" {
+			fmt.Printf("Backed up target before sync: %s\n", backupPath)
+		}
+
 		report, err := core.SyncSessions(src, dst)
 		if err != nil {
 			fmt.Printf("Sync failed: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Sync complete! Copied: %d, Skipped: %d\n", report.CopiedCount, report.SkippedCount)
+		fmt.Printf("Sync complete! Copied: %d, Skipped: %d, Conflicts: %d\n", report.CopiedCount, report.SkippedCount, report.ConflictCount)
+		if report.ConflictCount > 0 {
+			fmt.Printf("⚠️  %d file(s) left untouched because the target had newer content:\n", report.ConflictCount)
+			for _, c := range report.Conflicts {
+				fmt.Printf("   - %s\n", c)
+			}
+		}
 
 	case "switch":
 		if len(os.Args) < 4 {

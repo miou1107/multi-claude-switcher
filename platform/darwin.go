@@ -122,7 +122,65 @@ func (d *DarwinPlatform) TerminateApp() error {
 		_ = exec.Command("pkill", "-9", "-f", "Claude.app").Run()
 		time.Sleep(500 * time.Millisecond)
 	}
+
+	// Confirm the app is actually gone. Returning success while a process is
+	// still holding the profile would let the caller sync into a live-writing
+	// profile and corrupt the shared index.
+	stillRunning, _, err = d.IsAppRunning()
+	if err != nil {
+		return err
+	}
+	if stillRunning {
+		return fmt.Errorf("failed to terminate Claude Desktop: process still running after force kill")
+	}
 	return nil
+}
+
+// DetectRunningProfile returns the --user-data-dir path of the running Claude
+// Desktop process. Profile paths routinely contain spaces (the default is
+// ".../Application Support/Claude"), and `ps` renders args space-joined without
+// quoting, so we cannot tokenize the command line on spaces. Instead we match
+// against the known profile paths and require an argument boundary after the
+// match, so ".../Claude" never matches ".../Claude_Profile2".
+func (d *DarwinPlatform) DetectRunningProfile() (string, error) {
+	running, procs, err := d.IsAppRunning()
+	if err != nil {
+		return "", err
+	}
+	if !running {
+		return "", nil
+	}
+	profiles, err := d.FindProfiles()
+	if err != nil {
+		return "", err
+	}
+	paths := make([]string, 0, len(profiles))
+	for _, p := range profiles {
+		paths = append(paths, p.Path)
+	}
+	return matchProfileInProcs(procs, paths), nil
+}
+
+// matchProfileInProcs returns the first known profile path that appears as a
+// --user-data-dir=<path> argument in any process line, requiring an argument
+// boundary (space or end-of-line) after the path so ".../Claude" does not match
+// ".../Claude_Profile2". Pure function to keep the space-handling logic tested.
+func matchProfileInProcs(procs, profilePaths []string) string {
+	const flag = "--user-data-dir="
+	for _, line := range procs {
+		for _, path := range profilePaths {
+			needle := flag + path
+			idx := strings.Index(line, needle)
+			if idx < 0 {
+				continue
+			}
+			after := idx + len(needle)
+			if after == len(line) || line[after] == ' ' {
+				return path
+			}
+		}
+	}
+	return ""
 }
 
 func (d *DarwinPlatform) LaunchProfile(profilePath string) error {

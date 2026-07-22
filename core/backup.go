@@ -44,6 +44,19 @@ func (bm *BackupManager) CreateBackup(profilePath string) (string, error) {
 	return backupDir, nil
 }
 
+// BackupIfHasData backs up the profile only when it actually holds sessions.
+// It returns ("", nil) when there is nothing to back up (no sessions dir), the
+// backup path on success, and ("", err) on a genuine backup failure. Callers
+// that are about to overwrite the profile MUST abort on a non-nil error so real
+// data is never overwritten without a backup.
+func (bm *BackupManager) BackupIfHasData(profilePath string) (string, error) {
+	sessionsDir := platform.GetProfileSessionsDir(profilePath)
+	if fi, err := os.Stat(sessionsDir); err != nil || !fi.IsDir() {
+		return "", nil // nothing to lose
+	}
+	return bm.CreateBackup(profilePath)
+}
+
 func (bm *BackupManager) ListBackups() ([]string, error) {
 	if _, err := os.Stat(bm.BackupRootDir); os.IsNotExist(err) {
 		return nil, nil
@@ -68,9 +81,34 @@ func (bm *BackupManager) RestoreBackup(backupPath, targetProfilePath string) err
 	}
 
 	targetSessionsDir := platform.GetProfileSessionsDir(targetProfilePath)
-	// Remove existing target sessions dir and replace with backup copy
-	_ = os.RemoveAll(targetSessionsDir)
-	return copyDir(backupSessionsDir, targetSessionsDir)
+
+	// Stage the restore into a temp dir first. A mid-copy failure (disk full,
+	// permissions) then leaves the existing target untouched instead of half
+	// destroyed.
+	tmpDir := targetSessionsDir + ".restoring"
+	_ = os.RemoveAll(tmpDir)
+	if err := copyDir(backupSessionsDir, tmpDir); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("failed to stage restore: %w", err)
+	}
+
+	// Move the current target aside, then swap in the fully-staged copy. If the
+	// final swap fails, roll the original back into place.
+	oldDir := targetSessionsDir + ".old"
+	_ = os.RemoveAll(oldDir)
+	if _, err := os.Stat(targetSessionsDir); err == nil {
+		if err := os.Rename(targetSessionsDir, oldDir); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return fmt.Errorf("failed to move current target aside: %w", err)
+		}
+	}
+	if err := os.Rename(tmpDir, targetSessionsDir); err != nil {
+		_ = os.Rename(oldDir, targetSessionsDir) // best-effort rollback
+		_ = os.RemoveAll(tmpDir)                 // don't leak the staged copy
+		return fmt.Errorf("failed to swap in restored sessions: %w", err)
+	}
+	_ = os.RemoveAll(oldDir)
+	return nil
 }
 
 func copyDir(src, dst string) error {
@@ -110,9 +148,21 @@ func copyFile(src, dst string) error {
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, in)
-	if err != nil {
+	if _, err = io.Copy(out, in); err != nil {
 		return err
 	}
-	return out.Sync()
+	if err := out.Sync(); err != nil {
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+
+	// Preserve the source modification time. Sync/conflict decisions compare
+	// mtimes, so a copy must not reset them to "now" (which would make every
+	// copied file look newer than its source on the next comparison).
+	if fi, statErr := os.Stat(src); statErr == nil {
+		_ = os.Chtimes(dst, fi.ModTime(), fi.ModTime())
+	}
+	return nil
 }

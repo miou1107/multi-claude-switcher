@@ -6,11 +6,11 @@ import (
 
 // ProfileInfo holds basic information about a detected Claude Desktop profile.
 type ProfileInfo struct {
-	Name            string            `json:"name"`
-	Path            string            `json:"path"`
-	Exists          bool              `json:"exists"`
-	HasSessionsDir  bool              `json:"has_sessions_dir"`
-	UUIDBuckets     map[string]int    `json:"uuid_buckets"` // UUID -> session count
+	Name           string         `json:"name"`
+	Path           string         `json:"path"`
+	Exists         bool           `json:"exists"`
+	HasSessionsDir bool           `json:"has_sessions_dir"`
+	UUIDBuckets    map[string]int `json:"uuid_buckets"` // UUID -> session count
 }
 
 // Platform defines OS-specific operations required for profile switching and launcher actions.
@@ -23,6 +23,10 @@ type Platform interface {
 
 	// IsAppRunning checks if any Claude Desktop process is currently active.
 	IsAppRunning() (bool, []string, error)
+
+	// DetectRunningProfile returns the --user-data-dir path of the currently
+	// running Claude Desktop process, or "" if none / not detectable.
+	DetectRunningProfile() (string, error)
 
 	// TerminateApp cleanly closes or terminates all running Claude Desktop processes.
 	TerminateApp() error
