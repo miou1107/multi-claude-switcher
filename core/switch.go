@@ -22,11 +22,15 @@ func NewSwitcher(p platform.Platform, bm *BackupManager) *Switcher {
 	}
 }
 
-// SafeSwitch performs: Close active app -> Backup target profile -> Sync session index -> Launch target profile.
+// SafeSwitch closes the running app, optionally aligns sessions, then launches
+// the target. Data is moved ONLY when auto-align is ON and both profiles are
+// logged in: then it backs up BOTH profiles (bidirectional align writes both)
+// and unions their sessions. With auto-align OFF (default) the switch moves no
+// data at all — a pure account switch.
 func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 	log.Printf("[Safe Switch] Starting switch from %s to %s...", srcProfilePath, dstProfilePath)
 
-	// Step 1: Check and terminate running Claude Desktop processes
+	// Step 1: close any running Claude Desktop (never write into a live profile).
 	running, procs, err := s.Platform.IsAppRunning()
 	if err != nil {
 		return fmt.Errorf("failed to check running processes: %w", err)
@@ -38,45 +42,30 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 		}
 	}
 
-	// Step 2: Backup target profile sessions before modifying.
-	// The next step overwrites the target's index, so a backup is mandatory
-	// whenever the target holds data. Any backup error aborts the switch: we
-	// never overwrite real data without a backup.
-	log.Printf("[Safe Switch] Creating backup of target profile: %s", dstProfilePath)
-	backupPath, err := s.BackupManager.BackupIfHasData(dstProfilePath)
-	if err != nil {
-		return fmt.Errorf("aborting switch: failed to back up target profile (refusing to overwrite without a backup): %w", err)
-	}
-	if backupPath == "" {
-		log.Printf("[Safe Switch] Target profile has no existing sessions; nothing to back up.")
-	} else {
-		log.Printf("[Safe Switch] Backup created at: %s", backupPath)
-	}
-
-	// Step 3: Sync session indices from source to destination, re-bucketed under
-	// the target account. If either profile isn't logged in yet (no account
-	// UUID), there is nothing meaningful to re-bucket — skip the sync but still
-	// launch, so `switch` can be used to open a fresh profile in order to log in.
-	_, srcAcctErr := platform.GetProfileAccountUUID(srcProfilePath)
-	_, dstAcctErr := platform.GetProfileAccountUUID(dstProfilePath)
-	if srcAcctErr != nil || dstAcctErr != nil {
-		log.Printf("[Safe Switch] Skipping sync — a profile has no logged-in account yet (src: %v, dst: %v). Launching target only.", srcAcctErr, dstAcctErr)
-	} else {
-		log.Printf("[Safe Switch] Syncing sessions from source to target...")
-		report, err := SyncSessions(srcProfilePath, dstProfilePath)
-		if err != nil {
-			return fmt.Errorf("failed to sync sessions: %w", err)
-		}
-		log.Printf("[Safe Switch] Sync complete: re-bucketed %s -> %s; %d copied, %d skipped, %d conflict(s).", report.SourceAccount, report.TargetAccount, report.CopiedCount, report.SkippedCount, report.ConflictCount)
-		if report.ConflictCount > 0 {
-			log.Printf("[Safe Switch Warning] %d conflict(s) left untouched (target had newer content). Review before relying on these sessions:", report.ConflictCount)
-			for _, c := range report.Conflicts {
-				log.Printf("    conflict: %s", c)
+	// Step 2: align only when the user opted in AND both profiles are logged in.
+	if AutoAlignOnSwitch() {
+		_, srcErr := platform.GetProfileAccountUUID(srcProfilePath)
+		_, dstErr := platform.GetProfileAccountUUID(dstProfilePath)
+		if srcErr != nil || dstErr != nil {
+			log.Printf("[Safe Switch] Auto-align on, but a profile has no account yet (src: %v, dst: %v). Skipping align.", srcErr, dstErr)
+		} else {
+			// Bidirectional align writes into BOTH profiles, so back up both.
+			if _, err := s.BackupManager.BackupIfHasData(srcProfilePath); err != nil {
+				return fmt.Errorf("aborting switch: failed to back up source profile (refusing to overwrite without a backup): %w", err)
+			}
+			if _, err := s.BackupManager.BackupIfHasData(dstProfilePath); err != nil {
+				return fmt.Errorf("aborting switch: failed to back up target profile (refusing to overwrite without a backup): %w", err)
+			}
+			log.Printf("[Safe Switch] Auto-align on: unioning sessions between both accounts...")
+			if err := SyncBidirectional(srcProfilePath, dstProfilePath); err != nil {
+				return fmt.Errorf("failed to auto-align sessions: %w", err)
 			}
 		}
+	} else {
+		log.Printf("[Safe Switch] Auto-align off: pure switch, no session data moved.")
 	}
 
-	// Step 4: Launch target profile
+	// Step 3: launch the target profile.
 	log.Printf("[Safe Switch] Launching Claude Desktop profile: %s...", dstProfilePath)
 	if err := s.Platform.LaunchProfile(dstProfilePath); err != nil {
 		return fmt.Errorf("failed to launch target profile: %w", err)
