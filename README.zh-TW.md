@@ -10,6 +10,9 @@
 
 在 Claude Desktop 上無縫切換與同步多個帳號（macOS 與 Windows）。
 
+> ### ⚠️ 先看這個：Claude **Team** 帳號只能匯出、不能匯入
+> 對話同步可以**從 Team 帳號匯出**（Team → 個人 ✅），但**無法匯入 Team 帳號**（任何帳號 → Team ❌）。Team 帳號的 Code 對話清單是**向 Anthropic 伺服器抓取**的（鎖定你的帳號＋組織），所以複製進它本地資料夾的 session 檔會被忽略、永遠不會出現，連乾淨重啟都一樣。**你無法用同步檔案的方式，把個人帳號的 Code 對話帶進公司 Team 帳號。** [詳細說明與證據見下方](#-在帳號之間同步-session)。
+
 ## 📌 功能特色
 
 - **安全切換（Safe Switch）**：在多個 Claude Desktop 設定檔（`~/Library/Application Support/Claude*`）之間切換，不用重新登入，也不會弄丟側邊欄的對話紀錄。
@@ -26,6 +29,13 @@
 - **「Auto Sync on Switch」開關（預設關閉）：** 打開後，每次切換都會把兩個帳號的 Code sessions 做雙向聯集，於是兩個帳號的對話紀錄會隨時間收斂成一致。因為打開它會把一個帳號的對話併進另一個，所以啟用時會跳一次性的警告視窗（附「Enable, don't ask again」選項可略過日後的警告）。
 
 > **範圍：** 只有 Code 分頁（`claude-code-sessions`）會同步。一般聊天的對話存在各帳號的伺服器端，無法在本機同步。Agent Mode / Cowork 的 session 目前尚未涵蓋。
+>
+> **⚠️ Claude Team 帳號只能「匯出」，不能「匯入」。** 2026-07-23 直接實測：
+>
+> - ✅ **Team → 個人（匯出）有效。** 把 Team 帳號的 Code 對話複製進個人帳號的資料夾，個人帳號會顯示。
+> - ❌ **任何帳號 → Team（匯入）無效。** 把別的帳號的 session 檔複製進 Team 帳號的資料夾**完全沒用**，對話不會出現在 Team 帳號的側邊欄，連乾淨重啟、整個清快取重建都一樣。
+>
+> 原因：Claude Desktop 建 Team 帳號的 Code 側邊欄清單,是**向 Anthropic 伺服器抓取**的,範圍鎖定你的帳號**與組織**（app 帶 `orgUuid` 呼叫 `sessions_api_list_sessions`;官方文件也說 session 對話記錄存在伺服器）。對 Team 帳號來說**伺服器才是真相來源**,複製進去的本地檔案會被忽略,也**沒有設定可以切成讀本地**。結論：**你無法用同步檔案的方式,把個人帳號的 Code 對話匯入公司 Team 帳號。** 只有 app 把本地 `claude-code-sessions/` 當真相來源的情況（個人帳號）匯入才有效。詳見 `docs/superpowers/specs/2026-07-22-probe-results.md`。
 
 ## 📥 下載
 
