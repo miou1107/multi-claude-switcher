@@ -23,6 +23,7 @@
 - `scripts/gen-icons/main.go` — Standalone generator (`go run`) that rasterizes the eyes mark from geometry into all icon assets (app PNG, menu-bar template, Windows .ico, doc PNG); no external tools needed.
 - `docs/assets/icon.png` — 512px color icon for README and documentation.
 - `core/version.go` — Single source of truth for the product version (imported by CLI and tray).
+- `core/accounttype.go` — Account-type classifier: maps a profile's cached org tiers to Team / Personal / Unknown.
 - `core/logging.go` — Persistent per-component logging to ~/.multi-claude-switcher/logs (stderr + file).
 - `core/names.go` — User-chosen profile display names, stored in ~/.multi-claude-switcher/names.json.
 - `core/loginitem_darwin.go` — Start-at-login LaunchAgent management on macOS (install/remove per-user plist).
