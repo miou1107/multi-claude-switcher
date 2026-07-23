@@ -22,7 +22,8 @@ func psEnc(script string) string {
 }
 
 // runPS runs a PowerShell script (STA, for WinForms) and returns trimmed stdout
-// plus the run error (a non-zero exit surfaces as *exec.ExitError).
+// plus the run error (a non-zero exit surfaces as *exec.ExitError). hideConsole
+// suppresses the console window (CREATE_NO_WINDOW) without hiding the GUI dialog.
 func runPS(script string) (string, error) {
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", psEnc(script))
 	hideConsole(cmd)
@@ -34,6 +35,20 @@ func runPS(script string) (string, error) {
 func psQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
+
+// psTopmostOwner builds $owner, an invisible always-on-top form. Passing it as a
+// MessageBox owner makes the box appear in FRONT of other apps — essential
+// because the tray is a background process, so its dialogs would otherwise open
+// behind the focused window (e.g. Claude) where the user never sees them.
+const psTopmostOwner = `Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true; $owner.ShowInTaskbar = $false; $owner.FormBorderStyle = 'FixedToolWindow'
+$owner.Opacity = 0; $owner.StartPosition = 'Manual'
+$owner.Location = New-Object System.Drawing.Point(-3000, -3000)
+$owner.Size = New-Object System.Drawing.Size(1, 1)
+[void]$owner.Show()
+`
 
 // notify shows a best-effort Windows toast notification. Fired detached so it
 // never blocks the caller. A toast (rather than a NotifyIcon balloon) avoids
@@ -61,29 +76,50 @@ func openFolder(path string) {
 	_ = exec.Command("explorer", path).Start()
 }
 
-// confirmDialog shows a Yes/No message box; Yes = confirm. The action verb is
-// carried in the message text (a standard box cannot relabel its buttons).
+// confirmDialog shows a Yes/No message box (in front, via a topmost owner); Yes =
+// confirm. The action verb is carried in the message text (a standard box cannot
+// relabel its buttons).
 func confirmDialog(message, confirmLabel string) bool {
 	_ = confirmLabel
-	script := `Add-Type -AssemblyName System.Windows.Forms
-$r = [System.Windows.Forms.MessageBox]::Show(` + psQuote(message) + `, 'Multi-Claude Switcher', 'YesNo', 'Question')
+	script := psTopmostOwner + `
+$r = [System.Windows.Forms.MessageBox]::Show($owner, ` + psQuote(message) + `, 'Multi-Claude Switcher', 'YesNo', 'Question')
+$owner.Close()
 if ($r -eq 'Yes') { exit 0 } else { exit 1 }`
 	_, err := runPS(script)
 	return err == nil
 }
 
-// infoDialog shows an OK-only information box.
+// infoDialog shows an OK-only information box, in front via a topmost owner.
 func infoDialog(title, message string) {
-	script := `Add-Type -AssemblyName System.Windows.Forms
-[void][System.Windows.Forms.MessageBox]::Show(` + psQuote(message) + `, ` + psQuote(title) + `, 'OK', 'Information')`
+	script := psTopmostOwner + `
+[void][System.Windows.Forms.MessageBox]::Show($owner, ` + psQuote(message) + `, ` + psQuote(title) + `, 'OK', 'Information')
+$owner.Close()`
 	_, _ = runPS(script)
 }
 
-// askText shows a text-input box and returns the entered string, or "" if
-// cancelled (InputBox also returns "" for empty input).
+// askText shows an always-on-top text-input dialog and returns the entered
+// string, or "" if cancelled. A custom TopMost form is used instead of
+// VisualBasic's InputBox so the prompt reliably appears in front of other windows.
 func askText(prompt, defaultAnswer string) string {
-	script := `Add-Type -AssemblyName Microsoft.VisualBasic
-[Microsoft.VisualBasic.Interaction]::InputBox(` + psQuote(prompt) + `, 'Multi-Claude Switcher', ` + psQuote(defaultAnswer) + `)`
+	script := `Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'Multi-Claude Switcher'; $form.TopMost = $true
+$form.Width = 470; $form.Height = 210; $form.StartPosition = 'CenterScreen'
+$form.FormBorderStyle = 'FixedDialog'; $form.MinimizeBox = $false; $form.MaximizeBox = $false
+$label = New-Object System.Windows.Forms.Label
+$label.Text = ` + psQuote(prompt) + `
+$label.Left = 14; $label.Top = 14; $label.Width = 434; $label.Height = 78
+$tb = New-Object System.Windows.Forms.TextBox
+$tb.Left = 14; $tb.Top = 98; $tb.Width = 434; $tb.Text = ` + psQuote(defaultAnswer) + `
+$ok = New-Object System.Windows.Forms.Button
+$ok.Text = 'OK'; $ok.Left = 272; $ok.Top = 130; $ok.Width = 80; $ok.DialogResult = 'OK'
+$cancel = New-Object System.Windows.Forms.Button
+$cancel.Text = 'Cancel'; $cancel.Left = 360; $cancel.Top = 130; $cancel.Width = 88; $cancel.DialogResult = 'Cancel'
+$form.Controls.AddRange(@($label, $tb, $ok, $cancel))
+$form.AcceptButton = $ok; $form.CancelButton = $cancel
+$form.Add_Shown({ $form.Activate(); $tb.Focus() })
+if ($form.ShowDialog() -eq 'OK') { $tb.Text } else { '' }`
 	out, err := runPS(script)
 	if err != nil {
 		return ""
@@ -91,13 +127,13 @@ func askText(prompt, defaultAnswer string) string {
 	return out
 }
 
-// chooseFromList shows a single-select list dialog and returns the chosen item,
-// or "" if cancelled.
+// chooseFromList shows an always-on-top single-select list dialog and returns the
+// chosen item, or "" if cancelled.
 func chooseFromList(options []string, prompt string) string {
 	var b strings.Builder
 	b.WriteString(`Add-Type -AssemblyName System.Windows.Forms
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Multi-Claude Switcher'
+$form.Text = 'Multi-Claude Switcher'; $form.TopMost = $true
 $form.Width = 440; $form.Height = 340; $form.StartPosition = 'CenterScreen'
 $label = New-Object System.Windows.Forms.Label
 $label.Text = ` + psQuote(prompt) + `
@@ -116,6 +152,7 @@ $cancel = New-Object System.Windows.Forms.Button
 $cancel.Text = 'Cancel'; $cancel.Top = 258; $cancel.Left = 335; $cancel.DialogResult = 'Cancel'
 $form.Controls.Add($ok); $form.Controls.Add($cancel)
 $form.AcceptButton = $ok; $form.CancelButton = $cancel
+$form.Add_Shown({ $form.Activate() })
 if (($form.ShowDialog() -eq 'OK') -and ($null -ne $list.SelectedItem)) { $list.SelectedItem }`)
 	out, err := runPS(b.String())
 	if err != nil {
@@ -130,7 +167,7 @@ if (($form.ShowDialog() -eq 'OK') -and ($null -ne $list.SelectedItem)) { $list.S
 func askEnableAutoSyncChoice(message string) autoSyncChoice {
 	script := `Add-Type -AssemblyName System.Windows.Forms
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Multi-Claude Switcher'
+$form.Text = 'Multi-Claude Switcher'; $form.TopMost = $true
 $form.Width = 470; $form.Height = 190; $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'; $form.MinimizeBox = $false; $form.MaximizeBox = $false
 $label = New-Object System.Windows.Forms.Label
@@ -148,6 +185,7 @@ $dont = New-Object System.Windows.Forms.Button
 $dont.Text = "Enable, don't ask again"; $dont.Left = 280; $dont.Top = 100; $dont.Width = 160
 $dont.Add_Click({ $form.Tag = 2; $form.Close() })
 $form.Controls.Add($cancel); $form.Controls.Add($enable); $form.Controls.Add($dont)
+$form.Add_Shown({ $form.Activate() })
 [void]$form.ShowDialog()
 exit [int]$form.Tag`
 	_, err := runPS(script)

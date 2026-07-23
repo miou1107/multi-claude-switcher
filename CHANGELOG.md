@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Tray logging was silently dropped on the GUI build.** `SetupLogging` used
+  `io.MultiWriter(os.Stderr, f)`, but a `-H=windowsgui` build has no valid stderr,
+  and MultiWriter aborts on the first writer's error — so nothing reached the log
+  file since v0.7.5. The file is now written first and stderr errors are swallowed
+  (`core/logging.go`).
+- **Windows dialogs could open hidden or behind other windows.** The window-hiding
+  flag also hid the WinForms dialogs, and a background tray's dialogs are not
+  foreground; both are fixed (CREATE_NO_WINDOW only, plus TopMost/owner on every
+  dialog) so About / Rename / Sync / new-profile prompts reliably appear in front
+  (`cmd/mcs-tray/hidewindow_windows.go`, `cmd/mcs-tray/dialog_windows.go`).
+- **Windows Store profile swap was fragile.** The rename that swaps the live data
+  directory could fail while Claude still held its files open; the retry window is
+  now ~20s, each step is logged, a failed swap cleans up and reports a clear "quit
+  Claude fully" message, and no data is ever deleted (`platform/windows_msix.go`).
+
+### Added
+- **Windows Store build: bring the second account's saved sessions over
+  automatically.** After you set up your other account and sign in, that account's
+  previously saved Code sessions are copied into its new profile. The tray also
+  detects when two accounts have been used in one install and reframes the action
+  as "Set up your other account…" with a one-time notice
+  (`cmd/mcs-tray/profiles_windows.go`, `platform/windows_msix.go`).
+
 ### Documentation
 - **Documented a hard limitation: Claude Team accounts are export-only.** Session
   sync can export a Team account's Code sessions OUT (Team → personal) but cannot

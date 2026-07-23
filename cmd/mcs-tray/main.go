@@ -88,7 +88,7 @@ func onReady() {
 	// (the standalone build's profiles are ordinary sibling data dirs).
 	var mNewProfile *systray.MenuItem
 	if newProfileSupported() {
-		mNewProfile = systray.AddMenuItem("New account profile…", "Add another Claude account you can switch to")
+		mNewProfile = systray.AddMenuItem(newProfileMenuLabel(), "Add another Claude account you can switch to")
 	}
 
 	systray.AddSeparator()
@@ -276,6 +276,11 @@ func onReady() {
 
 	// Auto-update: check on startup and periodically.
 	startUpdateChecker()
+
+	// Store build: announce a second account if one is detected in a single
+	// install, and resume any pending first-login session migration.
+	maybeAnnounceMultiAccount()
+	startMigrationWatcher()
 
 	go func() {
 		for range mAbout.ClickedCh {
