@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -60,11 +61,18 @@ func onReady() {
 
 	profileItems := make(map[*systray.MenuItem]*platform.ProfileInfo)
 	for _, p := range profiles {
-		if !p.HasSessionsDir && p.Name != "Claude" && p.Name != "Claude_Profile2" {
+		if !p.HasSessionsDir && !p.Managed && p.Name != "Claude" && p.Name != "Claude_Profile2" {
 			continue
 		}
 		item := systray.AddMenuItem(core.DisplayName(p.Name), fmt.Sprintf("Switch active profile to %s", p.Name))
 		profileItems[item] = p
+	}
+
+	// Store/MSIX build only: let the user add another account as a new profile
+	// (the standalone build's profiles are ordinary sibling data dirs).
+	var mNewProfile *systray.MenuItem
+	if newProfileSupported() {
+		mNewProfile = systray.AddMenuItem("New account profile…", "Add another Claude account you can switch to")
 	}
 
 	systray.AddSeparator()
@@ -77,7 +85,7 @@ func onReady() {
 	alignItems := map[*systray.MenuItem]alignPair{}
 	var shown []*platform.ProfileInfo
 	for _, p := range profiles {
-		if p.HasSessionsDir || p.Name == "Claude" || p.Name == "Claude_Profile2" {
+		if p.HasSessionsDir || p.Managed || p.Name == "Claude" || p.Name == "Claude_Profile2" {
 			shown = append(shown, p)
 		}
 	}
@@ -149,6 +157,14 @@ func onReady() {
 				}
 			}
 		}(item, prof)
+	}
+
+	if mNewProfile != nil {
+		go func() {
+			for range mNewProfile.ClickedCh {
+				runNewProfileFlow()
+			}
+		}()
 	}
 
 	for item, pair := range alignItems {
@@ -286,6 +302,29 @@ func markActive(items map[*systray.MenuItem]*platform.ProfileInfo, activePath st
 // samePath reports whether two profile paths refer to the same directory.
 func samePath(a, b string) bool {
 	return a != "" && b != "" && filepath.Clean(a) == filepath.Clean(b)
+}
+
+// relaunchSelf starts a fresh copy of the tray (detached, with the instance-check
+// skip flag) and quits this one. Used after an action that changes the profile
+// set, since the systray menu is built once at startup and cannot grow new items
+// afterward.
+func relaunchSelf() {
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("relaunch: cannot find own executable: %v", err)
+		return
+	}
+	args := append([]string{}, os.Args[1:]...)
+	if !hasSkipInstanceFlag(args) {
+		args = append(args, relaunchSkipInstanceCheckFlag)
+	}
+	cmd := exec.Command(exe, args...)
+	detachRelaunch(cmd) // detach so it outlives us
+	if err := cmd.Start(); err != nil {
+		log.Printf("relaunch failed: %v", err)
+		return
+	}
+	systray.Quit()
 }
 
 // renameFlow asks the user (via native dialogs) which profile to rename and the

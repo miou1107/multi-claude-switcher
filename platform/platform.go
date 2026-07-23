@@ -14,6 +14,11 @@ type ProfileInfo struct {
 	Exists         bool           `json:"exists"`
 	HasSessionsDir bool           `json:"has_sessions_dir"`
 	UUIDBuckets    map[string]int `json:"uuid_buckets"` // UUID -> session count
+	// Managed marks a profile that MCS itself created/manages (currently the
+	// Windows Store/MSIX profiles, which live in an MCS-owned container). Such a
+	// profile is always shown in the menu even before it has any session data,
+	// because a freshly created account has none until the user signs in.
+	Managed bool `json:"managed"`
 }
 
 // Platform defines OS-specific operations required for profile switching and launcher actions.

@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [0.7.8] - 2026-07-23
+
+### Added
+- **Windows: support the Microsoft Store / MSIX build of Claude Desktop.** The
+  Store build can't be launched with a custom `--user-data-dir`, so on it MCS
+  switches accounts by swapping the single live data directory in place: the
+  active profile sits in `…\LocalCache\Roaming\Claude`, inactive ones are parked
+  under `…\Roaming\.mcs-profiles\<name>`, and a switch renames them and relaunches
+  the packaged app via its AppUserModelID. All moves are reversible same-volume
+  renames (no data is deleted); a failed switch rolls back. A new **"New account
+  profile…"** tray item (Store build only) saves the current account and opens a
+  fresh Claude to sign into another one. The standalone build is unaffected and
+  still wins when both are installed. See
+  `docs/superpowers/specs/2026-07-23-windows-msix-support-design.md`,
+  `platform/windows_msix.go`, `platform/windows.go`,
+  `cmd/mcs-tray/profiles_windows.go`.
+
 ## [0.7.7] - 2026-07-23
 
 ### Fixed
