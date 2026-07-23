@@ -12,6 +12,4 @@ func newProfileMenuLabel() string { return "" }
 
 func runNewProfileFlow() {}
 
-func maybeAnnounceMultiAccount() {}
-
 func startMigrationWatcher() {}
