@@ -277,7 +277,7 @@ func onReady() {
 
 	go func() {
 		for range mAutoSync.ClickedCh {
-			toggleAutoSync(mAutoSync)
+			toggleAutoSync(mAutoSync, teamProfileNames(shown))
 			// Reflect the new state on the manual directions. Read the persisted
 			// value so a cancelled enable (warning dismissed) leaves it correct.
 			setManualDirectionsEnabled(!core.AutoSyncOnSwitch())
