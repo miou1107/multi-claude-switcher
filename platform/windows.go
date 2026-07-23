@@ -52,7 +52,20 @@ func (w *WindowsPlatform) AppSupportDir() string {
 	return filepath.Join(home, "AppData", "Roaming")
 }
 
+// isMSIX reports whether the Store/MSIX build is the active target. The
+// standalone build is preferred when both are installed.
+func (w *WindowsPlatform) isMSIX() bool {
+	if _, err := findClaudeExecutable(); err == nil {
+		return false
+	}
+	return msixRoamingDir() != ""
+}
+
 func (w *WindowsPlatform) FindProfiles() ([]*ProfileInfo, error) {
+	if w.isMSIX() {
+		return w.msixFindProfiles()
+	}
+
 	root := w.AppSupportDir()
 	if root == "" {
 		return nil, fmt.Errorf("could not determine %%APPDATA%% directory")
@@ -68,6 +81,34 @@ func (w *WindowsPlatform) FindProfiles() ([]*ProfileInfo, error) {
 		if entry.IsDir() && strings.HasPrefix(entry.Name(), "Claude") {
 			fullPath := filepath.Join(root, entry.Name())
 			profiles = append(profiles, w.inspectProfile(entry.Name(), fullPath))
+		}
+	}
+	return profiles, nil
+}
+
+// msixFindProfiles lists the MCS-managed Store profiles: the active one (the
+// slot) named per state, plus every parked profile under the container. All are
+// marked Managed so the tray shows them even before they have session data.
+func (w *WindowsPlatform) msixFindProfiles() ([]*ProfileInfo, error) {
+	roaming := msixRoamingDir()
+	if roaming == "" {
+		return nil, fmt.Errorf("Store Claude Desktop data directory not found")
+	}
+	st := readMSIXStateIn(roaming)
+
+	var profiles []*ProfileInfo
+	if fi, err := os.Stat(msixSlotDir(roaming)); err == nil && fi.IsDir() {
+		p := w.inspectProfile(st.Current, msixSlotDir(roaming))
+		p.Managed = true
+		profiles = append(profiles, p)
+	}
+	if entries, err := os.ReadDir(msixContainerDir(roaming)); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				p := w.inspectProfile(e.Name(), filepath.Join(msixContainerDir(roaming), e.Name()))
+				p.Managed = true
+				profiles = append(profiles, p)
+			}
 		}
 	}
 	return profiles, nil
@@ -161,6 +202,20 @@ func isDesktopProcess(p procInfo) bool {
 // live (LocalCache). For the standalone target the reported path IS the real
 // path, so a direct match works.
 func (w *WindowsPlatform) DetectRunningProfile() (string, error) {
+	if w.isMSIX() {
+		// The Store build always runs out of the single slot dir; its identity is
+		// whichever profile MCS last swapped in (tracked in state). Return the slot
+		// path so it matches the current profile's ProfileInfo.Path.
+		running, _, err := w.IsAppRunning()
+		if err != nil {
+			return "", err
+		}
+		if !running {
+			return "", nil
+		}
+		return msixSlotDir(msixRoamingDir()), nil
+	}
+
 	running, procs, err := w.IsAppRunning()
 	if err != nil {
 		return "", err
@@ -275,12 +330,33 @@ func (w *WindowsPlatform) TerminateApp() error {
 // as its --user-data-dir. If only the MSIX/Store build is installed, the
 // standalone executable will not be found and a descriptive error is returned.
 func (w *WindowsPlatform) LaunchProfile(profilePath string) error {
+	if w.isMSIX() {
+		return w.msixLaunchProfile(profilePath)
+	}
 	exe, err := findClaudeExecutable()
 	if err != nil {
 		return err
 	}
 	// Start (not Run) so we return immediately, like macOS `open -n`.
 	return exec.Command(exe, "--user-data-dir="+profilePath).Start()
+}
+
+// msixLaunchProfile switches the Store build to the profile at profilePath by
+// swapping it into the live slot, then relaunching the packaged app. If the path
+// already is the slot (the current profile), it just reopens the app. Caller
+// (SafeSwitch) has already terminated Claude.
+func (w *WindowsPlatform) msixLaunchProfile(profilePath string) error {
+	roaming := msixRoamingDir()
+	if roaming == "" {
+		return fmt.Errorf("Store Claude Desktop data directory not found")
+	}
+	if sameWindowsPath(profilePath, msixSlotDir(roaming)) {
+		return msixLaunch()
+	}
+	if err := msixSwapToIn(roaming, filepath.Base(profilePath)); err != nil {
+		return err
+	}
+	return msixLaunch()
 }
 
 // findClaudeExecutable locates the standalone Claude Desktop executable. Squirrel

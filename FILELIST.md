@@ -48,6 +48,8 @@
 - `cmd/mcs-tray/relaunch_unix.go` — Self-update relaunch detach on Unix (own process group via Setpgid).
 - `cmd/mcs-tray/relaunch_windows.go` — Self-update relaunch detach on Windows (CREATE_NEW_PROCESS_GROUP).
 - `cmd/mcs-tray/hidewindow_windows.go` — Windows helper: launch a spawned console helper (powershell/tasklist) with CREATE_NO_WINDOW so no console window flashes.
+- `cmd/mcs-tray/profiles_windows.go` — Windows-only tray flow: "New account profile…" (Store build) — save the current account and open a fresh Claude to sign into another, then relaunch the tray.
+- `cmd/mcs-tray/profiles_other.go` — Non-Windows no-ops for the new-profile flow (macOS standalone profiles are ordinary sibling data dirs).
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
 - `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller).
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon) and zips it via ditto.
@@ -72,7 +74,9 @@
 - `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
 - `platform/darwin.go` — macOS implementation for platform interface.
 - `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).
-- `platform/windows.go` — Windows implementation for platform interface (process detection via Win32_Process, profile discovery, terminate-by-PID, launch; targets the standalone build).
+- `platform/windows.go` — Windows implementation for platform interface (process detection via Win32_Process, profile discovery, terminate-by-PID, launch; auto-detects standalone vs Store/MSIX build and branches accordingly).
+- `platform/windows_msix.go` — Windows Store/MSIX support: switch accounts by swapping the live data dir in place (park/activate via same-volume renames) and launch via AppUserModelID; testable move core plus `MSIXAvailable`/`MSIXCurrentName`/`MSIXNewProfile`.
+- `platform/windows_msix_test.go` — Unit tests for the MSIX create→switch lifecycle, rollback, and name validation (temp-dir driven, no real Claude).
 - `platform/hidewindow_windows.go` — Windows helper: run the spawned `powershell`/`taskkill` helpers with CREATE_NO_WINDOW so no console window flashes.
 - `platform/windows_test.go` — Unit tests for Windows `--user-data-dir` parsing, desktop-vs-CLI process detection, and path matching.
 - `platform/unsupported.go` — Platform stub for non-macOS/Windows builds (safe "not supported" errors).
@@ -84,4 +88,5 @@
 - `docs/superpowers/specs/2026-07-22-session-align-manual-and-auto-design.md` — Design spec for manual "Align" + auto sync-on-switch (with default-off toggle).
 - `docs/superpowers/specs/2026-07-22-probe-results.md` — Findings report from Phase 0 probe execution.
 - `docs/superpowers/specs/2026-07-23-windows-port-foundation-design-draft.md` — Windows port foundation design (MSIX findings, Option A/B analysis, B-only decision).
+- `docs/superpowers/specs/2026-07-23-windows-msix-support-design.md` — Store/MSIX support design: in-place profile-folder swap, AUMID launch, new-profile flow.
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.
