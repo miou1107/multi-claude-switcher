@@ -71,6 +71,11 @@ switch never touches session data unless you turn on auto sync.
 > only works where the app treats local `claude-code-sessions/` files as
 > authoritative (personal-account cases). See
 > `docs/superpowers/specs/2026-07-22-probe-results.md`.
+>
+> The tray tags a detected Team account with `🏢 Team` and warns you when an action
+> would try to import into it (enabling Auto Sync, or a manual sync direction that
+> targets it). Detection is best-effort — an account it can't classify is left
+> untagged rather than mislabeled.
 
 ## 📥 Download
 

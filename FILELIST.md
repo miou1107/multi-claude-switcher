@@ -23,6 +23,11 @@
 - `scripts/gen-icons/main.go` — Standalone generator (`go run`) that rasterizes the eyes mark from geometry into all icon assets (app PNG, menu-bar template, Windows .ico, doc PNG); no external tools needed.
 - `docs/assets/icon.png` — 512px color icon for README and documentation.
 - `core/version.go` — Single source of truth for the product version (imported by CLI and tray).
+- `core/accounttype.go` — Account-type classifier: maps a profile's cached org tiers to Team / Personal / Unknown.
+- `core/accounttype_test.go` — Unit tests for the account-type classifier (tier → Team/Personal/Unknown).
+- `core/accounttype_reader_test.go` — Unit tests for the Local Storage LevelDB reader + DetectAccountType (real fixture store).
+- `core/localstorage.go` — Chromium Local Storage value decoding + organization extraction (feeds the account-type classifier).
+- `core/localstorage_test.go` — Unit tests for Chromium Local Storage decoding and org extraction.
 - `core/logging.go` — Persistent per-component logging to ~/.multi-claude-switcher/logs (stderr + file).
 - `core/names.go` — User-chosen profile display names, stored in ~/.multi-claude-switcher/names.json.
 - `core/loginitem_darwin.go` — Start-at-login LaunchAgent management on macOS (install/remove per-user plist).
@@ -71,6 +76,9 @@
 - `cmd/mcs-tray/dialog_windows.go` — Windows tray dialogs / notifications (PowerShell + WinForms).
 - `cmd/mcs-tray/dialog_other.go` — Dialog stubs for non-macOS/Windows builds (no-ops).
 - `cmd/mcs-tray/dialog_darwin_test.go` — Unit tests for the macOS auto-sync dialog result parser.
+- `cmd/mcs-tray/accounttype.go` — Tray-side account-type cache, "🏢 Team" title tag, and background detection.
+- `cmd/mcs-tray/accounttype_test.go` — Unit tests for `profileTitle` and the account-type cache.
+- `cmd/mcs-tray/importwarn_test.go` — Unit tests for the import-into-Team gate (`importTargetIsTeam`).
 - `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
 - `platform/darwin.go` — macOS implementation for platform interface.
 - `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).
@@ -83,10 +91,12 @@
 - `docs/plans/2026-07-22-phase-0-probe.md` — Phase 0 probe execution plan.
 - `docs/plans/2026-07-22-phase-2-gui.md` — Phase 2 GUI execution plan.
 - `docs/superpowers/plans/2026-07-22-session-align-manual-and-auto.md` — Implementation plan for manual align + auto sync-on-switch (0.7.0).
+- `docs/superpowers/plans/2026-07-23-team-account-detection.md` — Implementation plan for Team-account detection, the "🏢 Team" tag, and import-into-Team warnings.
 - `docs/superpowers/specs/2026-07-22-multi-claude-account-sync-design.md` — Core design spec for multi-claude switcher.
 - `docs/superpowers/specs/2026-07-22-macos-app-bundle-design.md` — Design spec for the macOS .app bundle packaging.
 - `docs/superpowers/specs/2026-07-22-session-align-manual-and-auto-design.md` — Design spec for manual "Align" + auto sync-on-switch (with default-off toggle).
 - `docs/superpowers/specs/2026-07-22-probe-results.md` — Findings report from Phase 0 probe execution.
 - `docs/superpowers/specs/2026-07-23-windows-port-foundation-design-draft.md` — Windows port foundation design (MSIX findings, Option A/B analysis, B-only decision).
 - `docs/superpowers/specs/2026-07-23-windows-msix-support-design.md` — Store/MSIX support design: in-place profile-folder swap, AUMID launch, new-profile flow.
+- `docs/superpowers/specs/2026-07-23-team-account-detection-design.md` — Design spec for detecting Team accounts (from cached org tiers) and warning on import-into-Team actions.
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.
