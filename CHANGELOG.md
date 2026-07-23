@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Documentation
+- **Documented a hard limitation: Claude Team accounts are export-only.** Session
+  sync can export a Team account's Code sessions OUT (Team → personal) but cannot
+  import INTO a Team account (anything → Team). A Team account builds its Code
+  sidebar from a server API (`sessions_api_list_sessions`, scoped to account +
+  organization), so session files copied into its local folder are ignored and
+  never appear, even after a clean restart or full cache wipe. Verified
+  2026-07-23 on a live Team account; both READMEs now carry a top-of-page
+  warning, and `docs/superpowers/specs/2026-07-22-probe-results.md` records the
+  correction (the earlier "folder copy always surfaces sessions" premise was a
+  false positive that only tested restoring an account's own sessions).
+
 ### Changed
 - **Release CI now bumps the Homebrew tap automatically.** After the macOS build
   publishes the `_macos.zip`, a new `update-homebrew-tap` job in `release.yml`

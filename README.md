@@ -10,6 +10,15 @@
 
 Seamless Multi-Account Switching & Sync for Claude Desktop (macOS & Windows).
 
+> ### ⚠️ Read this first: Claude **Team** accounts are export-only
+> Session sync can **export OUT of** a Team account (Team → personal ✅) but
+> **cannot import INTO** a Team account (anything → Team ❌). A Team account's
+> Code conversation list is fetched from Anthropic's servers (scoped to your
+> account + organization), so session files copied into its local folder are
+> ignored and never show up — even after a clean restart. **You cannot bring a
+> personal account's Code conversations into a company Team account by syncing
+> files.** [Details & evidence below](#-syncing-sessions-between-accounts).
+
 ## 📌 Features
 
 - **Safe Switch**: Switch between multiple Claude Desktop profiles (`~/Library/Application Support/Claude*`) without re-authenticating or losing conversation sidebar history.
@@ -40,6 +49,28 @@ switch never touches session data unless you turn on auto sync.
 > **Scope:** only the Code tab (`claude-code-sessions`) syncs. Regular chat
 > conversations are stored server-side per account and can't be synced
 > locally. Agent Mode / Cowork sessions are not covered yet.
+>
+> **⚠️ Claude Team accounts are export-only — you can sync OUT, not IN.**
+> Directly tested 2026-07-23:
+>
+> - ✅ **Team → personal (export) works.** Copying a Team account's Code sessions
+>   into a personal account's folder makes them show up in the personal account.
+> - ❌ **Anything → Team (import) does NOT work.** Copying another account's
+>   session files into a Team account's folder does **nothing** — the sessions
+>   never appear in the Team account's sidebar, even after a clean relaunch or a
+>   full cache wipe.
+>
+> Why: Claude Desktop builds a Team account's Code sidebar by **fetching the
+> session list from Anthropic's servers**, scoped to your account **and
+> organization** (the app calls `sessions_api_list_sessions` with an `orgUuid`;
+> official docs confirm session transcripts are stored server-side). The server
+> is the source of truth for a Team account, so local files copied *into* it are
+> ignored. There is no user setting to make a Team account read local files
+> instead. Net effect: **you cannot import a personal account's Code
+> conversations into a company Team account by syncing files.** File-copy import
+> only works where the app treats local `claude-code-sessions/` files as
+> authoritative (personal-account cases). See
+> `docs/superpowers/specs/2026-07-22-probe-results.md`.
 
 ## 📥 Download
 
