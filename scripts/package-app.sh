@@ -12,7 +12,7 @@
 # Output: dist/Multi-Claude Switcher.app  and  dist/<zip> (a ditto archive).
 #
 # macOS only. Requires the Xcode command line tools (clang, lipo, sips,
-# iconutil, ditto) and Go on PATH.
+# iconutil, ditto, codesign) and Go on PATH.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -65,7 +65,17 @@ done
 iconutil -c icns "$ICONSET" -o "$APP_DIR/Contents/Resources/icon.icns"
 rm -rf "$(dirname "$ICONSET")"
 
-# 5. Zip via ditto (preserves the bundle layout correctly).
+# 5. Ad-hoc sign the bundle. This needs no Apple Developer account and does NOT
+#    notarize the app, so Gatekeeper still quarantines a browser-downloaded copy
+#    (first-time users bypass it once — see the README). What it buys: after lipo
+#    assembles the universal binary, the bundle gets one clean whole-bundle
+#    signature with a stable identity, which keeps the self-updater's in-place
+#    binary swap codesign-valid.
+echo "==> Ad-hoc signing $APP_NAME.app"
+codesign --force --sign - "$APP_DIR"
+codesign --verify --strict "$APP_DIR"
+
+# 6. Zip via ditto (preserves the bundle layout correctly).
 ZIP="$DIST/Multi-Claude-Switcher_${VERSION}_macos.zip"
 rm -f "$ZIP"
 ( cd "$DIST" && ditto -c -k --keepParent "$APP_NAME.app" "$(basename "$ZIP")" )

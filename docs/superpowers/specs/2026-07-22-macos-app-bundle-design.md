@@ -15,11 +15,13 @@ Developer signing certificate.
 
 ## Constraints
 
-- **No Apple Developer account.** The `.app` is unsigned and un-notarized. macOS
-  Gatekeeper will block the first launch of a downloaded app. The mitigation is
-  documentation: the user does **right-click → Open** once (a single click in a
-  dialog, no Terminal), after which double-click works normally. This is the best
-  achievable UX on the free tier and must be stated plainly in the README.
+- **No Apple Developer account.** The `.app` is ad-hoc signed (`codesign --sign
+  -` at packaging time) but not notarized, so macOS Gatekeeper still blocks the
+  first launch of a downloaded app. The mitigation is documentation: the user
+  clears Gatekeeper once — **right-click → Open**, or on macOS 15+ via **System
+  Settings → Privacy & Security → Open Anyway** — after which double-click works
+  normally. This is the best achievable UX on the free tier and must be stated
+  plainly in the README.
 - Must not regress the existing self-update mechanism.
 - macOS only (Windows packaging is out of scope, tracked separately).
 
@@ -148,7 +150,9 @@ and must install the 0.6.1 `.app` once by hand; 0.6.1+ self-updates from the zip
 
 ## Out of scope
 
-- Code signing / notarization (no developer account).
+- Notarization / Developer ID signing (no paid developer account). Ad-hoc
+  signing via `codesign --sign -` is done at packaging time.
 - Windows packaging.
 - Auto-update checksum/signature verification (already a separate backlog item).
-- A DMG installer (a zipped `.app` is enough; DMG adds no value unsigned).
+- A DMG installer (a zipped `.app` is enough; DMG adds no value while the app is
+  not notarized).

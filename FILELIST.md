@@ -52,7 +52,7 @@
 - `cmd/mcs-tray/profiles_other.go` — Non-Windows no-ops for the new-profile flow (macOS standalone profiles are ordinary sibling data dirs).
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
 - `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller).
-- `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon) and zips it via ditto.
+- `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon), ad-hoc signs it (`codesign --sign -`, no Apple Developer account needed), and zips it via ditto.
 - `core/backup.go` — Profile backup & snapshot restoration module (atomic restore).
 - `core/backup_test.go` — Unit tests for backup & restore manager.
 - `core/backup_perm_unix_test.go` — Test helper (non-Windows): make a dir reject new children via chmod, to exercise staging-failure paths.

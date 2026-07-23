@@ -58,7 +58,16 @@ On the [latest release](https://github.com/miou1107/multi-claude-switcher/releas
 
 1. Download the `Multi-Claude-Switcher_<version>_macos.zip` above and **unzip** it (double-click the zip). You get **Multi-Claude Switcher.app**.
 2. Drag **Multi-Claude Switcher.app** into your **Applications** folder.
-3. **First launch only:** right-click the app → **Open**, then **Open** in the dialog. (The app is unsigned — a paid Apple Developer certificate would remove this step — so macOS asks you to confirm the first time. After that, just double-click.)
+3. **First launch only — clear Gatekeeper once.** The app is ad-hoc signed but
+   not notarized (notarizing needs a paid Apple Developer account), so macOS asks
+   you to confirm the first time. Either:
+   - **Right-click** the app → **Open**, then **Open** in the dialog, or
+   - if the dialog has no **Open** button (macOS 15 Sequoia and later): open
+     **System Settings → Privacy & Security**, scroll down, and click **Open
+     Anyway**.
+
+   After that, just double-click. (Terminal alternative: `xattr -dr
+   com.apple.quarantine "/Applications/Multi-Claude Switcher.app"`.)
 
 The app runs in the **menu bar** (top-right), shown as a pair-of-eyes icon —
 it has no Dock icon. Click it to switch profiles; a checkmark marks the profile
