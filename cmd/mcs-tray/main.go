@@ -77,7 +77,7 @@ func onReady() {
 		}
 		// Empty tooltip on the parent: on macOS the parent's tooltip pops up next
 		// to it when hovered and visually overlaps the first submenu item.
-		parent := systray.AddMenuItem(core.DisplayName(p.Name), "")
+		parent := systray.AddMenuItem(profileTitle(core.DisplayName(p.Name), getAcctType(p.Path), false), "")
 		mSwitchTo := parent.AddSubMenuItem("Switch to this profile", fmt.Sprintf("Switch the active profile to %s", p.Name))
 		mRenameTo := parent.AddSubMenuItem("Rename…", "Give this profile a friendlier display name")
 		profileItems[parent] = p
@@ -171,6 +171,7 @@ func onReady() {
 					// We just launched the target, so mark it active immediately
 					// (before the new process is even detectable by `ps`).
 					markActive(profileItems, target.Path)
+					go func() { detectAccountTypes(profiles); markActive(profileItems, target.Path) }()
 				}
 			}
 		}(pm)
@@ -194,7 +195,14 @@ func onReady() {
 	for item, pair := range alignItems {
 		go func(m *systray.MenuItem, pr alignPair) {
 			for range m.ClickedCh {
-				if !confirmAlign(core.DisplayName(pr.src.Name), core.DisplayName(pr.dst.Name)) {
+				dstName := core.DisplayName(pr.dst.Name)
+				confirmed := false
+				if importTargetIsTeam(pr.dst.Path) {
+					confirmed = confirmImportIntoTeam(dstName)
+				} else {
+					confirmed = confirmAlign(core.DisplayName(pr.src.Name), dstName)
+				}
+				if !confirmed {
 					log.Printf("Align %s -> %s cancelled by user.", pr.src.Name, pr.dst.Name)
 					continue
 				}
@@ -225,6 +233,14 @@ func onReady() {
 			}
 			time.Sleep(4 * time.Second)
 		}
+	}()
+
+	// Detect account types in the background (copies + reads each profile's Local
+	// Storage), then refresh titles so the "🏢 Team" tag appears.
+	go func() {
+		detectAccountTypes(profiles)
+		active, _ := plat.DetectRunningProfile()
+		markActive(profileItems, active)
 	}()
 
 	go func() {
@@ -267,7 +283,7 @@ func onReady() {
 
 	go func() {
 		for range mAutoSync.ClickedCh {
-			toggleAutoSync(mAutoSync)
+			toggleAutoSync(mAutoSync, teamProfileNames(shown))
 			// Reflect the new state on the manual directions. Read the persisted
 			// value so a cancelled enable (warning dismissed) leaves it correct.
 			setManualDirectionsEnabled(!core.AutoSyncOnSwitch())
@@ -310,12 +326,11 @@ func markActive(items map[*systray.MenuItem]*platform.ProfileInfo, activePath st
 	markMu.Lock()
 	defer markMu.Unlock()
 	for item, p := range items {
-		name := core.DisplayName(p.Name)
-		if samePath(p.Path, activePath) {
-			item.SetTitle(fmt.Sprintf("%s  (current)", name))
+		current := samePath(p.Path, activePath)
+		item.SetTitle(profileTitle(core.DisplayName(p.Name), getAcctType(p.Path), current))
+		if current {
 			item.Check()
 		} else {
-			item.SetTitle(name)
 			item.Uncheck()
 		}
 	}
@@ -413,6 +428,19 @@ func confirmSwitch(targetName string) bool {
 func confirmAlign(src, dst string) bool {
 	msg := fmt.Sprintf("Copy %q's sessions into %q? Claude Desktop will be closed, synced, and reopened on the account you're using now.", src, dst)
 	return confirmDialog(msg, "Sync")
+}
+
+// importTargetIsTeam reports whether the sync destination is a Team account,
+// whose Code sidebar is server-authoritative so a local import is a no-op.
+func importTargetIsTeam(dstPath string) bool {
+	return getAcctType(dstPath) == core.AccountTeam
+}
+
+// confirmImportIntoTeam warns that copying sessions into a Team account does
+// nothing (the import half is a no-op), and asks whether to continue.
+func confirmImportIntoTeam(dst string) bool {
+	msg := fmt.Sprintf("%q is a Team account — Code conversations cannot be imported into it, so this sync's import half will do nothing. Continue anyway?", dst)
+	return confirmDialog(msg, "Continue")
 }
 
 // showAbout displays a small About dialog with the app name, version, and link.
