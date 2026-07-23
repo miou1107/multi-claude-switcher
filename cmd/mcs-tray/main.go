@@ -59,13 +59,29 @@ func onReady() {
 		log.Printf("Error finding profiles: %v", err)
 	}
 
-	profileItems := make(map[*systray.MenuItem]*platform.ProfileInfo)
+	// Each profile is its own submenu with two items: "Switch to this profile"
+	// and "Rename…". The parent item shows the account's display name and carries
+	// the active marker. On macOS, clicking a parent that has a submenu only opens
+	// the submenu, so the switch action has to live in the child.
+	type profileMenu struct {
+		info    *platform.ProfileInfo
+		parent  *systray.MenuItem
+		mSwitch *systray.MenuItem
+		mRename *systray.MenuItem
+	}
+	var profileMenus []profileMenu
+	profileItems := make(map[*systray.MenuItem]*platform.ProfileInfo) // parent item -> info, for markActive
 	for _, p := range profiles {
 		if !p.HasSessionsDir && !p.Managed && p.Name != "Claude" && p.Name != "Claude_Profile2" {
 			continue
 		}
-		item := systray.AddMenuItem(core.DisplayName(p.Name), fmt.Sprintf("Switch active profile to %s", p.Name))
-		profileItems[item] = p
+		// Empty tooltip on the parent: on macOS the parent's tooltip pops up next
+		// to it when hovered and visually overlaps the first submenu item.
+		parent := systray.AddMenuItem(core.DisplayName(p.Name), "")
+		mSwitchTo := parent.AddSubMenuItem("Switch to this profile", fmt.Sprintf("Switch the active profile to %s", p.Name))
+		mRenameTo := parent.AddSubMenuItem("Rename…", "Give this profile a friendlier display name")
+		profileItems[parent] = p
+		profileMenus = append(profileMenus, profileMenu{info: p, parent: parent, mSwitch: mSwitchTo, mRename: mRenameTo})
 	}
 
 	// Store/MSIX build only: let the user add another account as a new profile
@@ -118,7 +134,6 @@ func onReady() {
 	// Settings submenu
 	mSettings := systray.AddMenuItem("Settings", "Preferences")
 	mLogin := mSettings.AddSubMenuItemCheckbox("Start at Login", "Launch automatically when you log in", core.LoginItemEnabled())
-	mRename := mSettings.AddSubMenuItem("Rename a Profile…", "Give a profile a friendlier display name")
 
 	// Maintenance submenu
 	mMaint := systray.AddMenuItem("Maintenance", "Backups, logs, updates")
@@ -132,9 +147,11 @@ func onReady() {
 	mQuit := systray.AddMenuItem("Quit", "Quit Multi-Claude Switcher Tray")
 
 	// Handle menu item events in goroutines
-	for item, prof := range profileItems {
-		go func(m *systray.MenuItem, target *platform.ProfileInfo) {
-			for range m.ClickedCh {
+	for _, pm := range profileMenus {
+		// Switch to this profile.
+		go func(pm profileMenu) {
+			target := pm.info
+			for range pm.mSwitch.ClickedCh {
 				log.Printf("User selected switch to profile: %s", target.Name)
 
 				// Confirm before switching: the switch closes Claude Desktop, so
@@ -156,7 +173,14 @@ func onReady() {
 					markActive(profileItems, target.Path)
 				}
 			}
-		}(item, prof)
+		}(pm)
+
+		// Rename this profile (acts directly on it — no picker needed).
+		go func(pm profileMenu) {
+			for range pm.mRename.ClickedCh {
+				renameProfile(pm.info, profileItems)
+			}
+		}(pm)
 	}
 
 	if mNewProfile != nil {
@@ -232,12 +256,6 @@ func onReady() {
 	go func() {
 		for range mUpdate.ClickedCh {
 			go checkForUpdate(false)
-		}
-	}()
-
-	go func() {
-		for range mRename.ClickedCh {
-			renameFlow(profileItems)
 		}
 	}()
 
@@ -327,34 +345,20 @@ func relaunchSelf() {
 	systray.Quit()
 }
 
-// renameFlow asks the user (via native dialogs) which profile to rename and the
-// new display name, persists it, and refreshes the menu labels.
-func renameFlow(items map[*systray.MenuItem]*platform.ProfileInfo) {
-	// Collect the folder names currently shown, each labeled with its display name.
-	var labels []string
-	labelToFolder := map[string]string{}
-	for _, p := range items {
-		label := fmt.Sprintf("%s  (%s)", core.DisplayName(p.Name), p.Name)
-		labels = append(labels, label)
-		labelToFolder[label] = p.Name
-	}
-
-	chosenLabel := chooseFromList(labels, "Which profile do you want to rename?")
-	if chosenLabel == "" {
-		return // cancelled
-	}
-	folder := labelToFolder[chosenLabel]
-
-	newName := askText(fmt.Sprintf("New display name for %q:", folder), core.DisplayName(folder))
+// renameProfile prompts for a new display name for the given profile, persists
+// it, and refreshes the menu labels (preserving the current-profile marker).
+// It acts directly on the passed-in profile, so no picker dialog is needed.
+func renameProfile(p *platform.ProfileInfo, items map[*systray.MenuItem]*platform.ProfileInfo) {
+	newName := askText(fmt.Sprintf("New display name for %q:", p.Name), core.DisplayName(p.Name))
 	if newName == "" {
 		return // cancelled or empty
 	}
-	if err := core.SetProfileName(folder, newName); err != nil {
+	if err := core.SetProfileName(p.Name, newName); err != nil {
 		log.Printf("Rename failed: %v", err)
 		notify("Rename failed", err.Error())
 		return
 	}
-	log.Printf("Renamed profile %s -> %q", folder, newName)
+	log.Printf("Renamed profile %s -> %q", p.Name, newName)
 
 	// Refresh labels (preserve the current-profile marker).
 	active, _ := plat.DetectRunningProfile()
