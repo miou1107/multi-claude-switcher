@@ -142,6 +142,83 @@ func TestMSIXValidateName(t *testing.T) {
 	}
 }
 
+// TestMSIXMigration verifies the first-login migration copies the new account's
+// previously saved sessions from the parked source profile into the fresh slot.
+func TestMSIXMigration(t *testing.T) {
+	roaming := t.TempDir()
+	uuidA := "035899b2-b130-40b6-aa9e-93cf208df7b7"
+
+	// Parked source profile "AcctB" holds account A's old sessions under its bucket.
+	fromBucket := filepath.Join(msixContainerDir(roaming), "AcctB", "claude-code-sessions", uuidA)
+	if err := os.MkdirAll(filepath.Join(fromBucket, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fromBucket, "s1.json"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fromBucket, "sub", "s2.json"), []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Fresh slot, now signed into account A (config.json advertises its UUID).
+	if err := os.MkdirAll(msixSlotDir(roaming), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(msixSlotDir(roaming), "config.json"),
+		[]byte(`{"lastKnownAccountUuid":"`+uuidA+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMSIXStateIn(roaming, msixState{Current: "AcctA", PendingMigrateFrom: "AcctB"}); err != nil {
+		t.Fatal(err)
+	}
+
+	copied, done := msixAttemptMigrationIn(roaming)
+	if !done {
+		t.Fatal("migration should be done once the account is signed in")
+	}
+	if copied != 2 {
+		t.Fatalf("copied = %d, want 2", copied)
+	}
+	dst := filepath.Join(msixSlotDir(roaming), "claude-code-sessions", uuidA)
+	if !exists(filepath.Join(dst, "s1.json")) || !exists(filepath.Join(dst, "sub", "s2.json")) {
+		t.Fatal("migrated session files are missing from the slot")
+	}
+	if readMSIXStateIn(roaming).PendingMigrateFrom != "" {
+		t.Fatal("pending-migration flag should be cleared after migrating")
+	}
+}
+
+// TestMSIXMigrationWaitsForSignIn ensures the migration does not fire (and the
+// flag is kept) until the fresh account is actually signed in.
+func TestMSIXMigrationWaitsForSignIn(t *testing.T) {
+	roaming := t.TempDir()
+	if err := os.MkdirAll(msixSlotDir(roaming), 0o755); err != nil { // no config.json yet
+		t.Fatal(err)
+	}
+	if err := writeMSIXStateIn(roaming, msixState{Current: "AcctA", PendingMigrateFrom: "AcctB"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, done := msixAttemptMigrationIn(roaming); done {
+		t.Fatal("migration must wait until the account is signed in")
+	}
+	if readMSIXStateIn(roaming).PendingMigrateFrom == "" {
+		t.Fatal("pending flag should remain until the migration runs")
+	}
+}
+
+// TestMSIXParkForNewQueuesMigration verifies creating a profile queues a migration
+// from the profile it parked.
+func TestMSIXParkForNewQueuesMigration(t *testing.T) {
+	roaming := t.TempDir()
+	writeProfileDir(t, msixSlotDir(roaming), "A") // current defaults to "Claude"
+	if err := msixParkForNewIn(roaming, "Work"); err != nil {
+		t.Fatalf("park for new: %v", err)
+	}
+	if got := readMSIXStateIn(roaming).PendingMigrateFrom; got != "Claude" {
+		t.Fatalf("PendingMigrateFrom = %q, want Claude", got)
+	}
+}
+
 func TestMSIXStateRoundTrip(t *testing.T) {
 	roaming := t.TempDir()
 	if err := writeMSIXStateIn(roaming, msixState{Current: "Personal"}); err != nil {

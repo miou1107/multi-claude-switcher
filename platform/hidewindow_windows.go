@@ -14,10 +14,13 @@ import (
 //
 // Apply it to console helpers only — never to a GUI target (e.g. launching Claude
 // Desktop), whose own window must stay visible.
+//
+// Deliberately does NOT set SysProcAttr.HideWindow (SW_HIDE): that would also hide
+// any GUI window a helper opens. CREATE_NO_WINDOW alone suppresses the console
+// without affecting GUI windows.
 func hideConsole(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	cmd.SysProcAttr.HideWindow = true
 	cmd.SysProcAttr.CreationFlags |= 0x08000000 // CREATE_NO_WINDOW
 }

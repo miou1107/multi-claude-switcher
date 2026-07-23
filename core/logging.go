@@ -33,8 +33,23 @@ func SetupLogging(component string) (io.Closer, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	log.SetOutput(io.MultiWriter(os.Stderr, f))
+	// Write to the FILE first, then stderr. A GUI build (-H=windowsgui) has no
+	// valid stderr handle, so writing to it errors — and io.MultiWriter stops at
+	// the first error, which would silently drop all file logging. Ordering the
+	// file first, and swallowing stderr write errors, guarantees the durable log
+	// is always written regardless of whether a console is attached.
+	log.SetOutput(io.MultiWriter(f, ignoreWriteErr{os.Stderr}))
 	log.SetFlags(log.LstdFlags)
 	log.Printf("=== %s v%s started (log: %s) ===", component, Version, path)
 	return f, path, nil
+}
+
+// ignoreWriteErr wraps a writer so its write errors are swallowed (reporting a
+// full, successful write). Used for stderr, which is invalid in a GUI build and
+// would otherwise abort an io.MultiWriter before the file writer runs.
+type ignoreWriteErr struct{ w io.Writer }
+
+func (e ignoreWriteErr) Write(p []byte) (int, error) {
+	_, _ = e.w.Write(p)
+	return len(p), nil
 }
