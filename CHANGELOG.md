@@ -26,6 +26,15 @@
   macOS 15 (System Settings → Privacy & Security), where the older right-click →
   Open path no longer appears.
 
+### Changed
+- **Each profile is now its own submenu.** A profile in the tray menu used to be
+  a single click-to-switch item, with renaming tucked under Settings. Each
+  account is now a submenu with **Switch to this profile** and **Rename…**, so an
+  account's actions live together and renaming targets that account directly (no
+  more "which profile?" picker). Switching is therefore one step deeper (open the
+  account's submenu, then Switch). The "Rename a Profile…" entry has been removed
+  from Settings. `cmd/mcs-tray/main.go`.
+
 ## [0.7.7] - 2026-07-23
 
 ### Fixed

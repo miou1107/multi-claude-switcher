@@ -70,8 +70,8 @@ On the [latest release](https://github.com/miou1107/multi-claude-switcher/releas
    com.apple.quarantine "/Applications/Multi-Claude Switcher.app"`.)
 
 The app runs in the **menu bar** (top-right), shown as a pair-of-eyes icon —
-it has no Dock icon. Click it to switch profiles; a checkmark marks the profile
-in use. Enable **Start at Login** from the menu to launch it automatically. The
+it has no Dock icon. Click it to open the menu: each account is a submenu with
+**Switch to this profile** and **Rename…**, and the current account is marked. Enable **Start at Login** from the menu to launch it automatically. The
 app **updates itself** from GitHub Releases, so you only install once.
 
 ### Windows
@@ -81,8 +81,8 @@ app **updates itself** from GitHub Releases, so you only install once.
    adds a Start Menu shortcut, and registers an entry in Add/Remove Programs.
 2. Launch **Multi-Claude Switcher** from the Start Menu. It appears as a
    pair-of-eyes icon in the system tray (bottom-right; you may need the "show
-   hidden icons" arrow). Click it to switch profiles; a checkmark marks the one in
-   use. Enable **Start at Login** from the menu to launch it automatically. When a
+   hidden icons" arrow). Click it to open the menu: each account is a submenu with
+   **Switch to this profile** and **Rename…**, and the current account is marked. Enable **Start at Login** from the menu to launch it automatically. When a
    new version is released it notifies you; use **Check for Updates** to open the
    download page, then run the new installer to upgrade (it installs over the old
    version).
