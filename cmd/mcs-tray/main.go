@@ -195,7 +195,14 @@ func onReady() {
 	for item, pair := range alignItems {
 		go func(m *systray.MenuItem, pr alignPair) {
 			for range m.ClickedCh {
-				if !confirmAlign(core.DisplayName(pr.src.Name), core.DisplayName(pr.dst.Name)) {
+				dstName := core.DisplayName(pr.dst.Name)
+				confirmed := false
+				if importTargetIsTeam(pr.dst.Path) {
+					confirmed = confirmImportIntoTeam(dstName)
+				} else {
+					confirmed = confirmAlign(core.DisplayName(pr.src.Name), dstName)
+				}
+				if !confirmed {
 					log.Printf("Align %s -> %s cancelled by user.", pr.src.Name, pr.dst.Name)
 					continue
 				}
@@ -418,6 +425,19 @@ func confirmSwitch(targetName string) bool {
 func confirmAlign(src, dst string) bool {
 	msg := fmt.Sprintf("Copy %q's sessions into %q? Claude Desktop will be closed, synced, and reopened on the account you're using now.", src, dst)
 	return confirmDialog(msg, "Sync")
+}
+
+// importTargetIsTeam reports whether the sync destination is a Team account,
+// whose Code sidebar is server-authoritative so a local import is a no-op.
+func importTargetIsTeam(dstPath string) bool {
+	return getAcctType(dstPath) == core.AccountTeam
+}
+
+// confirmImportIntoTeam warns that copying sessions into a Team account does
+// nothing (the import half is a no-op), and asks whether to continue.
+func confirmImportIntoTeam(dst string) bool {
+	msg := fmt.Sprintf("%q is a Team account — Code conversations cannot be imported into it, so this sync's import half will do nothing. Continue anyway?", dst)
+	return confirmDialog(msg, "Continue")
 }
 
 // showAbout displays a small About dialog with the app name, version, and link.
