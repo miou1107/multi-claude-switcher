@@ -32,8 +32,13 @@ func autoSyncWarningMessage(teamNames []string) string {
 	if len(teamNames) == 0 {
 		return base
 	}
-	return base + "\n\n⚠️ " + strings.Join(teamNames, ", ") +
-		" is a Team account — Code conversations cannot be imported into it. Auto Sync will only export out of it, never merge others' conversations in."
+	names := strings.Join(teamNames, ", ")
+	if len(teamNames) == 1 {
+		return base + "\n\n⚠️ " + names +
+			" is a Team account — Code conversations cannot be imported into it. Auto Sync will only export out of it, never merge others' conversations in."
+	}
+	return base + "\n\n⚠️ " + names +
+		" are Team accounts — Code conversations cannot be imported into them. Auto Sync will only export out of them, never merge others' conversations in."
 }
 
 // teamProfileNames returns the display names of profiles detected as Team.
