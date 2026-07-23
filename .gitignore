@@ -3,5 +3,8 @@
 /tmp/
 bin/
 dist/
+# compiled binaries emitted at repo root (source lives in cmd/mcs, cmd/mcs-tray)
+/mcs
+/mcs-tray
 .superpowers/
 docs/superpowers/handoffs/
