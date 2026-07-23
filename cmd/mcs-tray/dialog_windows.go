@@ -76,6 +76,9 @@ func openFolder(path string) {
 	_ = exec.Command("explorer", path).Start()
 }
 
+// fileManagerName is the OS file manager's name, for user-facing tooltips.
+func fileManagerName() string { return "File Explorer" }
+
 // confirmDialog shows a Yes/No message box (in front, via a topmost owner); Yes =
 // confirm. The action verb is carried in the message text (a standard box cannot
 // relabel its buttons).

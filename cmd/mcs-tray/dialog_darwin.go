@@ -28,6 +28,9 @@ func openFolder(path string) {
 	_ = exec.Command("open", path).Run()
 }
 
+// fileManagerName is the OS file manager's name, for user-facing tooltips.
+func fileManagerName() string { return "Finder" }
+
 // chooseFromList shows a native macOS "choose from list" dialog and returns the
 // selected item, or "" if cancelled.
 func chooseFromList(options []string, prompt string) string {

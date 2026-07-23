@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.7.9] - 2026-07-23
 
 ### Fixed
 - **Tray logging was silently dropped on the GUI build.** `SetupLogging` used
@@ -17,14 +17,15 @@
   directory could fail while Claude still held its files open; the retry window is
   now ~20s, each step is logged, a failed swap cleans up and reports a clear "quit
   Claude fully" message, and no data is ever deleted (`platform/windows_msix.go`).
+- **Two tray tooltips said "in Finder" (a macOS term) on every OS.** They now name
+  the platform's file manager — "File Explorer" on Windows, "Finder" on macOS
+  (`cmd/mcs-tray/main.go`, `cmd/mcs-tray/dialog_*.go`).
 
 ### Added
 - **Windows Store build: bring the second account's saved sessions over
-  automatically.** After you set up your other account and sign in, that account's
-  previously saved Code sessions are copied into its new profile. The tray also
-  detects when two accounts have been used in one install and reframes the action
-  as "Set up your other account…" with a one-time notice
-  (`cmd/mcs-tray/profiles_windows.go`, `platform/windows_msix.go`).
+  automatically.** After you create your other account ("New account profile…")
+  and sign into it, that account's previously saved Code sessions are copied into
+  its new profile (`cmd/mcs-tray/profiles_windows.go`, `platform/windows_msix.go`).
 
 ### Documentation
 - **Documented a hard limitation: Claude Team accounts are export-only.** Session

@@ -138,8 +138,8 @@ func onReady() {
 	// Maintenance submenu
 	mMaint := systray.AddMenuItem("Maintenance", "Backups, logs, updates")
 	mBackup := mMaint.AddSubMenuItem("Backup All Profiles", "Take a snapshot backup of all profiles")
-	mOpenBackups := mMaint.AddSubMenuItem("Open Backup Directory", "Open backup folder in Finder")
-	mOpenLogs := mMaint.AddSubMenuItem("Open Log Folder", "Open the log folder in Finder")
+	mOpenBackups := mMaint.AddSubMenuItem("Open Backup Directory", fmt.Sprintf("Open backup folder in %s", fileManagerName()))
+	mOpenLogs := mMaint.AddSubMenuItem("Open Log Folder", fmt.Sprintf("Open the log folder in %s", fileManagerName()))
 	mUpdate := mMaint.AddSubMenuItem("Check for Updates…", "Check GitHub for a newer version and update")
 
 	systray.AddSeparator()
@@ -277,9 +277,8 @@ func onReady() {
 	// Auto-update: check on startup and periodically.
 	startUpdateChecker()
 
-	// Store build: announce a second account if one is detected in a single
-	// install, and resume any pending first-login session migration.
-	maybeAnnounceMultiAccount()
+	// Store build: resume any pending first-login session migration (only fires
+	// after a new account was created and is being signed into).
 	startMigrationWatcher()
 
 	go func() {

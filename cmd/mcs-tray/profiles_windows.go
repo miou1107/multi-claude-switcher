@@ -15,24 +15,8 @@ import (
 // (the standalone build's profiles are just sibling data dirs the user picks).
 func newProfileSupported() bool { return platform.MSIXAvailable() }
 
-// newProfileMenuLabel is the menu text for the create-profile action. When MCS
-// notices two accounts already used in one install but no switching set up yet,
-// it reframes the item as directly setting up that other account.
-func newProfileMenuLabel() string {
-	if platform.MSIXUnconfiguredMultiAccount() {
-		return "Set up your other account…"
-	}
-	return "New account profile…"
-}
-
-// maybeAnnounceMultiAccount nudges the user once at startup when it detects two
-// accounts used in one install but no switching configured yet.
-func maybeAnnounceMultiAccount() {
-	if platform.MSIXUnconfiguredMultiAccount() {
-		notify("More than one account found",
-			`You've used two Claude accounts here. Open the tray and click "Set up your other account…" to switch between them — the conversations come over automatically.`)
-	}
-}
+// newProfileMenuLabel is the menu text for the create-profile action (Store build).
+func newProfileMenuLabel() string { return "New account profile…" }
 
 // runNewProfileFlow saves the current account as a profile and opens a fresh,
 // signed-out Claude so the user can add a second account, then relaunches the
