@@ -31,4 +31,12 @@ func TestAutoSyncWarningMessage(t *testing.T) {
 	if !strings.Contains(withTeam, "Company") || !strings.Contains(withTeam, "cannot be imported") {
 		t.Errorf("Team note missing details: %q", withTeam)
 	}
+
+	withTeams := autoSyncWarningMessage([]string{"Company", "Team B"})
+	if !strings.Contains(withTeams, "are Team accounts") {
+		t.Errorf("expected plural grammar for 2+ team names: %q", withTeams)
+	}
+	if !strings.Contains(withTeams, "cannot be imported") {
+		t.Errorf("Team note missing 'cannot be imported': %q", withTeams)
+	}
 }

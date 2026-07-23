@@ -24,6 +24,8 @@
 - `docs/assets/icon.png` — 512px color icon for README and documentation.
 - `core/version.go` — Single source of truth for the product version (imported by CLI and tray).
 - `core/accounttype.go` — Account-type classifier: maps a profile's cached org tiers to Team / Personal / Unknown.
+- `core/accounttype_test.go` — Unit tests for the account-type classifier (tier → Team/Personal/Unknown).
+- `core/accounttype_reader_test.go` — Unit tests for the Local Storage LevelDB reader + DetectAccountType (real fixture store).
 - `core/localstorage.go` — Chromium Local Storage value decoding + organization extraction (feeds the account-type classifier).
 - `core/localstorage_test.go` — Unit tests for Chromium Local Storage decoding and org extraction.
 - `core/logging.go` — Persistent per-component logging to ~/.multi-claude-switcher/logs (stderr + file).
@@ -76,6 +78,7 @@
 - `cmd/mcs-tray/dialog_darwin_test.go` — Unit tests for the macOS auto-sync dialog result parser.
 - `cmd/mcs-tray/accounttype.go` — Tray-side account-type cache, "🏢 Team" title tag, and background detection.
 - `cmd/mcs-tray/accounttype_test.go` — Unit tests for `profileTitle` and the account-type cache.
+- `cmd/mcs-tray/importwarn_test.go` — Unit tests for the import-into-Team gate (`importTargetIsTeam`).
 - `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
 - `platform/darwin.go` — macOS implementation for platform interface.
 - `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).

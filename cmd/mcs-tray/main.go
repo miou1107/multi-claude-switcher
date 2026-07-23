@@ -214,7 +214,6 @@ func onReady() {
 				}
 				log.Printf("Align %s -> %s: %d copied, %d skipped, %d conflict(s).", pr.src.Name, pr.dst.Name, report.CopiedCount, report.SkippedCount, report.ConflictCount)
 				notify("Align complete", fmt.Sprintf("%d copied, %d skipped, %d conflict(s).", report.CopiedCount, report.SkippedCount, report.ConflictCount))
-				go func() { detectAccountTypes(profiles); markActive(profileItems, "") }()
 			}
 		}(item, pair)
 	}
