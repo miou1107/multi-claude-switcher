@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Tray now detects **Team** accounts (from the cached organization list) and tags them `🏢 Team` in the profile menu. Actions that would import Code sessions *into* a Team account — enabling Auto Sync, or a manual sync direction targeting a Team account — now warn that import is a no-op for Team accounts (they are export-only). Detection is best-effort; unrecognized accounts are left untagged rather than mislabeled.
+
 ### Documentation
 - **Documented a hard limitation: Claude Team accounts are export-only.** Session
   sync can export a Team account's Code sessions OUT (Team → personal) but cannot

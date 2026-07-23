@@ -36,6 +36,8 @@
 > - ❌ **任何帳號 → Team（匯入）無效。** 把別的帳號的 session 檔複製進 Team 帳號的資料夾**完全沒用**，對話不會出現在 Team 帳號的側邊欄，連乾淨重啟、整個清快取重建都一樣。
 >
 > 原因：Claude Desktop 建 Team 帳號的 Code 側邊欄清單,是**向 Anthropic 伺服器抓取**的,範圍鎖定你的帳號**與組織**（app 帶 `orgUuid` 呼叫 `sessions_api_list_sessions`;官方文件也說 session 對話記錄存在伺服器）。對 Team 帳號來說**伺服器才是真相來源**,複製進去的本地檔案會被忽略,也**沒有設定可以切成讀本地**。結論：**你無法用同步檔案的方式,把個人帳號的 Code 對話匯入公司 Team 帳號。** 只有 app 把本地 `claude-code-sessions/` 當真相來源的情況（個人帳號）匯入才有效。詳見 `docs/superpowers/specs/2026-07-22-probe-results.md`。
+>
+> tray 會把偵測到的 Team 帳號標上 `🏢 Team`,並在你做「會匯入它」的動作時提醒(開 Auto Sync、或 Sync 方向指向它)。偵測是盡力而為 ── 判不出來的帳號會維持不標,不會亂標。
 
 ## 📥 下載
 
