@@ -16,6 +16,15 @@
   `docs/superpowers/specs/2026-07-23-windows-msix-support-design.md`,
   `platform/windows_msix.go`, `platform/windows.go`,
   `cmd/mcs-tray/profiles_windows.go`.
+- **macOS: ad-hoc sign the app bundle when packaging.** `scripts/package-app.sh`
+  now runs `codesign --sign -` on the `.app` before zipping. This needs no Apple
+  Developer account and does not notarize the app, so a browser-downloaded copy
+  still needs a one-time Gatekeeper bypass on first launch. What it buys: one
+  clean whole-bundle signature with a stable identity after the universal binary
+  is assembled, which keeps the self-updater's in-place binary swap
+  codesign-valid. The README install steps now also cover clearing Gatekeeper on
+  macOS 15 (System Settings → Privacy & Security), where the older right-click →
+  Open path no longer appears.
 
 ## [0.7.7] - 2026-07-23
 

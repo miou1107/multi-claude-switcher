@@ -44,7 +44,11 @@
 
 1. 下載上面的 `Multi-Claude-Switcher_<版本>_macos.zip` 並**解壓**（雙擊壓縮檔）。你會得到 **Multi-Claude Switcher.app**。
 2. 把 **Multi-Claude Switcher.app** 拖到你的**應用程式（Applications）**資料夾。
-3. **只有第一次啟動：** 對 app 按右鍵 →**打開**，再在跳出的視窗按**打開**。（這個 app 沒有簽章，付費的 Apple 開發者憑證可省掉這一步，所以 macOS 第一次會要你確認。之後直接雙擊即可。）
+3. **只有第一次啟動，通過一次 Gatekeeper。** 這個 app 有 ad-hoc 簽章、但未經 Apple 公證（公證需要付費的 Apple 開發者帳號），所以 macOS 第一次會要你確認。二選一：
+   - 對 app 按**右鍵** →**打開**，再在跳出的視窗按**打開**，或
+   - 如果視窗沒有 **打開** 按鈕（macOS 15 Sequoia 以後）：打開**系統設定 → 隱私權與安全性**，往下捲，按**強制打開（Open Anyway）**。
+
+   之後直接雙擊即可。（終端機替代法：`xattr -dr com.apple.quarantine "/Applications/Multi-Claude Switcher.app"`。）
 
 這個 app 跑在**選單列**（右上角），顯示為一對眼睛的圖示，沒有 Dock 圖示。點它就能切換設定檔，打勾的那個是目前正在用的。從選單開啟 **Start at Login** 可讓它開機自動啟動。App 會**自我更新**（從 GitHub Releases 抓），所以只要裝一次。
 
