@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Changed
+- **Release CI now bumps the Homebrew tap automatically.** After the macOS build
+  publishes the `_macos.zip`, a new `update-homebrew-tap` job in `release.yml`
+  writes the new version and its SHA256 into
+  `miou1107/homebrew-tap/Casks/multi-claude-switcher.rb` and pushes the change,
+  so `brew install --cask miou1107/tap/multi-claude-switcher` tracks each
+  release without a manual step. Requires a `HOMEBREW_TAP_TOKEN` repository
+  secret (fine-grained PAT with Contents:read/write on the tap repo); the job
+  soft-fails if the token is missing, leaving the mac/windows releases
+  themselves unaffected.
+
 ## [0.7.8] - 2026-07-23
 
 ### Added

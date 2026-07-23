@@ -3,7 +3,7 @@
 - `.gitignore` — Git ignore rules.
 - `.gitattributes` — Marks binary assets (`.syso`, `.ico`, `.icns`, `.png`, `.zip`) so Git never applies line-ending conversion that would corrupt them.
 - `go.mod` — Go module definition file.
-- `.github/workflows/release.yml` — GitHub Actions: on a `v*` tag, builds the universal macOS `.app` (version injected) and the Windows `setup.exe` installer, and publishes them to a GitHub Release.
+- `.github/workflows/release.yml` — GitHub Actions: on a `v*` tag, builds the universal macOS `.app` (version injected) and the Windows `setup.exe` installer, publishes them to a GitHub Release, and bumps the multi-claude-switcher cask in `miou1107/homebrew-tap` to the new version + macOS zip SHA256 (needs the `HOMEBREW_TAP_TOKEN` secret).
 - `go.sum` — Go module checksum file.
 - `README.md` — Project overview, architecture, and quick start CLI/GUI guide (English).
 - `README.zh-TW.md` — Traditional Chinese translation of the README.

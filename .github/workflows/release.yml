@@ -20,6 +20,10 @@ permissions:
 jobs:
   build-macos:
     runs-on: macos-latest
+    outputs:
+      # Expose the mac zip's SHA256 so the update-homebrew-tap job can pin it in
+      # the cask without re-downloading the artifact.
+      sha256: ${{ steps.sha.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -54,6 +58,16 @@ jobs:
           # Reuse the universal binary already built above instead of rebuilding.
           ./scripts/package-app.sh "$VERSION" dist/mcs-tray-macos-universal
           ls -la dist
+
+      - name: Compute macOS zip SHA256
+        id: sha
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euxo pipefail
+          sha=$(shasum -a 256 "dist/Multi-Claude-Switcher_${VERSION}_macos.zip" | awk '{print $1}')
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "macOS zip SHA256: $sha"
 
       - name: Publish GitHub Release
         # Only the packaged .app is published. It is the sole download and the
@@ -112,3 +126,57 @@ jobs:
           files: |
             dist/Multi-Claude-Switcher_*_windows_setup.exe
           generate_release_notes: true
+
+  # Bump the multi-claude-switcher cask in miou1107/homebrew-tap so
+  # `brew install --cask miou1107/tap/multi-claude-switcher` picks up the new
+  # release automatically. Requires a fine-grained PAT with Contents:read/write
+  # on that tap repo, stored as the HOMEBREW_TAP_TOKEN secret on THIS repo.
+  # Runs after the mac build so the zip SHA256 (a job output) is available.
+  # A soft dependency: if this job fails (missing token, tap edit error), the
+  # mac and windows releases have already been published successfully.
+  update-homebrew-tap:
+    needs: build-macos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: miou1107/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update cask (version + sha256)
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          SHA256: ${{ needs.build-macos.outputs.sha256 }}
+        run: |
+          set -euxo pipefail
+          cd tap
+          # Anchor on the two-space cask indentation so future top-level fields
+          # named "version" or "sha256" inside blocks (e.g. livecheck) are not
+          # accidentally rewritten.
+          sed -i \
+            -e "s|^  version \".*\"|  version \"$VERSION\"|" \
+            -e "s|^  sha256 \".*\"|  sha256 \"$SHA256\"|" \
+            Casks/multi-claude-switcher.rb
+          git diff Casks/multi-claude-switcher.rb
+
+      - name: Commit and push
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd tap
+          if git diff --quiet Casks/multi-claude-switcher.rb; then
+            echo "No changes to cask (already at v$VERSION with the same SHA256); skipping."
+            exit 0
+          fi
+          git config user.name  "Vin"
+          git config user.email "vincent@fontrip.com"
+          git add Casks/multi-claude-switcher.rb
+          git commit -m "Bump multi-claude-switcher cask to v$VERSION"
+          git push
