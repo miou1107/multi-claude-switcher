@@ -74,6 +74,8 @@
 - `cmd/mcs-tray/dialog_windows.go` — Windows tray dialogs / notifications (PowerShell + WinForms).
 - `cmd/mcs-tray/dialog_other.go` — Dialog stubs for non-macOS/Windows builds (no-ops).
 - `cmd/mcs-tray/dialog_darwin_test.go` — Unit tests for the macOS auto-sync dialog result parser.
+- `cmd/mcs-tray/accounttype.go` — Tray-side account-type cache, "🏢 Team" title tag, and background detection.
+- `cmd/mcs-tray/accounttype_test.go` — Unit tests for `profileTitle` and the account-type cache.
 - `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
 - `platform/darwin.go` — macOS implementation for platform interface.
 - `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).
