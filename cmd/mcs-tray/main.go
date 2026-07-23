@@ -77,7 +77,7 @@ func onReady() {
 		}
 		// Empty tooltip on the parent: on macOS the parent's tooltip pops up next
 		// to it when hovered and visually overlaps the first submenu item.
-		parent := systray.AddMenuItem(core.DisplayName(p.Name), "")
+		parent := systray.AddMenuItem(profileTitle(core.DisplayName(p.Name), getAcctType(p.Path), false), "")
 		mSwitchTo := parent.AddSubMenuItem("Switch to this profile", fmt.Sprintf("Switch the active profile to %s", p.Name))
 		mRenameTo := parent.AddSubMenuItem("Rename…", "Give this profile a friendlier display name")
 		profileItems[parent] = p
@@ -171,6 +171,7 @@ func onReady() {
 					// We just launched the target, so mark it active immediately
 					// (before the new process is even detectable by `ps`).
 					markActive(profileItems, target.Path)
+					go func() { detectAccountTypes(profiles); markActive(profileItems, target.Path) }()
 				}
 			}
 		}(pm)
@@ -206,6 +207,7 @@ func onReady() {
 				}
 				log.Printf("Align %s -> %s: %d copied, %d skipped, %d conflict(s).", pr.src.Name, pr.dst.Name, report.CopiedCount, report.SkippedCount, report.ConflictCount)
 				notify("Align complete", fmt.Sprintf("%d copied, %d skipped, %d conflict(s).", report.CopiedCount, report.SkippedCount, report.ConflictCount))
+				go func() { detectAccountTypes(profiles); markActive(profileItems, "") }()
 			}
 		}(item, pair)
 	}
@@ -225,6 +227,14 @@ func onReady() {
 			}
 			time.Sleep(4 * time.Second)
 		}
+	}()
+
+	// Detect account types in the background (copies + reads each profile's Local
+	// Storage), then refresh titles so the "🏢 Team" tag appears.
+	go func() {
+		detectAccountTypes(profiles)
+		active, _ := plat.DetectRunningProfile()
+		markActive(profileItems, active)
 	}()
 
 	go func() {
@@ -306,12 +316,11 @@ func markActive(items map[*systray.MenuItem]*platform.ProfileInfo, activePath st
 	markMu.Lock()
 	defer markMu.Unlock()
 	for item, p := range items {
-		name := core.DisplayName(p.Name)
-		if samePath(p.Path, activePath) {
-			item.SetTitle(fmt.Sprintf("%s  (current)", name))
+		current := samePath(p.Path, activePath)
+		item.SetTitle(profileTitle(core.DisplayName(p.Name), getAcctType(p.Path), current))
+		if current {
 			item.Check()
 		} else {
-			item.SetTitle(name)
 			item.Uncheck()
 		}
 	}
