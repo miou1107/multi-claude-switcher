@@ -84,8 +84,10 @@ func short(uuid string) string {
 	return uuid
 }
 
-// pickLabel builds a one-line selectable label for a complete account, unique via
-// its short UUID.
+// pickLabel builds a one-line selectable label for a complete account, unique
+// per HomeFolder — the same UUID/email can legitimately be the live login of
+// two different profile folders, so the folder itself must be in the label or
+// one of them becomes unreachable via labelToFolder.
 func pickLabel(a core.ScannedAccount) string {
 	name := a.Email
 	if name == "" {
@@ -95,12 +97,19 @@ func pickLabel(a core.ScannedAccount) string {
 	if a.Account == core.AccountTeam {
 		tag = "  🏢 Team"
 	}
-	return fmt.Sprintf("%s%s  [%s]", name, tag, short(a.UUID))
+	return fmt.Sprintf("%s%s  [%s · %s]", name, tag, short(a.UUID), a.HomeFolder)
 }
 
 // selectablePick returns the multi-select labels for complete accounts only, a
-// label→folder map, and the labels to pre-select (currently-managed folders).
+// label→folder map, and the labels to pre-select.
+//
+// managed == nil is the first-run signal (no managed.json yet): every complete
+// account is pre-selected, since a user who leaves some unchecked would
+// otherwise silently un-manage them (they vanish from the menu and sync
+// submenu). Any non-nil managed slice — including an empty one — is honored
+// as-is: only listed folders are pre-selected.
 func selectablePick(accounts []core.ScannedAccount, managed []string) (labels []string, labelToFolder map[string]string, preselected []string) {
+	firstRun := managed == nil
 	managedSet := map[string]bool{}
 	for _, m := range managed {
 		managedSet[m] = true
@@ -113,7 +122,7 @@ func selectablePick(accounts []core.ScannedAccount, managed []string) (labels []
 		l := pickLabel(a)
 		labels = append(labels, l)
 		labelToFolder[l] = a.HomeFolder
-		if managedSet[a.HomeFolder] {
+		if firstRun || managedSet[a.HomeFolder] {
 			preselected = append(preselected, l)
 		}
 	}
