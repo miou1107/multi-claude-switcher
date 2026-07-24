@@ -99,4 +99,5 @@
 - `docs/superpowers/specs/2026-07-23-windows-port-foundation-design-draft.md` — Windows port foundation design (MSIX findings, Option A/B analysis, B-only decision).
 - `docs/superpowers/specs/2026-07-23-windows-msix-support-design.md` — Store/MSIX support design: in-place profile-folder swap, AUMID launch, new-profile flow.
 - `docs/superpowers/specs/2026-07-23-team-account-detection-design.md` — Design spec for detecting Team accounts (from cached org tiers) and warning on import-into-Team actions.
+- `docs/superpowers/specs/2026-07-24-account-rescan-design.md` — Design spec for the "Rescan accounts" review-to-manage picker (scan Claude dirs, dedup by UUID, completeness/ghost model, managed.json registry).
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.
