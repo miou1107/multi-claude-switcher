@@ -144,6 +144,7 @@ func onReady() {
 	mOpenBackups := mMaint.AddSubMenuItem("Open Backup Directory", fmt.Sprintf("Open backup folder in %s", fileManagerName()))
 	mOpenLogs := mMaint.AddSubMenuItem("Open Log Folder", fmt.Sprintf("Open the log folder in %s", fileManagerName()))
 	mUpdate := mMaint.AddSubMenuItem("Check for Updates…", "Check GitHub for a newer version and update")
+	mRescan := mMaint.AddSubMenuItem("Rescan accounts…", "Scan for Claude accounts and choose which to manage")
 
 	systray.AddSeparator()
 	mAbout := systray.AddMenuItem("About", "About Multi-Claude Switcher")
@@ -277,6 +278,8 @@ func onReady() {
 			go checkForUpdate(false)
 		}
 	}()
+
+	wireRescan(mRescan)
 
 	go func() {
 		for range mLogin.ClickedCh {

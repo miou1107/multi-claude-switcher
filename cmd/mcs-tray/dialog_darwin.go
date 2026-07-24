@@ -83,6 +83,56 @@ func infoDialog(title, message string) {
 	_ = exec.Command("osascript", "-e", script).Run()
 }
 
+// confirmDialogMultiline shows a two-button (Cancel + confirmLabel) dialog whose
+// body may contain newlines (each becomes a separate AppleScript line, unlike
+// confirmDialog which collapses them). Returns true only if confirmLabel is
+// picked.
+func confirmDialogMultiline(message, confirmLabel string) bool {
+	var quoted []string
+	for _, l := range strings.Split(message, "\n") {
+		quoted = append(quoted, osaQuote(l))
+	}
+	script := "display dialog " + strings.Join(quoted, " & return & ") +
+		fmt.Sprintf(` buttons {"Cancel", %s} default button %s cancel button "Cancel" with title "Multi-Claude Switcher"`,
+			osaQuote(confirmLabel), osaQuote(confirmLabel))
+	return exec.Command("osascript", "-e", script).Run() == nil
+}
+
+// chooseMultipleFromList shows a multi-select "choose from list" with the given
+// items pre-selected. Returns the selected items and ok=false if cancelled. Items
+// are newline-joined on the way back (labels never contain newlines).
+func chooseMultipleFromList(options, preselected []string, prompt string) ([]string, bool) {
+	quote := func(ss []string) string {
+		var q []string
+		for _, s := range ss {
+			q = append(q, osaQuote(s))
+		}
+		return strings.Join(q, ", ")
+	}
+	defItems := ""
+	if len(preselected) > 0 {
+		defItems = " default items {" + quote(preselected) + "}"
+	}
+	script := fmt.Sprintf(`set AppleScript's text item delimiters to "\n"
+set sel to choose from list {%s} with prompt %s with multiple selections allowed%s
+if sel is false then
+	return "__CANCELLED__"
+end if
+return sel as text`, quote(options), osaQuote(prompt), defItems)
+	out, err := exec.Command("osascript", "-e", script).Output()
+	if err != nil {
+		return nil, false
+	}
+	s := strings.TrimRight(string(out), "\n")
+	if s == "__CANCELLED__" {
+		return nil, false
+	}
+	if s == "" {
+		return []string{}, true // confirmed with nothing selected
+	}
+	return strings.Split(s, "\n"), true
+}
+
 // askEnableAutoSyncChoice shows the auto-sync enable warning (three buttons) and
 // returns the user's choice.
 func askEnableAutoSyncChoice(message string) autoSyncChoice {

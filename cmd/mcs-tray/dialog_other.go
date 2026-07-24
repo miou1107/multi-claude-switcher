@@ -18,6 +18,12 @@ func askText(prompt, defaultAnswer string) string { return "" }
 
 func confirmDialog(message, confirmLabel string) bool { return false }
 
+func confirmDialogMultiline(message, confirmLabel string) bool { return false }
+
+func chooseMultipleFromList(options, preselected []string, prompt string) ([]string, bool) {
+	return nil, false
+}
+
 func infoDialog(title, message string) {}
 
 func askEnableAutoSyncChoice(message string) autoSyncChoice { return choiceCancel }
