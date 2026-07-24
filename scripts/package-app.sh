@@ -45,10 +45,25 @@ if [[ -z "$TRAY_BIN" ]]; then
 	TRAY_BIN="$DIST/mcs-tray-universal"
 fi
 
+# 1b. Always build a universal mcs-picker — the native "Rescan accounts" window
+#     helper. It ships beside the tray binary in Contents/MacOS so the tray can
+#     launch it as a sibling process (it uses a webview, hence CGO).
+echo "==> Building universal mcs-picker"
+PICKER_LDFLAGS="-X github.com/miou1107/multi-claude-switcher/core.Version=$VERSION"
+CGO_ENABLED=1 GOARCH=arm64 CC="clang -arch arm64" \
+	go build -ldflags "$PICKER_LDFLAGS" -o "$DIST/mcs-picker-arm64" ./cmd/mcs-picker
+CGO_ENABLED=1 GOARCH=amd64 CC="clang -arch x86_64" \
+	go build -ldflags "$PICKER_LDFLAGS" -o "$DIST/mcs-picker-amd64" ./cmd/mcs-picker
+lipo -create -output "$DIST/mcs-picker-universal" \
+	"$DIST/mcs-picker-arm64" "$DIST/mcs-picker-amd64"
+rm -f "$DIST/mcs-picker-arm64" "$DIST/mcs-picker-amd64"
+
 # 2. Bundle skeleton.
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$TRAY_BIN" "$APP_DIR/Contents/MacOS/mcs-tray"
 chmod +x "$APP_DIR/Contents/MacOS/mcs-tray"
+cp "$DIST/mcs-picker-universal" "$APP_DIR/Contents/MacOS/mcs-picker"
+chmod +x "$APP_DIR/Contents/MacOS/mcs-picker"
 
 # 3. Info.plist with the version substituted.
 sed "s/__VERSION__/$VERSION/g" "$PLIST_TEMPLATE" > "$APP_DIR/Contents/Info.plist"
@@ -72,6 +87,9 @@ rm -rf "$(dirname "$ICONSET")"
 #    signature with a stable identity, which keeps the self-updater's in-place
 #    binary swap codesign-valid.
 echo "==> Ad-hoc signing $APP_NAME.app"
+# Sign the nested helper first, then the bundle, so --verify --strict passes
+# (a nested mach-o must carry its own signature before the bundle is sealed).
+codesign --force --sign - "$APP_DIR/Contents/MacOS/mcs-picker"
 codesign --force --sign - "$APP_DIR"
 codesign --verify --strict "$APP_DIR"
 

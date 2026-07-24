@@ -61,6 +61,13 @@
 - `cmd/mcs-tray/hidewindow_windows.go` — Windows helper: launch a spawned console helper (powershell/tasklist) with CREATE_NO_WINDOW so no console window flashes.
 - `cmd/mcs-tray/profiles_windows.go` — Windows-only tray flow: "New account profile…" (Store build) — save the current account and open a fresh Claude to sign into another, then relaunch the tray.
 - `cmd/mcs-tray/profiles_other.go` — Non-Windows no-ops for the new-profile flow (macOS standalone profiles are ordinary sibling data dirs).
+- `cmd/mcs-tray/openurl_windows.go` — Windows helper to open a URL in the default browser (used by the update-checker to open the releases page).
+- `cmd/mcs-tray/rescan.go` — "Rescan accounts" tray handler: launches the mcs-picker window helper, persists the chosen managed set, and rebuilds the menu.
+- `cmd/mcs-tray/rescanhelper.go` — Launches the sibling mcs-picker binary as a separate process and parses its result line (chosen folders / cancel).
+- `cmd/mcs-picker/main.go` — Standalone native "Rescan accounts" picker: scans accounts, shows a window, and prints the chosen folders as JSON for the tray.
+- `cmd/mcs-picker/render.go` — Pure renderer for the picker page (account cards, Team badges, greyed ghost rows) + the preselect helper.
+- `cmd/mcs-picker/picker_darwin.go` — macOS picker window via a native WKWebView (webview_go); returns the user's selection.
+- `cmd/mcs-picker/picker_other.go` — Non-macOS no-op picker (the native window is macOS-only).
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
 - `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller).
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon), ad-hoc signs it (`codesign --sign -`, no Apple Developer account needed), and zips it via ditto.
@@ -88,11 +95,6 @@
 - `cmd/mcs-tray/managedfilter.go` — Decides whether a profile folder appears in the tray menu: the managed registry is authoritative when present, else a first-run heuristic (live login or MSIX-parked).
 - `cmd/mcs-tray/managedfilter_test.go` — Unit tests for the menu-inclusion filter (managed registry vs first-run fallback).
 - `cmd/mcs-tray/rescan.go` — "Rescan accounts…" handler: scan → review/pick via the browser web UI → persist to the managed registry → relaunch.
-- `cmd/mcs-tray/pickserver.go` — Rescan review page: self-contained HTML table renderer (checkboxes, Team badges, greyed ghost rows) and a single-shot, token-guarded 127.0.0.1 server that serves it and waits for the Confirm/Cancel POST.
-- `cmd/mcs-tray/pickserver_test.go` — Unit tests for the preselect logic, the HTML renderer, and the /,/submit route handler.
-- `cmd/mcs-tray/openurl_darwin.go` — Opens a URL in the default browser on macOS (`open`).
-- `cmd/mcs-tray/openurl_windows.go` — Opens a URL in the default browser on Windows (`rundll32 url.dll,FileProtocolHandler`).
-- `cmd/mcs-tray/openurl_other.go` — Opens a URL in the default browser on other OSes (`xdg-open`).
 - `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
 - `platform/darwin.go` — macOS implementation for platform interface.
 - `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).

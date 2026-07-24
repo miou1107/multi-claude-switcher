@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Changed
-- Rescan accounts now opens a real review table in your browser (checkboxes, Team badges, greyed-out unmanageable accounts) instead of the plain-text dialog, which was unreadable with many columns.
+- Rescan accounts now opens a native window (a WKWebView-backed picker shipped as a sibling `mcs-picker` helper) with a real card list — checkboxes, Team badges, and greyed-out unmanageable accounts — replacing the plain-text dialog that was unreadable with many columns.
 
 ## [0.8.0] - 2026-07-24
 
