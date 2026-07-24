@@ -22,6 +22,17 @@ func short(uuid string) string {
 	return uuid
 }
 
+// anyComplete reports whether at least one account is Complete (i.e. has a
+// live login and is actually switchable). Ghost accounts alone don't count.
+func anyComplete(accounts []core.ScannedAccount) bool {
+	for _, a := range accounts {
+		if a.Complete {
+			return true
+		}
+	}
+	return false
+}
+
 // runRescan is the "Rescan accounts…" handler: scan → review (browser) → persist
 // → relaunch (the menu is static, so a rebuild is needed to reflect changes).
 func runRescan() {
@@ -36,9 +47,17 @@ func runRescan() {
 		infoDialog("Rescan accounts", "No Claude accounts found on this machine.")
 		return
 	}
+	if !anyComplete(accounts) {
+		infoDialog("Rescan accounts", "No complete (switchable) accounts to manage.")
+		return
+	}
 	folders, ok := pickAccountsViaBrowser(accounts, core.LoadManaged())
-	if !ok {
-		return // cancelled, timed out, or closed
+	// Regression guard: !ok covers cancelled/timed out/closed; len(folders) == 0
+	// covers a confirmed-but-empty selection. Either way we must not persist an
+	// empty managed set — SetManaged(nil) writes an authoritative-empty registry
+	// that hides every profile from the tray menu.
+	if !ok || len(folders) == 0 {
+		return
 	}
 	if err := core.SetManaged(folders); err != nil {
 		notify("Rescan failed", err.Error())
