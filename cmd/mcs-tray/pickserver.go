@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"html"
+	"net"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/miou1107/multi-claude-switcher/core"
 )
@@ -101,4 +107,96 @@ button.primary{background:#0a6cff;color:#fff;border-color:#0a6cff}
 <button type="submit" name="cancel" value="1">Cancel</button>
 <button type="submit" class="primary">Confirm</button>
 </div></form></body></html>`
+}
+
+// pickResult is the outcome the page POSTs back: the checked folders and whether
+// the user confirmed (vs cancelled).
+type pickResult struct {
+	folders []string
+	ok      bool
+}
+
+// closePage is the tiny confirmation shown after the user acts.
+func closePage(msg string) string {
+	return `<!doctype html><meta charset="utf-8"><title>Rescan accounts</title>` +
+		`<body style="font-family:-apple-system,system-ui,sans-serif;margin:3rem;text-align:center">` +
+		`<p style="font-size:1.1rem">` + html.EscapeString(msg) + `</p></body>`
+}
+
+// pickMux builds the two-route handler for the review page. Every request must
+// carry the exact token (query param on GET, form field on POST); otherwise 403.
+// The first /submit sends exactly one pickResult on resCh (non-blocking).
+func pickMux(page, token string, resCh chan<- pickResult) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("t") != token {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(page))
+	})
+	mux.HandleFunc("/submit", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil || r.FormValue("t") != token {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if r.FormValue("cancel") != "" {
+			_, _ = w.Write([]byte(closePage("Cancelled — you can close this tab.")))
+			select {
+			case resCh <- pickResult{nil, false}:
+			default:
+			}
+			return
+		}
+		folders := append([]string(nil), r.Form["folder"]...)
+		_, _ = w.Write([]byte(closePage("Saved — you can close this tab.")))
+		select {
+		case resCh <- pickResult{folders, true}:
+		default:
+		}
+	})
+	return mux
+}
+
+// pickAccountsViaBrowser starts a single-shot 127.0.0.1 server, opens the review
+// page in the browser, and returns the chosen folders. Cancel, a closed tab, a
+// 3-minute timeout, or any error all return ok=false (no change).
+func pickAccountsViaBrowser(accounts []core.ScannedAccount, managed []string) ([]string, bool) {
+	tokBytes := make([]byte, 16)
+	if _, err := rand.Read(tokBytes); err != nil {
+		notify("Rescan failed", "could not generate a secure token")
+		return nil, false
+	}
+	token := hex.EncodeToString(tokBytes)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		notify("Rescan failed", "could not start the local UI server: "+err.Error())
+		return nil, false
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	resCh := make(chan pickResult, 1)
+	page := renderReviewHTML(accounts, computePreselect(accounts, managed), token)
+	srv := &http.Server{Handler: pickMux(page, token, resCh)}
+	go func() { _ = srv.Serve(ln) }()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/?t=%s", port, token)
+	if err := openURL(url); err != nil {
+		notify("Rescan", "Open this URL in your browser to choose accounts:\n"+url)
+	}
+
+	select {
+	case res := <-resCh:
+		return res.folders, res.ok
+	case <-time.After(3 * time.Minute):
+		return nil, false
+	}
 }

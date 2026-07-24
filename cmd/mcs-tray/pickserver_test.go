@@ -1,6 +1,9 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -76,4 +79,49 @@ func TestRenderReviewHTML(t *testing.T) {
 	if strings.Contains(out, "<script") {
 		t.Error("unexpected script tag")
 	}
+}
+
+func TestPickMux(t *testing.T) {
+	resCh := make(chan pickResult, 1)
+	mux := pickMux("<html>PAGE</html>", "good", resCh)
+
+	// GET with correct token → 200 + page
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/?t=good", nil))
+	if rr.Code != 200 || !strings.Contains(rr.Body.String(), "PAGE") {
+		t.Fatalf("GET good: code=%d body=%q", rr.Code, rr.Body.String())
+	}
+	// GET with wrong token → 403
+	rr = httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/?t=bad", nil))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("GET bad token: code=%d", rr.Code)
+	}
+	// POST submit with token + two folders → resCh gets them, ok=true
+	form := url.Values{"t": {"good"}, "folder": {"Claude", "Claude_Profile2"}}
+	rr = httptest.NewRecorder()
+	mux.ServeHTTP(rr, postForm("/submit", form))
+	res := <-resCh
+	if !res.ok || len(res.folders) != 2 || res.folders[0] != "Claude" {
+		t.Fatalf("submit: %#v", res)
+	}
+	// POST cancel → ok=false
+	mux2 := pickMux("x", "good", resCh) // fresh channel drain
+	rr = httptest.NewRecorder()
+	mux2.ServeHTTP(rr, postForm("/submit", url.Values{"t": {"good"}, "cancel": {"1"}}))
+	if res := <-resCh; res.ok {
+		t.Fatalf("cancel should be ok=false: %#v", res)
+	}
+	// POST with bad token → 403, nothing on channel
+	rr = httptest.NewRecorder()
+	mux2.ServeHTTP(rr, postForm("/submit", url.Values{"t": {"bad"}, "folder": {"X"}}))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("submit bad token: code=%d", rr.Code)
+	}
+}
+
+func postForm(path string, form url.Values) *http.Request {
+	req := httptest.NewRequest("POST", path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return req
 }
