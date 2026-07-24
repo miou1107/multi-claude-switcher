@@ -92,6 +92,16 @@ if ($r -eq 'Yes') { exit 0 } else { exit 1 }`
 	return err == nil
 }
 
+// confirmDialogMultiline is not yet implemented on Windows; always returns false
+// (cancelled).
+func confirmDialogMultiline(message, confirmLabel string) bool { return false }
+
+// chooseMultipleFromList is not yet implemented on Windows; always returns
+// ok=false (cancelled).
+func chooseMultipleFromList(options, preselected []string, prompt string) ([]string, bool) {
+	return nil, false
+}
+
 // infoDialog shows an OK-only information box, in front via a topmost owner.
 func infoDialog(title, message string) {
 	script := psTopmostOwner + `
