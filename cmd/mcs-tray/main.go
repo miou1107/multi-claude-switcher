@@ -103,7 +103,8 @@ func onReady() {
 	alignItems := map[*systray.MenuItem]alignPair{}
 	var shown []*platform.ProfileInfo
 	for _, p := range profiles {
-		if p.HasSessionsDir || p.Managed || p.Name == "Claude" || p.Name == "Claude_Profile2" {
+		_, uErr := platform.GetProfileAccountUUID(p.Path)
+		if menuIncludes(managed, p.Name, uErr == nil, p.Managed) {
 			shown = append(shown, p)
 		}
 	}
