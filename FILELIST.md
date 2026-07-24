@@ -28,6 +28,12 @@
 - `core/accounttype_reader_test.go` — Unit tests for the Local Storage LevelDB reader + DetectAccountType (real fixture store).
 - `core/localstorage.go` — Chromium Local Storage value decoding + organization extraction (feeds the account-type classifier).
 - `core/localstorage_test.go` — Unit tests for Chromium Local Storage decoding and org extraction.
+- `core/identity.go` — Reads a profile's account identity (email/name/UUID) from its cached Local Storage payloads (best-effort, feeds the account scanner).
+- `core/identity_test.go` — Unit tests for reading account identity from Local Storage.
+- `core/managed.go` — User-curated managed-profile registry (~/.multi-claude-switcher/managed.json): which profile folders the tray shows/manages.
+- `core/managed_test.go` — Unit tests for the managed-profile registry (load/save round-trip).
+- `core/scan.go` — Account scanner: walks all profiles, dedups accounts by UUID across folders, and classifies each as complete (switchable) or a ghost (ambiguous history, no login), with a derived review note.
+- `core/scan_test.go` — Unit tests for the account scanner (dedup, completeness/ghost classification, derived notes).
 - `core/logging.go` — Persistent per-component logging to ~/.multi-claude-switcher/logs (stderr + file).
 - `core/names.go` — User-chosen profile display names, stored in ~/.multi-claude-switcher/names.json.
 - `core/loginitem_darwin.go` — Start-at-login LaunchAgent management on macOS (install/remove per-user plist).
@@ -79,6 +85,10 @@
 - `cmd/mcs-tray/accounttype.go` — Tray-side account-type cache, "🏢 Team" title tag, and background detection.
 - `cmd/mcs-tray/accounttype_test.go` — Unit tests for `profileTitle` and the account-type cache.
 - `cmd/mcs-tray/importwarn_test.go` — Unit tests for the import-into-Team gate (`importTargetIsTeam`).
+- `cmd/mcs-tray/managedfilter.go` — Decides whether a profile folder appears in the tray menu: the managed registry is authoritative when present, else a first-run heuristic (live login or MSIX-parked).
+- `cmd/mcs-tray/managedfilter_test.go` — Unit tests for the menu-inclusion filter (managed registry vs first-run fallback).
+- `cmd/mcs-tray/rescan.go` — "Rescan accounts…" handler: scan → review table → multi-select pick (complete accounts only) → persist to the managed registry → relaunch.
+- `cmd/mcs-tray/rescan_test.go` — Unit tests for the review-table renderer and the selectable-pick builder.
 - `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
 - `platform/darwin.go` — macOS implementation for platform interface.
 - `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).
@@ -92,6 +102,7 @@
 - `docs/plans/2026-07-22-phase-2-gui.md` — Phase 2 GUI execution plan.
 - `docs/superpowers/plans/2026-07-22-session-align-manual-and-auto.md` — Implementation plan for manual align + auto sync-on-switch (0.7.0).
 - `docs/superpowers/plans/2026-07-23-team-account-detection.md` — Implementation plan for Team-account detection, the "🏢 Team" tag, and import-into-Team warnings.
+- `docs/superpowers/plans/2026-07-24-account-rescan.md` — Implementation plan for the "Rescan accounts" review-to-manage picker (identity reader, managed.json registry, scanner, two-step UI).
 - `docs/superpowers/specs/2026-07-22-multi-claude-account-sync-design.md` — Core design spec for multi-claude switcher.
 - `docs/superpowers/specs/2026-07-22-macos-app-bundle-design.md` — Design spec for the macOS .app bundle packaging.
 - `docs/superpowers/specs/2026-07-22-session-align-manual-and-auto-design.md` — Design spec for manual "Align" + auto sync-on-switch (with default-off toggle).
@@ -99,4 +110,5 @@
 - `docs/superpowers/specs/2026-07-23-windows-port-foundation-design-draft.md` — Windows port foundation design (MSIX findings, Option A/B analysis, B-only decision).
 - `docs/superpowers/specs/2026-07-23-windows-msix-support-design.md` — Store/MSIX support design: in-place profile-folder swap, AUMID launch, new-profile flow.
 - `docs/superpowers/specs/2026-07-23-team-account-detection-design.md` — Design spec for detecting Team accounts (from cached org tiers) and warning on import-into-Team actions.
+- `docs/superpowers/specs/2026-07-24-account-rescan-design.md` — Design spec for the "Rescan accounts" review-to-manage picker (scan Claude dirs, dedup by UUID, completeness/ghost model, managed.json registry).
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.
