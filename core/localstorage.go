@@ -27,40 +27,56 @@ func decodeLocalStorageValue(v []byte) string {
 	}
 }
 
+// parseJSONLoose attempts to parse decoded as JSON, with a fallback to find and
+// parse the first '{' or '[' substring. Returns the parsed root and ok=true on
+// success, or (nil, false) when both attempts fail.
+func parseJSONLoose(decoded string) (interface{}, bool) {
+	var root interface{}
+	if json.Unmarshal([]byte(decoded), &root) == nil {
+		return root, true
+	}
+	i := strings.IndexAny(decoded, "{[")
+	if i < 0 {
+		return nil, false
+	}
+	if json.Unmarshal([]byte(decoded[i:]), &root) == nil {
+		return root, true
+	}
+	return nil, false
+}
+
+// walkJSON recursively traverses the JSON value tree, calling visit on every
+// map[string]interface{}. It handles nested objects and arrays gracefully.
+func walkJSON(v interface{}, visit func(map[string]interface{})) {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		visit(t)
+		for _, vv := range t {
+			walkJSON(vv, visit)
+		}
+	case []interface{}:
+		for _, vv := range t {
+			walkJSON(vv, visit)
+		}
+	}
+}
+
 // extractOrgs pulls every organization ({name, rate_limit_tier, billing_type})
 // out of a decoded Local Storage value. It walks any nested JSON, collecting each
 // object that has a "rate_limit_tier" field. Returns nil for non-JSON or org-free
 // input (never panics).
 func extractOrgs(decoded string) []orgInfo {
-	var root interface{}
-	if json.Unmarshal([]byte(decoded), &root) != nil {
-		i := strings.IndexAny(decoded, "{[")
-		if i < 0 {
-			return nil
-		}
-		if json.Unmarshal([]byte(decoded[i:]), &root) != nil {
-			return nil
-		}
+	root, ok := parseJSONLoose(decoded)
+	if !ok {
+		return nil
 	}
 	var out []orgInfo
-	var walk func(v interface{})
-	walk = func(v interface{}) {
-		switch t := v.(type) {
-		case map[string]interface{}:
-			if tier, ok := t["rate_limit_tier"].(string); ok {
-				name, _ := t["name"].(string)
-				billing, _ := t["billing_type"].(string)
-				out = append(out, orgInfo{Name: name, Tier: tier, Billing: billing})
-			}
-			for _, vv := range t {
-				walk(vv)
-			}
-		case []interface{}:
-			for _, vv := range t {
-				walk(vv)
-			}
+	walkJSON(root, func(t map[string]interface{}) {
+		if tier, ok := t["rate_limit_tier"].(string); ok {
+			name, _ := t["name"].(string)
+			billing, _ := t["billing_type"].(string)
+			out = append(out, orgInfo{Name: name, Tier: tier, Billing: billing})
 		}
-	}
-	walk(root)
+	})
 	return out
 }

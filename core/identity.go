@@ -1,7 +1,6 @@
 package core
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,15 +26,9 @@ type AccountIdentity struct {
 // non-empty values win. Returns a zero value for non-JSON or identity-free input
 // (never panics).
 func extractIdentity(decoded string) AccountIdentity {
-	var root interface{}
-	if json.Unmarshal([]byte(decoded), &root) != nil {
-		i := strings.IndexAny(decoded, "{[")
-		if i < 0 {
-			return AccountIdentity{}
-		}
-		if json.Unmarshal([]byte(decoded[i:]), &root) != nil {
-			return AccountIdentity{}
-		}
+	root, ok := parseJSONLoose(decoded)
+	if !ok {
+		return AccountIdentity{}
 	}
 	var id AccountIdentity
 	set := func(dst *string, v interface{}) {
@@ -43,26 +36,14 @@ func extractIdentity(decoded string) AccountIdentity {
 			*dst = s
 		}
 	}
-	var walk func(v interface{})
-	walk = func(v interface{}) {
-		switch t := v.(type) {
-		case map[string]interface{}:
-			set(&id.Email, t["email"])
-			set(&id.Email, t["email_address"])
-			set(&id.UUID, t["account_uuid"])
-			set(&id.UUID, t["uuid"])
-			set(&id.DisplayName, t["display_name"])
-			set(&id.FullName, t["full_name"])
-			for _, vv := range t {
-				walk(vv)
-			}
-		case []interface{}:
-			for _, vv := range t {
-				walk(vv)
-			}
-		}
-	}
-	walk(root)
+	walkJSON(root, func(t map[string]interface{}) {
+		set(&id.Email, t["email"])
+		set(&id.Email, t["email_address"])
+		set(&id.UUID, t["account_uuid"])
+		set(&id.UUID, t["uuid"])
+		set(&id.DisplayName, t["display_name"])
+		set(&id.FullName, t["full_name"])
+	})
 	return id
 }
 
