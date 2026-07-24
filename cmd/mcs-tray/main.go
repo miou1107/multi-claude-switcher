@@ -71,8 +71,10 @@ func onReady() {
 	}
 	var profileMenus []profileMenu
 	profileItems := make(map[*systray.MenuItem]*platform.ProfileInfo) // parent item -> info, for markActive
+	managed := core.LoadManaged()
 	for _, p := range profiles {
-		if !p.HasSessionsDir && !p.Managed && p.Name != "Claude" && p.Name != "Claude_Profile2" {
+		_, uErr := platform.GetProfileAccountUUID(p.Path)
+		if !menuIncludes(managed, p.Name, uErr == nil, p.Managed) {
 			continue
 		}
 		// Empty tooltip on the parent: on macOS the parent's tooltip pops up next
