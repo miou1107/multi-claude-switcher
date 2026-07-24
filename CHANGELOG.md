@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Changed
+- Rescan accounts now opens a real review table in your browser (checkboxes, Team badges, greyed-out unmanageable accounts) instead of the plain-text dialog, which was unreadable with many columns.
+
 ## [0.8.0] - 2026-07-24
 
 ### Added
