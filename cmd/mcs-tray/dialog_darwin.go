@@ -128,7 +128,11 @@ return sel as text`, quote(options), osaQuote(prompt), defItems)
 		return nil, false
 	}
 	if s == "" {
-		return []string{}, true // confirmed with nothing selected
+		// "choose from list" disables OK on an empty selection, so this
+		// shouldn't normally happen — but treat it as cancelled rather than a
+		// confirmed empty set, since persisting an empty managed list would
+		// hide every account.
+		return nil, false
 	}
 	return strings.Split(s, "\n"), true
 }
