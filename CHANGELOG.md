@@ -4,6 +4,10 @@
 
 ### Added
 - Tray now detects **Team** accounts (from the cached organization list) and tags them `🏢 Team` in the profile menu. Actions that would import Code sessions *into* a Team account — enabling Auto Sync, or a manual sync direction targeting a Team account — now warn that import is a no-op for Team accounts (they are export-only). Detection is best-effort; unrecognized accounts are left untagged rather than mislabeled.
+- Rescan accounts: scan the machine for Claude accounts, review each (UUID, completeness, email, Team, conversations, last-updated), and pick which to manage. Incomplete/ghost accounts (orphaned Code sessions with no login) are shown read-only as "Invalid account data".
+
+### Changed
+- First-run menu now shows accounts with an active login (and managed profiles); a logged-out profile folder no longer appears until you run Rescan accounts.
 
 ## [0.7.9] - 2026-07-23
 

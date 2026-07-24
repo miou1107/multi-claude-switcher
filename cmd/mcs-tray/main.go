@@ -71,8 +71,10 @@ func onReady() {
 	}
 	var profileMenus []profileMenu
 	profileItems := make(map[*systray.MenuItem]*platform.ProfileInfo) // parent item -> info, for markActive
+	managed := core.LoadManaged()
 	for _, p := range profiles {
-		if !p.HasSessionsDir && !p.Managed && p.Name != "Claude" && p.Name != "Claude_Profile2" {
+		_, uErr := platform.GetProfileAccountUUID(p.Path)
+		if !menuIncludes(managed, p.Name, uErr == nil, p.Managed) {
 			continue
 		}
 		// Empty tooltip on the parent: on macOS the parent's tooltip pops up next
@@ -101,7 +103,8 @@ func onReady() {
 	alignItems := map[*systray.MenuItem]alignPair{}
 	var shown []*platform.ProfileInfo
 	for _, p := range profiles {
-		if p.HasSessionsDir || p.Managed || p.Name == "Claude" || p.Name == "Claude_Profile2" {
+		_, uErr := platform.GetProfileAccountUUID(p.Path)
+		if menuIncludes(managed, p.Name, uErr == nil, p.Managed) {
 			shown = append(shown, p)
 		}
 	}
@@ -141,6 +144,7 @@ func onReady() {
 	mOpenBackups := mMaint.AddSubMenuItem("Open Backup Directory", fmt.Sprintf("Open backup folder in %s", fileManagerName()))
 	mOpenLogs := mMaint.AddSubMenuItem("Open Log Folder", fmt.Sprintf("Open the log folder in %s", fileManagerName()))
 	mUpdate := mMaint.AddSubMenuItem("Check for Updates…", "Check GitHub for a newer version and update")
+	mRescan := mMaint.AddSubMenuItem("Rescan accounts…", "Scan for Claude accounts and choose which to manage")
 
 	systray.AddSeparator()
 	mAbout := systray.AddMenuItem("About", "About Multi-Claude Switcher")
@@ -274,6 +278,8 @@ func onReady() {
 			go checkForUpdate(false)
 		}
 	}()
+
+	wireRescan(mRescan)
 
 	go func() {
 		for range mLogin.ClickedCh {

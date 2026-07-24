@@ -18,6 +18,7 @@
 - **安全切換（Safe Switch）**：在多個 Claude Desktop 設定檔（`~/Library/Application Support/Claude*`）之間切換，不用重新登入，也不會弄丟側邊欄的對話紀錄。
 - **自動備份**：在任何會寫入 session 的動作之前（手動對齊、`mcs sync`、或開了 Auto Sync 的切換），都會先對 `claude-code-sessions` 做一份加上時間戳記的快照。單純的切換（預設，Auto Sync 關閉）不會動到 session 資料，所以不會備份。萬一備份失敗，寫入會中止，而不是把沒被保護的資料覆蓋掉。
 - **防衝突同步**：當兩個設定檔都改過同一個 session 時，會保留較新的那一份（目標端），並回報為衝突，而不是默默覆蓋。
+- **重新掃描帳號**：維護（Maintenance）選單裡的 **Rescan accounts…**，會掃描這台機器上所有 Claude 帳號，列出審核表（UUID、完整性、email、Team、對話數、最後更新時間），再讓你挑選要管理哪些帳號。只有**完整**（可切換）的帳號能被選取；不完整／幽靈帳號（沒有登入紀錄的孤立 Code session）只會唯讀列出。
 - **探測驗證工具**：內含 `scripts/probe/probe_runner.py`，用來檢視設定檔、驗證本機 session 同步。
 
 ## 🔄 在帳號之間同步 session
