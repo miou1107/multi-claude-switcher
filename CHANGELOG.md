@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.9.0] - 2026-07-25
 
 ### Added
 - **macOS: a native menu-bar panel replaces the plain dropdown menu.** Clicking the
