@@ -2,10 +2,7 @@
 
 package main
 
-import (
-	"fmt"
-	"os/exec"
-)
+import "fmt"
 
 // releasesPageURL is the human download page for the installer. On Windows the
 // app is installed via a setup.exe and upgrades by running the newer installer,
@@ -35,13 +32,6 @@ func installUpdate(_, tag string, auto bool) error {
 		return nil
 	}
 	notify("Update available", fmt.Sprintf("Opening the download page for %s.", tag))
-	openURL(releasesPageURL)
+	_ = openURL(releasesPageURL)
 	return nil
-}
-
-// openURL opens a URL in the default browser. rundll32's FileProtocolHandler
-// launches the browser (a GUI process), so no console window appears — there is
-// nothing to hide.
-func openURL(url string) {
-	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 }

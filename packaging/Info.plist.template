@@ -9,7 +9,7 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.miou1107.multi-claude-switcher</string>
 	<key>CFBundleExecutable</key>
-	<string>mcs-tray</string>
+	<string>mcs-menubar</string>
 	<key>CFBundleIconFile</key>
 	<string>icon</string>
 	<key>CFBundleShortVersionString</key>

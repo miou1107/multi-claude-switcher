@@ -61,6 +61,19 @@
 - `cmd/mcs-tray/hidewindow_windows.go` — Windows helper: launch a spawned console helper (powershell/tasklist) with CREATE_NO_WINDOW so no console window flashes.
 - `cmd/mcs-tray/profiles_windows.go` — Windows-only tray flow: "New account profile…" (Store build) — save the current account and open a fresh Claude to sign into another, then relaunch the tray.
 - `cmd/mcs-tray/profiles_other.go` — Non-Windows no-ops for the new-profile flow (macOS standalone profiles are ordinary sibling data dirs).
+- `cmd/mcs-tray/openurl_windows.go` — Windows helper to open a URL in the default browser (used by the update-checker to open the releases page).
+- `cmd/mcs-tray/rescan.go` — "Rescan accounts" tray handler: launches the mcs-picker window helper, persists the chosen managed set, and rebuilds the menu.
+- `cmd/mcs-tray/rescanhelper.go` — Launches the sibling mcs-picker binary as a separate process and parses its result line (chosen folders / cancel).
+- `cmd/mcs-picker/main.go` — Standalone native "Rescan accounts" picker: scans accounts, shows a window, and prints the chosen folders as JSON for the tray.
+- `cmd/mcs-picker/render.go` — Pure renderer for the picker page (account cards, Team badges, greyed ghost rows) + the preselect helper.
+- `cmd/mcs-menubar/main.go` — Menu-bar app: Go side of the native popover panel (buildProfiles, switch, rescan, quit; renders panel HTML into the WKWebView).
+- `cmd/mcs-menubar/menubar.m` — Objective-C (direct CGO): NSStatusItem + NSPopover + WKWebView + JS message handler; the styled dropdown panel.
+- `cmd/mcs-menubar/menubar.h` — C header for the menubar Objective-C entry points.
+- `cmd/mcs-menubar/render.go` — Pure renderers for the panel's views (account list with plan badges, in-panel Rescan picker, Sync directions, Settings, Rename).
+- `cmd/mcs-menubar/update.go` — Background self-update for the menu-bar app: periodic + manual check, download, atomic binary swap, relaunch.
+- `cmd/mcs-menubar/stub_other.go` — Non-macOS no-op `main` so the package builds on all platforms (the panel is macOS-only).
+- `cmd/mcs-picker/picker_darwin.go` — macOS picker window via a native WKWebView (webview_go); returns the user's selection.
+- `cmd/mcs-picker/picker_other.go` — Non-macOS no-op picker (the native window is macOS-only).
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
 - `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller).
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon), ad-hoc signs it (`codesign --sign -`, no Apple Developer account needed), and zips it via ditto.
@@ -87,8 +100,7 @@
 - `cmd/mcs-tray/importwarn_test.go` — Unit tests for the import-into-Team gate (`importTargetIsTeam`).
 - `cmd/mcs-tray/managedfilter.go` — Decides whether a profile folder appears in the tray menu: the managed registry is authoritative when present, else a first-run heuristic (live login or MSIX-parked).
 - `cmd/mcs-tray/managedfilter_test.go` — Unit tests for the menu-inclusion filter (managed registry vs first-run fallback).
-- `cmd/mcs-tray/rescan.go` — "Rescan accounts…" handler: scan → review table → multi-select pick (complete accounts only) → persist to the managed registry → relaunch.
-- `cmd/mcs-tray/rescan_test.go` — Unit tests for the review-table renderer and the selectable-pick builder.
+- `cmd/mcs-tray/rescan.go` — "Rescan accounts…" handler: scan → review/pick via the browser web UI → persist to the managed registry → relaunch.
 - `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
 - `platform/darwin.go` — macOS implementation for platform interface.
 - `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).
@@ -103,6 +115,7 @@
 - `docs/superpowers/plans/2026-07-22-session-align-manual-and-auto.md` — Implementation plan for manual align + auto sync-on-switch (0.7.0).
 - `docs/superpowers/plans/2026-07-23-team-account-detection.md` — Implementation plan for Team-account detection, the "🏢 Team" tag, and import-into-Team warnings.
 - `docs/superpowers/plans/2026-07-24-account-rescan.md` — Implementation plan for the "Rescan accounts" review-to-manage picker (identity reader, managed.json registry, scanner, two-step UI).
+- `docs/superpowers/plans/2026-07-24-rescan-web-ui.md` — Implementation plan for replacing the Rescan osascript dialogs with a localhost web UI (HTML renderer, single-shot token-guarded server, per-OS browser opener).
 - `docs/superpowers/specs/2026-07-22-multi-claude-account-sync-design.md` — Core design spec for multi-claude switcher.
 - `docs/superpowers/specs/2026-07-22-macos-app-bundle-design.md` — Design spec for the macOS .app bundle packaging.
 - `docs/superpowers/specs/2026-07-22-session-align-manual-and-auto-design.md` — Design spec for manual "Align" + auto sync-on-switch (with default-off toggle).
@@ -111,4 +124,5 @@
 - `docs/superpowers/specs/2026-07-23-windows-msix-support-design.md` — Store/MSIX support design: in-place profile-folder swap, AUMID launch, new-profile flow.
 - `docs/superpowers/specs/2026-07-23-team-account-detection-design.md` — Design spec for detecting Team accounts (from cached org tiers) and warning on import-into-Team actions.
 - `docs/superpowers/specs/2026-07-24-account-rescan-design.md` — Design spec for the "Rescan accounts" review-to-manage picker (scan Claude dirs, dedup by UUID, completeness/ghost model, managed.json registry).
+- `docs/superpowers/specs/2026-07-24-rescan-web-ui-design.md` — Design spec for replacing the Rescan review/pick osascript dialogs with a real visual UI (ephemeral token-guarded localhost server serving an HTML table + checkboxes).
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.

@@ -35,20 +35,20 @@ jobs:
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build universal tray binary
+      - name: Build universal menu-bar binary
         env:
           LDFLAGS: "-X github.com/miou1107/multi-claude-switcher/core.Version=${{ steps.ver.outputs.version }}"
         run: |
           set -euxo pipefail
           mkdir -p dist
           CGO_ENABLED=1 GOARCH=arm64 CC="clang -arch arm64" \
-            go build -ldflags "$LDFLAGS" -o "dist/mcs-tray-arm64" ./cmd/mcs-tray
+            go build -ldflags "$LDFLAGS" -o "dist/mcs-menubar-arm64" ./cmd/mcs-menubar
           CGO_ENABLED=1 GOARCH=amd64 CC="clang -arch x86_64" \
-            go build -ldflags "$LDFLAGS" -o "dist/mcs-tray-amd64" ./cmd/mcs-tray
-          lipo -create -output "dist/mcs-tray-macos-universal" \
-            "dist/mcs-tray-arm64" "dist/mcs-tray-amd64"
-          rm "dist/mcs-tray-arm64" "dist/mcs-tray-amd64"
-          file "dist/mcs-tray-macos-universal"
+            go build -ldflags "$LDFLAGS" -o "dist/mcs-menubar-amd64" ./cmd/mcs-menubar
+          lipo -create -output "dist/mcs-menubar-macos-universal" \
+            "dist/mcs-menubar-arm64" "dist/mcs-menubar-amd64"
+          rm "dist/mcs-menubar-arm64" "dist/mcs-menubar-amd64"
+          file "dist/mcs-menubar-macos-universal"
 
       - name: Package .app bundle
         env:
@@ -56,7 +56,7 @@ jobs:
         run: |
           set -euxo pipefail
           # Reuse the universal binary already built above instead of rebuilding.
-          ./scripts/package-app.sh "$VERSION" dist/mcs-tray-macos-universal
+          ./scripts/package-app.sh "$VERSION" dist/mcs-menubar-macos-universal
           ls -la dist
 
       - name: Compute macOS zip SHA256
