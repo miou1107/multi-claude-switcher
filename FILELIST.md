@@ -68,6 +68,8 @@
 - `cmd/mcs-picker/render.go` — Pure renderer for the picker page (account cards, Team badges, greyed ghost rows) + the preselect helper.
 - `cmd/mcs-picker/picker_darwin.go` — macOS picker window via a native WKWebView (webview_go); returns the user's selection.
 - `cmd/mcs-picker/picker_other.go` — Non-macOS no-op picker (the native window is macOS-only).
+- `cmd/mcs-panel/main.go` — Account panel window (webview_go): lists managed accounts as styled cards, switches on click, launches Rescan; JS calls back via window.mcsAct.
+- `cmd/mcs-panel/render.go` — Pure renderer for the account panel (light-gradient cards, Team badges, current-account marker).
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
 - `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller).
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon), ad-hoc signs it (`codesign --sign -`, no Apple Developer account needed), and zips it via ditto.
