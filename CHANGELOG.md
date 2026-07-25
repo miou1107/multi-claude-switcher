@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+- **macOS: a native menu-bar panel replaces the plain dropdown menu.** Clicking the
+  menu-bar icon now opens a styled NSPopover (direct CGO Objective-C: NSStatusItem +
+  NSPopover + WKWebView, `cmd/mcs-menubar`) instead of a text menu. Everything lives in
+  the one popover — no separate windows: an account list that shows each account's
+  **subscription plan** (Max 20×, Max 5×, Max, Pro, Free, or 🏢 Team, via
+  `core.DetectPlan`) and switches on click; an in-panel **Rescan** picker; **Sync**
+  directions; **Rename**; and a **Settings** view (Auto Sync, Start at Login, Backup,
+  Open log/backup folder, Check for updates) with background self-update. The Windows
+  build keeps the systray tray (`cmd/mcs-tray`); the menu-bar panel is macOS-only.
+
 ### Changed
 - Rescan accounts now opens a native window (a WKWebView-backed picker shipped as a sibling `mcs-picker` helper) with a real card list — checkboxes, Team badges, and greyed-out unmanageable accounts — replacing the plain-text dialog that was unreadable with many columns.
 

@@ -125,6 +125,41 @@ func readLocalStorageOrgs(profilePath string) ([]orgInfo, error) {
 	return orgs, nil
 }
 
+// planLabels maps rate-limit tier codenames to friendly subscription names.
+var planLabels = map[string]string{
+	"default_raven":          "Team",
+	"default_claude_max_20x": "Max 20×",
+	"default_claude_max_5x":  "Max 5×",
+	"default_claude_max":     "Max",
+	"default_claude_pro":     "Pro",
+	"default_claude_ai":      "Free",
+	"auto_api_evaluation":    "API",
+}
+
+// planRank orders plans so the most prominent one is shown when an account
+// belongs to several organizations.
+var planRank = map[string]int{
+	"Team": 6, "Max 20×": 5, "Max 5×": 4, "Max": 3, "Pro": 2, "API": 1, "Free": 0,
+}
+
+// DetectPlan returns a friendly subscription label (e.g. "Max 20×", "Team") for
+// the account logged into the profile, or "" if it can't be determined.
+func DetectPlan(profilePath string) (string, error) {
+	orgs, err := readLocalStorageOrgs(profilePath)
+	if err != nil {
+		return "", err
+	}
+	best, bestRank := "", -1
+	for _, o := range orgs {
+		if label, ok := planLabels[o.Tier]; ok {
+			if r := planRank[label]; r > bestRank {
+				best, bestRank = label, r
+			}
+		}
+	}
+	return best, nil
+}
+
 // DetectAccountType classifies the account logged into the given profile by
 // reading its cached organization list. Returns AccountUnknown + error if the
 // store can't be read. Unrecognized tiers are logged so the allow-lists can grow.

@@ -1,8 +1,12 @@
+//go:build darwin
+
 // Command mcs-menubar is the menu-bar app for Multi-Claude Switcher: a native
 // NSStatusItem whose click shows an NSPopover hosting a WKWebView — the styled
 // account panel, rendered from Go. Written in direct CGO Objective-C (menubar.m)
 // because it is compatible with current macOS, unlike darwinkit. Must run inside
-// a .app bundle. The page calls back via window.webkit.messageHandlers.mcs.
+// a .app bundle. Every screen (account list, Rescan picker) lives in the one
+// popover webview — no separate windows. The page calls back via
+// window.webkit.messageHandlers.mcs.
 package main
 
 /*
@@ -18,7 +22,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"unsafe"
 
 	"github.com/miou1107/multi-claude-switcher/core"
@@ -28,37 +34,255 @@ import (
 var (
 	plat     platform.Platform
 	switcher *core.Switcher
+
+	mu           sync.Mutex
+	currentView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename"
+	renameFolder string   // the folder being renamed in the "rename" view
+
+	planMu    sync.Mutex
+	planCache = map[string]string{} // profile path -> plan label (leveldb read is heavy; cache it)
+
+	statusMu  sync.Mutex
+	statusMsg string // transient feedback shown in the Settings view
+	busy      bool   // a maintenance action (e.g. backup) is in progress
 )
+
+func setBusyStatus(b bool, s string) {
+	statusMu.Lock()
+	busy = b
+	statusMsg = s
+	statusMu.Unlock()
+}
+
+func getBusy() bool {
+	statusMu.Lock()
+	defer statusMu.Unlock()
+	return busy
+}
+
+func setStatus(s string) {
+	statusMu.Lock()
+	statusMsg = s
+	statusMu.Unlock()
+}
+
+func getStatus() string {
+	statusMu.Lock()
+	defer statusMu.Unlock()
+	return statusMsg
+}
 
 //export goPanelReady
 func goPanelReady() { reloadPanel() }
 
 //export goPanelWillOpen
-func goPanelWillOpen() { reloadPanel() }
+func goPanelWillOpen() {
+	setView("list") // always open to the account list
+	setStatus("")   // clear any stale feedback
+	// Render asynchronously so the popover appears instantly; the account-type
+	// scan (a leveldb copy per profile) must not block the click on the main
+	// thread. The webview keeps its previous content until the refresh lands.
+	go reloadPanel()
+}
+
+// cachedPlan returns a profile's subscription label (e.g. "Max 20×", "Team"),
+// reading (heavy) Local Storage only on a cache miss. Plans are stable per
+// logged-in dir.
+func cachedPlan(path string) string {
+	planMu.Lock()
+	p, ok := planCache[path]
+	planMu.Unlock()
+	if ok {
+		return p
+	}
+	p, _ = core.DetectPlan(path)
+	planMu.Lock()
+	planCache[path] = p
+	planMu.Unlock()
+	return p
+}
 
 //export goPanelAction
 func goPanelAction(caction, cfolder *C.char) {
 	action := C.GoString(caction)
-	folder := C.GoString(cfolder)
+	arg := C.GoString(cfolder)
 	switch action {
 	case "switch":
 		go func() {
-			doSwitch(folder)
+			doSwitch(arg)
 			reloadPanel()
 		}()
-	case "rescan":
+	case "showRescan":
+		setView("rescan")
+		go reloadPanel()
+	case "showList":
+		setView("list")
+		go reloadPanel()
+	case "showSettings":
+		setView("settings")
+		setStatus("")
+		reloadPanel()
+	case "showSync":
+		setView("sync")
+		setStatus("")
+		reloadPanel()
+	case "sync":
+		if getBusy() {
+			return
+		}
+		parts := strings.SplitN(arg, "|", 2)
+		if len(parts) != 2 {
+			return
+		}
+		setBusyStatus(true, "Syncing…")
+		reloadPanel()
 		go func() {
-			doRescan()
+			setBusyStatus(false, doSync(parts[0], parts[1]))
 			reloadPanel()
 		}()
+	case "confirmManaged":
+		var folders []string
+		_ = json.Unmarshal([]byte(arg), &folders)
+		if len(folders) > 0 {
+			_ = core.SetManaged(folders)
+		}
+		setView("list")
+		go reloadPanel()
+	case "toggleAutoSync":
+		_ = core.SetAutoSyncOnSwitch(!core.AutoSyncOnSwitch())
+		reloadPanel()
+	case "toggleLogin":
+		if core.LoginItemEnabled() {
+			_ = core.DisableLoginItem()
+		} else if exe, err := os.Executable(); err == nil {
+			_ = core.EnableLoginItem(exe)
+		}
+		reloadPanel()
+	case "backup":
+		if getBusy() {
+			return // already backing up; ignore repeat clicks
+		}
+		setBusyStatus(true, "Backing up…")
+		reloadPanel()
+		go func() {
+			n := doBackupAll()
+			switch {
+			case n == 0:
+				setBusyStatus(false, "No accounts had sessions to back up.")
+			case n == 1:
+				setBusyStatus(false, "✓ Backed up 1 account.")
+			default:
+				setBusyStatus(false, "✓ Backed up "+itoa(n)+" accounts.")
+			}
+			reloadPanel()
+		}()
+	case "showRename":
+		mu.Lock()
+		renameFolder = arg
+		currentView = "rename"
+		mu.Unlock()
+		reloadPanel()
+	case "renameSave":
+		var pair []string
+		if json.Unmarshal([]byte(arg), &pair) == nil && len(pair) == 2 {
+			_ = core.SetProfileName(pair[0], pair[1])
+		}
+		setView("list")
+		go reloadPanel()
+	case "openLog":
+		home, _ := os.UserHomeDir()
+		_ = exec.Command("open", filepath.Join(home, ".multi-claude-switcher", "logs")).Start()
+	case "openBackups":
+		home, _ := os.UserHomeDir()
+		_ = exec.Command("open", filepath.Join(home, ".multi-claude-switcher", "backups")).Start()
+	case "checkUpdates":
+		if getBusy() {
+			return
+		}
+		setBusyStatus(true, "Checking for updates…")
+		reloadPanel()
+		go manualCheckAndInstall()
 	case "quit":
 		C.TerminateApp()
 	}
 }
 
-// reloadPanel re-renders the panel HTML and pushes it into the popover's webview.
+// doBackupAll backs up every profile that has session data and returns how many
+// were backed up.
+func doBackupAll() int {
+	bm := core.NewBackupManager("")
+	n := 0
+	for _, p := range mustFindProfiles() {
+		if path, err := bm.BackupIfHasData(p.Path); err == nil && path != "" {
+			n++
+		}
+	}
+	return n
+}
+
+func itoa(n int) string {
+	return strconv.Itoa(n)
+}
+
+func folderPath(folder string) string {
+	for _, p := range mustFindProfiles() {
+		if p.Name == folder {
+			return p.Path
+		}
+	}
+	return ""
+}
+
+// doSync copies one account's Code sessions into another and returns a result
+// message for the status banner.
+func doSync(fromFolder, toFolder string) string {
+	from, to := folderPath(fromFolder), folderPath(toFolder)
+	if from == "" || to == "" {
+		return "Sync failed: account not found."
+	}
+	rep, err := core.SyncSessions(from, to)
+	if err != nil {
+		return "Sync failed: " + err.Error()
+	}
+	return "✓ Copied " + itoa(rep.CopiedCount) + " session(s) into " + core.DisplayName(toFolder) + "."
+}
+
+func setView(v string) {
+	mu.Lock()
+	currentView = v
+	mu.Unlock()
+}
+
+// reloadPanel renders the current view and pushes it into the popover webview.
 func reloadPanel() {
-	c := C.CString(renderPanel(buildProfiles()))
+	mu.Lock()
+	view := currentView
+	mu.Unlock()
+
+	var htmlStr string
+	switch view {
+	case "rescan":
+		accounts := core.ScanAccounts(mustFindProfiles())
+		htmlStr = renderRescan(accounts, computePreselect(accounts, core.LoadManaged()))
+	case "sync":
+		htmlStr = renderSync(buildProfiles(), getStatus(), getBusy())
+	case "rename":
+		mu.Lock()
+		f := renameFolder
+		mu.Unlock()
+		htmlStr = renderRename(f, core.DisplayName(f))
+	case "settings":
+		htmlStr = renderSettings(settingsVM{
+			AutoSync:   core.AutoSyncOnSwitch(),
+			StartLogin: core.LoginItemEnabled(),
+			Version:    core.Version,
+			Status:     getStatus(),
+			Busy:       getBusy(),
+		})
+	default:
+		htmlStr = renderList(buildProfiles())
+	}
+	c := C.CString(htmlStr)
 	defer C.free(unsafe.Pointer(c))
 	C.LoadPanelHTML(c)
 }
@@ -66,17 +290,20 @@ func reloadPanel() {
 func main() {
 	plat = platform.New()
 	switcher = core.NewSwitcher(plat, core.NewBackupManager(""))
+	startUpdateChecker() // periodic background self-update
 	C.RunMenuBar()
+}
+
+func mustFindProfiles() []*platform.ProfileInfo {
+	p, _ := plat.FindProfiles()
+	return p
 }
 
 func doSwitch(folder string) {
 	if folder == "" {
 		return
 	}
-	profiles, err := plat.FindProfiles()
-	if err != nil {
-		return
-	}
+	profiles := mustFindProfiles()
 	var target *platform.ProfileInfo
 	for _, p := range profiles {
 		if p.Name == folder {
@@ -90,19 +317,9 @@ func doSwitch(folder string) {
 	_ = switcher.SafeSwitch(sourceProfilePath(target.Path, profiles), target.Path)
 }
 
-func doRescan() {
-	folders, ok := runPicker()
-	if ok && len(folders) > 0 {
-		_ = core.SetManaged(folders)
-	}
-}
-
-// buildProfiles lists the managed accounts for the panel.
+// buildProfiles lists the managed accounts for the list view.
 func buildProfiles() []profileVM {
-	profiles, err := plat.FindProfiles()
-	if err != nil {
-		return nil
-	}
+	profiles := mustFindProfiles()
 	managed := core.LoadManaged()
 	running, _ := plat.DetectRunningProfile()
 	var out []profileVM
@@ -111,21 +328,12 @@ func buildProfiles() []profileVM {
 		if !panelIncludes(managed, p.Name, uErr == nil, p.Managed) {
 			continue
 		}
-		vm := profileVM{Folder: p.Name, Name: core.DisplayName(p.Name), Current: p.Path == running}
-		if at, err := core.DetectAccountType(p.Path); err == nil {
-			switch at {
-			case core.AccountTeam:
-				vm.Team = "Team"
-			case core.AccountPersonal:
-				vm.Team = "Personal"
-			}
-		}
+		vm := profileVM{Folder: p.Name, Name: core.DisplayName(p.Name), Current: p.Path == running, Plan: cachedPlan(p.Path)}
 		out = append(out, vm)
 	}
 	return out
 }
 
-// panelIncludes mirrors the tray's managed-registry filter.
 func panelIncludes(managed []string, folder string, hasLiveLogin, managedFlag bool) bool {
 	if managed != nil {
 		for _, m := range managed {
@@ -151,30 +359,4 @@ func sourceProfilePath(targetPath string, profiles []*platform.ProfileInfo) stri
 		return profiles[0].Path
 	}
 	return filepath.Join(plat.AppSupportDir(), "Claude")
-}
-
-// runPicker launches the sibling mcs-picker binary and parses its result line.
-func runPicker() ([]string, bool) {
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, false
-	}
-	out, err := exec.Command(filepath.Join(filepath.Dir(exe), "mcs-picker")).Output()
-	if err != nil {
-		return nil, false
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "MCS_RESULT ") {
-			continue
-		}
-		var r struct {
-			OK      bool     `json:"ok"`
-			Folders []string `json:"folders"`
-		}
-		if json.Unmarshal([]byte(strings.TrimPrefix(line, "MCS_RESULT ")), &r) == nil {
-			return r.Folders, r.OK
-		}
-	}
-	return nil, false
 }

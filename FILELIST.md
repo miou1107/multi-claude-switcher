@@ -69,7 +69,9 @@
 - `cmd/mcs-menubar/main.go` — Menu-bar app: Go side of the native popover panel (buildProfiles, switch, rescan, quit; renders panel HTML into the WKWebView).
 - `cmd/mcs-menubar/menubar.m` — Objective-C (direct CGO): NSStatusItem + NSPopover + WKWebView + JS message handler; the styled dropdown panel.
 - `cmd/mcs-menubar/menubar.h` — C header for the menubar Objective-C entry points.
-- `cmd/mcs-menubar/render.go` — Pure renderer for the account panel (light-gradient cards, Team badges, current-account marker).
+- `cmd/mcs-menubar/render.go` — Pure renderers for the panel's views (account list with plan badges, in-panel Rescan picker, Sync directions, Settings, Rename).
+- `cmd/mcs-menubar/update.go` — Background self-update for the menu-bar app: periodic + manual check, download, atomic binary swap, relaunch.
+- `cmd/mcs-menubar/stub_other.go` — Non-macOS no-op `main` so the package builds on all platforms (the panel is macOS-only).
 - `cmd/mcs-picker/picker_darwin.go` — macOS picker window via a native WKWebView (webview_go); returns the user's selection.
 - `cmd/mcs-picker/picker_other.go` — Non-macOS no-op picker (the native window is macOS-only).
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
