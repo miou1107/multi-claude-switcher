@@ -93,7 +93,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-s
   <button class="btn btn-quit" onclick="act('quit','')">Quit</button>
 </div>
 <script>
-  function act(a,arg){ window.mcsAct(a, arg||''); }
+  function act(a,arg){ window.webkit.messageHandlers.mcs.postMessage({action:a, folder:arg||''}); }
 </script>
 </body></html>`
 }

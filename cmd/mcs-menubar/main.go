@@ -1,10 +1,17 @@
-// Command mcs-panel is the account panel window for Multi-Claude Switcher,
-// rendered in a native WKWebView (via webview_go, which is compatible with
-// current macOS — unlike darwinkit). It lists the managed accounts as styled
-// cards; the page calls back into Go via window.mcsAct(action, folder) to switch
-// accounts, run Rescan, or quit. Launched as a separate process by the tray so
-// it doesn't fight systray for the macOS main run loop.
+// Command mcs-menubar is the menu-bar app for Multi-Claude Switcher: a native
+// NSStatusItem whose click shows an NSPopover hosting a WKWebView — the styled
+// account panel, rendered from Go. Written in direct CGO Objective-C (menubar.m)
+// because it is compatible with current macOS, unlike darwinkit. Must run inside
+// a .app bundle. The page calls back via window.webkit.messageHandlers.mcs.
 package main
+
+/*
+#cgo CFLAGS: -fobjc-arc
+#cgo LDFLAGS: -framework Cocoa -framework WebKit
+#include <stdlib.h>
+#include "menubar.h"
+*/
+import "C"
 
 import (
 	"encoding/json"
@@ -12,8 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	webview "github.com/webview/webview_go"
+	"unsafe"
 
 	"github.com/miou1107/multi-claude-switcher/core"
 	"github.com/miou1107/multi-claude-switcher/platform"
@@ -22,44 +28,45 @@ import (
 var (
 	plat     platform.Platform
 	switcher *core.Switcher
-	win      webview.WebView
 )
+
+//export goPanelReady
+func goPanelReady() { reloadPanel() }
+
+//export goPanelWillOpen
+func goPanelWillOpen() { reloadPanel() }
+
+//export goPanelAction
+func goPanelAction(caction, cfolder *C.char) {
+	action := C.GoString(caction)
+	folder := C.GoString(cfolder)
+	switch action {
+	case "switch":
+		go func() {
+			doSwitch(folder)
+			reloadPanel()
+		}()
+	case "rescan":
+		go func() {
+			doRescan()
+			reloadPanel()
+		}()
+	case "quit":
+		C.TerminateApp()
+	}
+}
+
+// reloadPanel re-renders the panel HTML and pushes it into the popover's webview.
+func reloadPanel() {
+	c := C.CString(renderPanel(buildProfiles()))
+	defer C.free(unsafe.Pointer(c))
+	C.LoadPanelHTML(c)
+}
 
 func main() {
 	plat = platform.New()
 	switcher = core.NewSwitcher(plat, core.NewBackupManager(""))
-
-	win = webview.New(false)
-	defer win.Destroy()
-	win.SetTitle("Multi-Claude Switcher")
-	win.SetSize(412, 560, webview.HintNone)
-
-	win.Bind("mcsAct", func(action, folder string) {
-		switch action {
-		case "switch":
-			go func() {
-				doSwitch(folder)
-				reload()
-			}()
-		case "rescan":
-			go func() {
-				doRescan()
-				reload()
-			}()
-		case "quit":
-			win.Terminate()
-		}
-	})
-
-	reload()
-	win.Run()
-}
-
-// reload re-renders the panel from current state, on the UI thread.
-func reload() {
-	win.Dispatch(func() {
-		win.SetHtml(renderPanel(buildProfiles()))
-	})
+	C.RunMenuBar()
 }
 
 func doSwitch(folder string) {
@@ -118,8 +125,7 @@ func buildProfiles() []profileVM {
 	return out
 }
 
-// panelIncludes mirrors the tray's managed-registry filter: the registry is
-// authoritative when present; on first run (nil) show any dir with a live login.
+// panelIncludes mirrors the tray's managed-registry filter.
 func panelIncludes(managed []string, folder string, hasLiveLogin, managedFlag bool) bool {
 	if managed != nil {
 		for _, m := range managed {
@@ -132,8 +138,6 @@ func panelIncludes(managed []string, folder string, hasLiveLogin, managedFlag bo
 	return hasLiveLogin || managedFlag
 }
 
-// sourceProfilePath picks the "from" profile for a switch: the running one, else
-// the first other profile with sessions.
 func sourceProfilePath(targetPath string, profiles []*platform.ProfileInfo) string {
 	if running, err := plat.DetectRunningProfile(); err == nil && running != "" && running != targetPath {
 		return running

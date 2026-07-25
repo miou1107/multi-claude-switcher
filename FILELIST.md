@@ -66,10 +66,12 @@
 - `cmd/mcs-tray/rescanhelper.go` — Launches the sibling mcs-picker binary as a separate process and parses its result line (chosen folders / cancel).
 - `cmd/mcs-picker/main.go` — Standalone native "Rescan accounts" picker: scans accounts, shows a window, and prints the chosen folders as JSON for the tray.
 - `cmd/mcs-picker/render.go` — Pure renderer for the picker page (account cards, Team badges, greyed ghost rows) + the preselect helper.
+- `cmd/mcs-menubar/main.go` — Menu-bar app: Go side of the native popover panel (buildProfiles, switch, rescan, quit; renders panel HTML into the WKWebView).
+- `cmd/mcs-menubar/menubar.m` — Objective-C (direct CGO): NSStatusItem + NSPopover + WKWebView + JS message handler; the styled dropdown panel.
+- `cmd/mcs-menubar/menubar.h` — C header for the menubar Objective-C entry points.
+- `cmd/mcs-menubar/render.go` — Pure renderer for the account panel (light-gradient cards, Team badges, current-account marker).
 - `cmd/mcs-picker/picker_darwin.go` — macOS picker window via a native WKWebView (webview_go); returns the user's selection.
 - `cmd/mcs-picker/picker_other.go` — Non-macOS no-op picker (the native window is macOS-only).
-- `cmd/mcs-panel/main.go` — Account panel window (webview_go): lists managed accounts as styled cards, switches on click, launches Rescan; JS calls back via window.mcsAct.
-- `cmd/mcs-panel/render.go` — Pure renderer for the account panel (light-gradient cards, Team badges, current-account marker).
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
 - `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller).
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon), ad-hoc signs it (`codesign --sign -`, no Apple Developer account needed), and zips it via ditto.
