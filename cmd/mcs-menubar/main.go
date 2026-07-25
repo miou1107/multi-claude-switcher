@@ -125,7 +125,7 @@ func goPanelAction(caction, cfolder *C.char) {
 	case "showSync":
 		setView("sync")
 		setStatus("")
-		reloadPanel()
+		go reloadPanel() // buildProfiles may read leveldb; don't stall the click
 	case "sync":
 		if getBusy() {
 			return

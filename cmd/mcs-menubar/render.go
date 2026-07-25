@@ -135,7 +135,7 @@ func renderList(profiles []profileVM) string {
 	var cards strings.Builder
 	for _, p := range profiles {
 		badge := planPill(p.Plan)
-		editBtn := fmt.Sprintf(`<button class="edit" onclick="event.stopPropagation();send('showRename','%s')">✎</button>`, esc(p.Folder))
+		editBtn := fmt.Sprintf(`<button class="edit" data-folder="%s" onclick="event.stopPropagation();send('showRename',this.dataset.folder)">✎</button>`, esc(p.Folder))
 		if p.Current {
 			cards.WriteString(fmt.Sprintf(`
       <div class="card current"><div class="dotcur"></div>
@@ -144,7 +144,7 @@ func renderList(profiles []profileVM) string {
 			continue
 		}
 		cards.WriteString(fmt.Sprintf(`
-      <div class="card selectable" onclick="send('switch','%s')"><div class="chev">⇄</div>
+      <div class="card selectable" data-folder="%s" onclick="send('switch',this.dataset.folder)"><div class="chev">⇄</div>
         <div class="body"><div class="row1"><span class="name">%s</span>%s</div><div class="sub">Switch to this account</div></div>%s</div>`,
 			esc(p.Folder), esc(p.Name), badge, editBtn))
 	}
@@ -278,7 +278,7 @@ func renderRename(folder, current string) string {
 <input id="rn" class="rninput" type="text" value="` + esc(current) + `" placeholder="Display name">
 <div class="footer">
   <button class="btn btn-light" onclick="send('showList','')">Cancel</button>
-  <button class="btn btn-primary" onclick="renameSave('` + esc(folder) + `')">Save</button>
+  <button class="btn btn-primary" data-folder="` + esc(folder) + `" onclick="renameSave(this.dataset.folder)">Save</button>
 </div>
 <script>var e=document.getElementById('rn'); e.focus(); e.select();</script>`
 	return shell(body)
@@ -308,7 +308,7 @@ func renderSync(profiles []profileVM, status string, busy bool) string {
 			if busy {
 				cls = "card ghost"
 			} else {
-				oc = fmt.Sprintf(`onclick="syncDir('%s','%s')"`, esc(from.Folder), esc(to.Folder))
+				oc = fmt.Sprintf(`data-from="%s" data-to="%s" onclick="syncDir(this.dataset.from,this.dataset.to)"`, esc(from.Folder), esc(to.Folder))
 			}
 			cards.WriteString(fmt.Sprintf(`
       <div class="%s" %s><div class="chev">→</div>
