@@ -107,7 +107,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-s
 .edit:hover{background:#f1eef9;opacity:1;color:#7c6cf0}
 .rninput{width:100%;font:inherit;font-size:15px;padding:13px 15px;border:2px solid #e0dcf3;border-radius:14px;background:#fff;color:#241f38;outline:none}
 .rninput:focus{border-color:#7c6cf0}
+.modal-bg{position:fixed;inset:0;background:rgba(30,20,50,.32);display:none;align-items:center;justify-content:center;z-index:10;padding:20px}
+.modal-bg.on{display:flex}
+.modal{background:#fff;border-radius:16px;padding:20px 20px 16px;width:100%;max-width:340px;box-shadow:0 12px 40px rgba(30,20,50,.28)}
+.modal h2{font-size:15px;font-weight:800;margin-bottom:8px;letter-spacing:-.01em}
+.modal p{font-size:12.5px;color:#6b6580;line-height:1.5;margin-bottom:14px}
+.modal .row{display:flex;gap:9px}
+.modal .btn{flex:1}
 </style></head><body>` + body + `
+<div class="modal-bg" id="mcsModal" onclick="if(event.target===this) closeConfirm()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mcsModalTitle" aria-describedby="mcsModalBody">
+    <h2 id="mcsModalTitle">Switch account?</h2>
+    <p id="mcsModalBody">This will quit the running Claude and reopen it with the new account. Any in-progress work will be interrupted.</p>
+    <div class="row">
+      <button class="btn btn-light" onclick="closeConfirm()">Cancel</button>
+      <button class="btn btn-primary" id="mcsModalOk" onclick="okConfirm()">Switch</button>
+    </div>
+  </div>
+</div>
 <script>
   function send(a,arg){ window.webkit.messageHandlers.mcs.postMessage({action:a, folder:arg||''}); }
   function toggleCard(el){ el.classList.toggle('selected'); var c=el.querySelector('.chk'); if(c) c.checked=el.classList.contains('selected'); }
@@ -118,6 +135,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-s
   }
   function syncDir(f,t){ send('sync', f+'|'+t); }
   function renameSave(f){ var v=document.getElementById('rn').value.trim(); send('renameSave', JSON.stringify([f, v])); }
+  var _pendingSwitch=null;
+  function askSwitch(folder, name){
+    _pendingSwitch=folder;
+    document.getElementById('mcsModalTitle').textContent='Switch to '+name+'?';
+    document.getElementById('mcsModal').classList.add('on');
+    document.getElementById('mcsModalOk').focus();
+  }
+  function closeConfirm(){ _pendingSwitch=null; document.getElementById('mcsModal').classList.remove('on'); }
+  function okConfirm(){ var f=_pendingSwitch; closeConfirm(); if(f) send('switch', f); }
+  // Enter is intentionally NOT hijacked: browsers activate the focused button on Enter,
+  // so tabbing to Cancel and pressing Enter cancels — hijacking it would silently confirm.
+  document.addEventListener('keydown', function(e){
+    if(e.key==='Escape' && document.getElementById('mcsModal').classList.contains('on')) closeConfirm();
+  });
 </script></body></html>`
 }
 
@@ -144,9 +175,9 @@ func renderList(profiles []profileVM) string {
 			continue
 		}
 		cards.WriteString(fmt.Sprintf(`
-      <div class="card selectable" data-folder="%s" onclick="send('switch',this.dataset.folder)"><div class="chev">⇄</div>
+      <div class="card selectable" data-folder="%s" data-name="%s" onclick="askSwitch(this.dataset.folder,this.dataset.name)"><div class="chev">⇄</div>
         <div class="body"><div class="row1"><span class="name">%s</span>%s</div><div class="sub">Switch to this account</div></div>%s</div>`,
-			esc(p.Folder), esc(p.Name), badge, editBtn))
+			esc(p.Folder), esc(p.Name), esc(p.Name), badge, editBtn))
 	}
 	if len(profiles) == 0 {
 		cards.WriteString(`<div class="empty">No managed accounts yet. Run Rescan to add some.</div>`)

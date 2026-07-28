@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [0.9.1] - 2026-07-28
+
+### Changed
+- **macOS panel: switching an account now asks for confirmation.** Clicking a
+  non-current account in the menu-bar panel used to switch immediately, which
+  would quit and relaunch Claude mid-work. It now opens a confirmation modal
+  that names the target account and warns that in-progress work will be
+  interrupted. Cancel with **Esc**, confirm with **Enter**.
+
 ## [0.9.0] - 2026-07-25
 
 ### Added
