@@ -2,37 +2,48 @@
 
 <img src="docs/assets/icon.png" width="88" alt="Multi-Claude Switcher icon" align="right" />
 
-Your work Claude account and your personal one, on the same machine, one click
-apart.
-
-Hit the limit on one? Switch to the other and keep shipping.
+Run several Claude Desktop accounts on one machine. No signing out, no retyping
+passwords, and every account keeps its own Code history.
 
 [![Download](https://img.shields.io/github/v/release/miou1107/multi-claude-switcher?label=download&style=flat-square)](https://github.com/miou1107/multi-claude-switcher/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 &nbsp; **English** | [繁體中文](README.zh-TW.md)
 
-## The problem
+---
 
-Claude Desktop holds one account at a time. Using a second one means signing
-out, signing back in, and waiting. Then your Code sidebar comes back empty,
-because that history belongs to the account you just left.
+## Why you'd want this
 
-That is enough friction that most people stop bothering. They sit out the rest
-of the limit window, or they run work and side projects through one account and
-let it turn into a mess.
+Claude Desktop remembers one account at a time. Two situations make that hurt:
 
-## What changes
+- **Out of quota.** You hit the cap on one account, and another one still has
+  room to keep working.
+- **Work and personal.** A company Team project and your own side projects,
+  which you would rather not pile into the same account.
 
-Click the icon in your menu bar or system tray, pick an account, confirm.
-Claude Desktop reopens on that account with its own Code history intact.
+Doing it by hand means signing out, signing back in, waiting, and then finding
+your **Code sidebar empty**, because that history went with the account you just
+left. Enough friction that most people stop bothering.
 
-Every account stays permanently signed in. You never type a password to switch,
-because nothing ever signs out. And nothing is copied between accounts unless
-you deliberately turn that on.
+**What this fixes:**
+
+1. **One click to switch.** Click the icon, pick an account, confirm. Claude
+   Desktop reopens on it.
+2. **Always signed in.** Every account keeps its own session, so you never
+   retype a password.
+3. **Histories stay separate.** Each account's Code conversations are left
+   exactly as they were. A plain switch never touches session data at all.
 
 <img src="docs/assets/panel.png" width="400" alt="The panel listing three accounts: Work on a Team plan marked as the current account, Personal on Max 20×, and Side project on Pro, above Rescan and Settings buttons" />
 
+---
+
 ## Install
+
+> ⚠️ **Before anything else**
+> You need the standalone [Claude Desktop](https://claude.com/download) build.
+> **The Microsoft Store version is not supported**: it keeps its data somewhere
+> virtualized that cannot be swapped out, which is the mechanism this whole tool
+> depends on.
 
 **macOS**
 
@@ -128,29 +139,37 @@ classify is left unlabelled rather than labelled wrongly.
 
 [What was tested, and why it behaves this way →](docs/team-accounts.md)
 
-## Troubleshooting
+## FAQ and recovery
 
-**Only one account is listed.** Open the panel and run **Rescan**, then tick the
-accounts you want to manage. Accounts you have never signed into show up too:
-select one, switch to it, and sign in there.
+**Why do I only see one account in the list?**
+Open the panel and run **Rescan**, then tick the accounts you want to manage.
+Accounts you have never signed into are listed too: tick one, switch to it, and
+sign in from there.
 
-**The panel will not open on Windows.** WebView2 is missing. Right-click the tray
-icon, choose **Quit**, install WebView2, and start the app again.
+**(Windows) The panel will not open.**
+Usually WebView2 is missing. Right-click the eyes icon in the tray, choose
+**Quit**, install WebView2, and start the app again.
 
-**I need my old conversations back.** Settings → **Open backup folder**.
-Snapshots are per profile and timestamped. They are never pruned automatically,
-so the folder does grow. Deleting old ones by hand is safe.
+**My conversation history is a mess. Can I get the old one back?**
+Yes. Settings → **Open backup folder** holds timestamped snapshots, kept per
+profile. They are never pruned automatically, so delete old ones by hand if the
+folder gets large.
 
-**Where are the logs?** Settings → **Open log folder**, or
-`~/.multi-claude-switcher/logs/`.
+**Where are the logs?**
+Settings → **Open log folder**, or `~/.multi-claude-switcher/logs/`.
 
-**Uninstalling.** On macOS, delete the app, then `~/.multi-claude-switcher/` and
-`~/Library/LaunchAgents/com.miou1107.multi-claude-switcher.plist`. On Windows,
-uninstall from Add/Remove Programs, then delete
-`%USERPROFILE%\.multi-claude-switcher`. Your Claude Desktop accounts and their
-data are untouched either way.
+**How do I remove it completely?**
 
-## Contributing
+- **macOS**: delete the app, then `~/.multi-claude-switcher/` and
+  `~/Library/LaunchAgents/com.miou1107.multi-claude-switcher.plist`.
+- **Windows**: uninstall from Add/Remove Programs, then delete
+  `%USERPROFILE%\.multi-claude-switcher`.
+
+Removing the tool leaves your Claude Desktop accounts and their data untouched.
+
+---
+
+## Contributing and license
 
 [Building from source →](docs/building.md) ·
 [CLI reference →](docs/cli.md) ·
@@ -159,10 +178,8 @@ data are untouched either way.
 `FILELIST.md` describes every file in the repository. `CHANGELOG.md` has the
 version history.
 
-## License
+Licensed [MIT](LICENSE).
 
-[MIT](LICENSE).
-
-Not affiliated with Anthropic. The app launches Claude Desktop against different
-data directories and copies session files between them. It never handles your
-credentials.
+**Not affiliated with Anthropic.** All this tool does is launch Claude Desktop
+against different local data directories and copy session files between them. It
+never touches your credentials, and never uploads anything.

@@ -19,10 +19,21 @@
 
   The two READMEs are now written independently rather than one being a
   translation of the other, so each reads natively.
-- **Removed the AI cadence.** The first draft of this rewrite had 17 em dashes
+- **Removed the AI cadence.** An earlier draft of this rewrite had 17 em dashes
   in 166 lines and eight bullets sharing one grammatical template
   (`**bold** — explanation`). Both are gone: the English README now has zero of
   each.
+- **Reworked the openings and the FAQ against a competing draft.** A second
+  model's version of this README was better in specific, adoptable ways, and
+  those were taken: "Why you'd want this" as a question addressed to the reader
+  rather than the internal-sounding "The problem"; the two situations as scannable
+  labelled bullets instead of prose; a numbered three-point answer; the
+  prerequisite promoted to a callout at the top of Install; and troubleshooting
+  rewritten as questions in the user's own voice ("My conversation history is a
+  mess. Can I get the old one back?") rather than statements, since that is how
+  people search. Its marketing intensifiers ("seamless", "perfectly preserves"),
+  its empty badge links, and its `claude.ai/download` (a 301 to
+  `claude.com/download`) were not adopted.
 - **Fixed documentation that was wrong, not just misplaced.**
   - The README claimed MIT but the repository had **no `LICENSE` file** — added.
   - **Homebrew was never mentioned**, though CI has been maintaining the cask in

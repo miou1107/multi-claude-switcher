@@ -2,33 +2,42 @@
 
 <img src="docs/assets/icon.png" width="88" alt="Multi-Claude Switcher 圖示" align="right" />
 
-公司的 Claude 帳號和自己的 Claude 帳號，放在同一台電腦，點一下秒切。
-
-A 帳號額度用完？切到 B 帳號繼續開發。
+在同一台電腦上切換多個 Claude Desktop 帳號。免登出、免重打密碼，每個帳號的
+Code 對話紀錄各自保留。
 
 [![下載](https://img.shields.io/github/v/release/miou1107/multi-claude-switcher?label=download&style=flat-square)](https://github.com/miou1107/multi-claude-switcher/releases/latest)
 [![授權 MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 &nbsp; [English](README.md) | **繁體中文**
 
-## 痛點
+---
 
-Claude Desktop 一次只認一個帳號。要用第二個，你得登出、重新登入、等它跑完，
-然後發現 Code 側邊欄是空的——那些對話屬於你剛剛離開的那個帳號。
+## 為什麼你需要這個工具？
 
-麻煩到大部分人乾脆不換了。額度撞牆就先去做別的事等下一個週期，或是公司案子跟
-自己的東西全塞在同一個帳號裡，時間久了就一團亂。
+Claude Desktop 一次只記得一個帳號。這兩種情況下特別痛：
 
-## 裝了之後
+- **額度用盡**：A 帳號用量撞牆了，想換 B 帳號繼續寫 Code。
+- **公私分明**：公司的 Team 專案和自己的 Side Project，不想全部塞在同一個帳號裡。
 
-點選單列（或系統匣）的圖示，選帳號，確認。Claude Desktop 就用那個帳號重開，
-它自己的 Code 對話紀錄原封不動。
+手動切換的話，你得登出、重新登入、等它跑完，然後發現 **Code 側邊欄空了**，
+因為那些紀錄是跟著上一個帳號走的。麻煩到最後，多數人乾脆不換了。
 
-每個帳號都是一直保持登入的狀態。切換不用打任何密碼，因為根本沒人被登出過。
-而且除非你自己去打開同步，不然兩邊的資料完全不會互相搬動。
+**這個工具就是來解決這件事的：**
+
+1. **一鍵秒切**：點系統匣圖示、選帳號、確認，Claude Desktop 就用那個帳號重開。
+2. **永遠登入**：每個帳號各自保持登入狀態，切換時完全不用重新輸入帳密。
+3. **紀錄不打架**：各帳號的 Code 對話紀錄原封不動、互不干擾。單純切換完全不會
+   動到任何 session 資料。
 
 <img src="docs/assets/panel.png" width="400" alt="面板列出三個帳號：Work 是 Team 方案並標示為目前帳號、Personal 是 Max 20×、Side project 是 Pro，下方是 Rescan 和 Settings 按鈕" />
 
+---
+
 ## 安裝
+
+> ⚠️ **重要前提**
+> 你必須使用**獨立安裝版**的 [Claude Desktop](https://claude.com/download)。
+> **Microsoft Store 版不支援**：它的資料放在虛擬化的位置換不掉，而整個工具就是
+> 靠換那個位置在運作的。
 
 **macOS**
 
@@ -58,10 +67,6 @@ xattr -dr com.apple.quarantine "/Applications/Multi-Claude Switcher.app"
 
 面板是用 **WebView2 Runtime** 畫的，Windows 11 和 Windows 10 21H2 以後都內建了。
 更舊的系統上 app 會直接給你微軟的安裝連結。
-
-**這些之前**，你需要的是**獨立安裝版**的 [Claude Desktop](https://claude.com/download)。
-Microsoft Store 版不支援：它的資料放在虛擬化的位置換不掉，而整個工具就是靠換那個
-位置在運作的。
 
 更新會自己在背景裝好，兩個平台都是。你只需要裝這一次。
 
@@ -113,25 +118,33 @@ App 會標示它認得出來的 Team 帳號，並且在你要做「匯入到它�
 
 [實際測了什麼、為什麼會這樣 →](docs/team-accounts.md)
 
-## 疑難排解
+## 常見問題與救援
 
-**只列出一個帳號。** 打開面板跑 **Rescan**，勾選你要管理的帳號。你沒登入過的帳號也會
-出現：先選起來、切過去、在那邊登入。
+**Q：清單上為什麼只看到一個帳號？**
+打開面板點 **Rescan**，勾選你要管理的帳號。還沒登入過的帳號也會列出來：先勾選它，
+切換過去，再在 Claude Desktop 裡完成登入。
 
-**Windows 上面板打不開。** 缺 WebView2。對系統匣圖示按右鍵選 **Quit**，裝好 WebView2
-再開一次。
+**Q：（Windows）面板打不開怎麼辦？**
+通常是缺 WebView2。對系統匣的眼睛圖示按右鍵選 **Quit**，裝好 WebView2 之後再重開。
 
-**我要把之前的對話救回來。** Settings → **Open backup folder**。快照是按設定檔分開、
-加時間戳記的。它**不會自動清理**，所以資料夾會一直長大，手動刪舊的是安全的。
+**Q：我的對話紀錄亂掉了，救得回來嗎？**
+可以。Settings → **Open backup folder**，裡面是按設定檔分開、加了時間戳記的快照。
+注意快照**不會自動清理**，太佔空間的話手動刪掉舊的是安全的。
 
-**log 在哪？** Settings → **Open log folder**，或直接找 `~/.multi-claude-switcher/logs/`。
+**Q：log 在哪裡？**
+Settings → **Open log folder**，或直接找 `~/.multi-claude-switcher/logs/`。
 
-**怎麼移除。** macOS 把 app 刪掉，再刪 `~/.multi-claude-switcher/` 和
-`~/Library/LaunchAgents/com.miou1107.multi-claude-switcher.plist`。Windows 從
-「新增/移除程式」解除安裝，再刪 `%USERPROFILE%\.multi-claude-switcher`。兩邊都不會動到
-你的 Claude Desktop 帳號和資料。
+**Q：如何徹底移除？**
 
-## 參與開發
+- **macOS**：刪掉 app，再清掉 `~/.multi-claude-switcher/` 和
+  `~/Library/LaunchAgents/com.miou1107.multi-claude-switcher.plist`。
+- **Windows**：從「新增/移除程式」解除安裝，再刪掉 `%USERPROFILE%\.multi-claude-switcher`。
+
+移除本工具完全不會影響你原本的 Claude Desktop 帳號與資料。
+
+---
+
+## 參與開發與授權
 
 [從原始碼建置 →](docs/building.md) ·
 [CLI 參考 →](docs/cli.md) ·
@@ -139,9 +152,8 @@ App 會標示它認得出來的 Team 帳號，並且在你要做「匯入到它�
 
 `FILELIST.md` 說明 repo 裡的每個檔案，`CHANGELOG.md` 是版本紀錄。
 
-## 授權
+授權條款：[MIT](LICENSE)。
 
-[MIT](LICENSE)。
-
-與 Anthropic 無隸屬關係。這個 app 的做法是讓 Claude Desktop 對著不同的資料目錄啟動，
-並在它們之間複製 session 檔案。它不會碰到你的登入憑證。
+**免責聲明**：本專案與 Anthropic 無任何隸屬關係。工具的運作原理只是讓 Claude Desktop
+對著不同的本機資料目錄啟動，並在它們之間複製 session 檔案；它不會碰到你的登入憑證，
+更不會上傳任何東西。
