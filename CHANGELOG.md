@@ -2,6 +2,16 @@
 
 ## [0.10.1] - 2026-07-28
 
+### Internal
+- **Replaced real personal data in tests and design docs with placeholders.**
+  Test fixtures and the design/plan documents had been written from live
+  on-device data, so a real email address, real Claude account UUIDs, a real
+  name and employer, and local home directories from both machines were
+  committed to a public repo. All are now obviously fake
+  (`first@example.com`, `11111111-1111-…`, `C:\Users\Example\`,
+  `/Users/example/`), with every assertion kept intact. No behaviour change.
+  Note that these values remain in the git history.
+
 ### Changed
 - **Windows: the panel opens instantly.** It used to be a process started on
   every click, so each open paid for a fresh process, a fresh WebView2

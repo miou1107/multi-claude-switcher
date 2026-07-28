@@ -54,7 +54,7 @@ func sampleAccounts() []core.ScannedAccount {
 		{UUID: "11111111xxxx", Complete: true, HomeFolder: "Claude", Email: "first@example.com",
 			Account: core.AccountTeam, Convos: 395, LastUpdated: time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC),
 			Note: "Team account — conversations can't be synced"},
-		{UUID: "22222222xxxx", Complete: true, HomeFolder: "Claude_Profile2", Email: "second@example.com",
+		{UUID: "22222222xxxx", Complete: true, HomeFolder: "Claude_Profile2", Email: "miou1107@gmail.com",
 			Account: core.AccountPersonal, Convos: 395, LastUpdated: time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)},
 		{UUID: "33333333xxxx", Complete: false, Convos: 21,
 			LastUpdated: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC), Note: "Invalid account data"},
@@ -243,7 +243,7 @@ Expected: PASS.
 
 ```bash
 git add cmd/mcs-tray/pickserver.go cmd/mcs-tray/pickserver_test.go
-git -c user.name="Vin" -c user.email="second@example.com" commit -m "feat(tray): HTML renderer + preselect helper for the Rescan web UI"
+git -c user.name="Vin" -c user.email="miou1107@gmail.com" commit -m "feat(tray): HTML renderer + preselect helper for the Rescan web UI"
 ```
 
 ---
@@ -476,7 +476,7 @@ Expected: test PASS; both builds clean.
 
 ```bash
 git add cmd/mcs-tray/pickserver.go cmd/mcs-tray/pickserver_test.go cmd/mcs-tray/openurl_darwin.go cmd/mcs-tray/openurl_windows.go cmd/mcs-tray/openurl_other.go
-git -c user.name="Vin" -c user.email="second@example.com" commit -m "feat(tray): single-shot localhost server + browser opener for Rescan web UI"
+git -c user.name="Vin" -c user.email="miou1107@gmail.com" commit -m "feat(tray): single-shot localhost server + browser opener for Rescan web UI"
 ```
 
 ---
@@ -529,7 +529,7 @@ Expected: all clean/green. (This proves no dangling references to the removed fu
 
 ```bash
 git add cmd/mcs-tray/rescan.go cmd/mcs-tray/rescan_test.go cmd/mcs-tray/dialog_darwin.go cmd/mcs-tray/dialog_other.go cmd/mcs-tray/dialog_windows.go FILELIST.md CHANGELOG.md README.md README.zh-TW.md
-git -c user.name="Vin" -c user.email="second@example.com" commit -m "feat(tray): use the browser web UI for Rescan; remove dead osascript picker"
+git -c user.name="Vin" -c user.email="miou1107@gmail.com" commit -m "feat(tray): use the browser web UI for Rescan; remove dead osascript picker"
 ```
 
 ---

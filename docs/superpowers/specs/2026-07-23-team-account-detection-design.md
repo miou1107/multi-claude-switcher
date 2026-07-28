@@ -38,7 +38,7 @@ On-device inspection (2026-07-23, both of the author's profiles):
 | Profile | Account | Organizations found (tier) | Classification |
 |---|---|---|---|
 | `Claude` (company) | first@example.com | **"Acme" → `default_raven`**, plus two personal orgs (`default_claude_ai`, `auto_api_evaluation`) | **Team** |
-| `Claude_Profile2` (personal) | fontripdata@… | "…'s Organization" → `default_claude_max_20x` only | **Personal** |
+| `Claude_Profile2` (personal) | second@example.com | "…'s Organization" → `default_claude_max_20x` only | **Personal** |
 
 `raven` is Anthropic's internal codename for the Team/Enterprise product; `default_raven`
 is the Team-seat rate-limit tier. Personal plans use `default_claude_ai` / `_pro` /

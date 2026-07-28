@@ -19,7 +19,7 @@
 - **Completeness:** Complete = the dir's `config.json` has a `lastKnownAccountUuid` (the row's UUID is that value). Ghost = a session bucket whose UUID is no dir's live login anywhere. A session bucket whose UUID IS some dir's live login (in this or another dir) is a stale duplicate and is folded away (never its own row).
 - **Manage unit = folder name.** The review lists accounts (deduped by UUID); a checked complete account maps to its home folder, which is what `managed.json` stores.
 - **Docs:** update `FILELIST.md` (new source + test files), `CHANGELOG.md` (`[Unreleased]`), and both READMEs when the feature lands (Task 5).
-- **Git:** commit author must display as `Vin`; never add a `Co-Authored-By` trailer. Commit with `git -c user.name="Vin" -c user.email="second@example.com"`.
+- **Git:** commit author must display as `Vin`; never add a `Co-Authored-By` trailer. Commit with `git -c user.name="Vin" -c user.email="miou1107@gmail.com"`.
 - **macOS `display dialog` uses a proportional font**, so space-aligned columns are only approximately aligned — an accepted cosmetic limitation (spec §5). Render best-effort aligned monospace text anyway.
 
 ---
@@ -259,7 +259,7 @@ Expected: PASS.
 
 ```bash
 git add core/identity.go core/identity_test.go
-git -c user.name="Vin" -c user.email="second@example.com" commit -m "feat(core): read account identity (email/name/uuid) from Local Storage"
+git -c user.name="Vin" -c user.email="miou1107@gmail.com" commit -m "feat(core): read account identity (email/name/uuid) from Local Storage"
 ```
 
 ---
@@ -423,7 +423,7 @@ Expected: PASS.
 
 ```bash
 git add core/managed.go core/managed_test.go
-git -c user.name="Vin" -c user.email="second@example.com" commit -m "feat(core): managed-profile registry (managed.json)"
+git -c user.name="Vin" -c user.email="miou1107@gmail.com" commit -m "feat(core): managed-profile registry (managed.json)"
 ```
 
 ---
@@ -787,7 +787,7 @@ Expected: PASS.
 
 ```bash
 git add core/scan.go core/scan_test.go
-git -c user.name="Vin" -c user.email="second@example.com" commit -m "feat(core): account scanner (dedup by UUID, completeness/ghost model)"
+git -c user.name="Vin" -c user.email="miou1107@gmail.com" commit -m "feat(core): account scanner (dedup by UUID, completeness/ghost model)"
 ```
 
 ---
@@ -908,7 +908,7 @@ Expected: build OK; tests PASS.
 
 ```bash
 git add cmd/mcs-tray/managedfilter.go cmd/mcs-tray/managedfilter_test.go cmd/mcs-tray/main.go
-git -c user.name="Vin" -c user.email="second@example.com" commit -m "feat(tray): gate menu on managed registry with first-run fallback"
+git -c user.name="Vin" -c user.email="miou1107@gmail.com" commit -m "feat(tray): gate menu on managed registry with first-run fallback"
 ```
 
 ---
@@ -1262,7 +1262,7 @@ Expected: build OK; vet clean; all tests PASS.
 ```bash
 git add cmd/mcs-tray/rescan.go cmd/mcs-tray/rescan_test.go cmd/mcs-tray/dialog_darwin.go cmd/mcs-tray/dialog_other.go cmd/mcs-tray/main.go FILELIST.md CHANGELOG.md README.md README.zh-TW.md
 # plus the Windows dialog file if it was edited
-git -c user.name="Vin" -c user.email="second@example.com" commit -m "feat(tray): Rescan accounts review-to-manage picker"
+git -c user.name="Vin" -c user.email="miou1107@gmail.com" commit -m "feat(tray): Rescan accounts review-to-manage picker"
 ```
 
 ---

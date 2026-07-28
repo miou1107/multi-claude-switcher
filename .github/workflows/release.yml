@@ -176,7 +176,7 @@ jobs:
             exit 0
           fi
           git config user.name  "Vin"
-          git config user.email "first@example.com"
+          git config user.email "miou1107@gmail.com"
           git add Casks/multi-claude-switcher.rb
           git commit -m "Bump multi-claude-switcher cask to v$VERSION"
           git push
