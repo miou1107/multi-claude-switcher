@@ -76,6 +76,10 @@ void LoadPanelHTML(const char *html) {
   });
 }
 
+void ClosePopover(void) {
+  dispatch_async(dispatch_get_main_queue(), ^{ [gD.popover performClose:nil]; });
+}
+
 void TerminateApp(void) {
   dispatch_async(dispatch_get_main_queue(), ^{ [NSApp terminate:nil]; });
 }

@@ -68,10 +68,14 @@
 - `cmd/mcs-picker/render.go` — Pure renderer for the picker page (account cards, Team badges, greyed ghost rows) + the preselect helper.
 - `cmd/mcs-menubar/main.go` — Menu-bar app: Go side of the native popover panel (buildProfiles, switch, rescan, quit; renders panel HTML into the WKWebView).
 - `cmd/mcs-menubar/menubar.m` — Objective-C (direct CGO): NSStatusItem + NSPopover + WKWebView + JS message handler; the styled dropdown panel.
-- `cmd/mcs-menubar/menubar.h` — C header for the menubar Objective-C entry points.
-- `cmd/mcs-menubar/render.go` — Pure renderers for the panel's views (account list with plan badges, in-panel Rescan picker, Sync directions, Settings, Rename).
+- `cmd/mcs-menubar/menubar.h` — C header for the menubar Objective-C entry points (RunMenuBar, LoadPanelHTML, ClosePopover, TerminateApp).
 - `cmd/mcs-menubar/update.go` — Background self-update for the menu-bar app: periodic + manual check, download, atomic binary swap, relaunch.
 - `cmd/mcs-menubar/stub_other.go` — Non-macOS no-op `main` so the package builds on all platforms (the panel is macOS-only).
+- `internal/panelui/render.go` — Shared renderer for the account panel's HTML/CSS/JS. Both macOS (`cmd/mcs-menubar`, WKWebView) and Windows (`cmd/mcs-tray --panel`, WebView2) load the exact same output, feature-detecting the JS bridge (`window.webkit.messageHandlers` vs `window.mcsAction`).
+- `cmd/mcs-tray/panel_windows.go` — Windows-only WebView2 popup panel host (invoked via `mcs-tray.exe --panel`): borderless topmost window, JS bridge via jchv/go-webview2 Bind, positions near the tray icon, exits on outside-click (WM_ACTIVATE WA_INACTIVE). MessageBox+install-link fallback when the WebView2 Runtime is missing.
+- `cmd/mcs-tray/panel_other.go` — Non-Windows stub for the panel entry point (never called on darwin — macOS uses `cmd/mcs-menubar`).
+- `cmd/mcs-tray/onready_windows.go` — Windows-only tray `onReady`: minimal right-click menu (Show panel / About / Quit) that spawns the panel subprocess. Reads the panel's stdout for the `MCS_QUIT` sentinel so quitting from inside the panel shuts down the tray too.
+- `cmd/mcs-tray/onready_other.go` — Non-Windows stub for `onReadyWindowsPanel` so the dispatch in `main.go` compiles on all platforms.
 - `cmd/mcs-picker/picker_darwin.go` — macOS picker window via a native WKWebView (webview_go); returns the user's selection.
 - `cmd/mcs-picker/picker_other.go` — Non-macOS no-op picker (the native window is macOS-only).
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).

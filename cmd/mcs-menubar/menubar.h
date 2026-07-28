@@ -2,5 +2,6 @@
 #define MCS_MENUBAR_H
 void RunMenuBar(void);
 void LoadPanelHTML(const char *html);
+void ClosePopover(void);
 void TerminateApp(void);
 #endif

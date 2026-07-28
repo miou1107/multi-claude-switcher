@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,15 @@ var (
 )
 
 func main() {
+	// Panel mode: this same binary launched with --panel is the WebView2
+	// popover for Windows (see panel_windows.go). It runs to completion in
+	// its own process so it doesn't fight systray for the main thread, then
+	// exits when the panel loses focus.
+	if len(os.Args) > 1 && os.Args[1] == "--panel" {
+		runPanel()
+		return
+	}
+
 	if closer, _, err := core.SetupLogging("mcs-tray"); err == nil {
 		defer closer.Close()
 	} else {
@@ -45,6 +55,15 @@ func main() {
 }
 
 func onReady() {
+	// On Windows the tray is a minimal launcher: it shows the icon and a
+	// small right-click menu (Show panel / Quit / About). The actual UI —
+	// account list, switch, sync, rename, settings — lives in the WebView2
+	// panel spawned by `mcs-tray.exe --panel`, matching the macOS NSPopover.
+	if runtime.GOOS == "windows" {
+		onReadyWindowsPanel()
+		return
+	}
+
 	// Set the menu-bar / tray icon (per-OS: a macOS template PNG that the system
 	// recolors for light/dark, a Windows .ico via SetIcon).
 	setTrayIcon()

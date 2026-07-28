@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## [0.10.0] - 2026-07-28
+
+### Changed
+- **Windows tray now shows the same panel UI as macOS.** Previously the Windows
+  tray was a plain text context menu (Profile submenus / Sync / Settings /
+  Maintenance / About / Quit). It is now a minimal launcher — right-click
+  shows only **Show panel**, **About**, **Quit** — and clicking **Show panel**
+  opens a WebView2 popup with the same styled card list, plan badges,
+  confirmation modal before switching, and in-panel Rescan / Sync / Rename /
+  Settings that macOS has had since v0.9.0. The account list, switch action,
+  and every settings toggle live in the panel now, not the tray menu.
+
+### Added
+- The panel HTML/CSS/JS renderer moved into a shared `internal/panelui`
+  package. macOS (`cmd/mcs-menubar`, NSPopover + WKWebView) and Windows
+  (`cmd/mcs-tray --panel`, jchv/go-webview2) both consume the same output, so
+  the two platforms will stay in lockstep as the panel evolves.
+- Escape now hides the panel on both platforms (mac closes the popover,
+  Windows exits the panel process). The next tray click reopens it.
+
+### Requires
+- **Windows:** WebView2 Runtime. Preinstalled on Windows 11 and Windows 10
+  21H2+ via Windows Update; on older systems the panel shows a native dialog
+  with a one-click link to Microsoft's install page.
+
 ## [0.9.1] - 2026-07-28
 
 ### Changed

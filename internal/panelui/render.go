@@ -1,6 +1,13 @@
-//go:build darwin
-
-package main
+// Package panelui renders the WebView-hosted account panel that is shared by
+// the macOS menu-bar host (cmd/mcs-menubar, WKWebView in an NSPopover) and the
+// Windows tray host (cmd/mcs-tray, jchv/go-webview2 in a borderless topmost
+// window). Both hosts consume the exact same HTML/CSS/JS output so the UI
+// stays in lockstep across platforms.
+//
+// The JS bridge is feature-detected inside the shared shell(): mac has
+// window.webkit.messageHandlers.mcs, Windows has window.mcsAction bound by
+// go-webview2's Bind API.
+package panelui
 
 import (
 	"fmt"
@@ -10,8 +17,8 @@ import (
 	"github.com/miou1107/multi-claude-switcher/core"
 )
 
-// profileVM is one row in the account-list view.
-type profileVM struct {
+// ProfileVM is one row in the account-list view.
+type ProfileVM struct {
 	Folder  string
 	Name    string
 	Plan    string // subscription label: "Team" | "Max 20×" | "Pro" | "Free" | …
@@ -34,13 +41,13 @@ func planPill(plan string) string {
 }
 
 // shell wraps body content in the shared styled page. Every view lives in the
-// same popover webview — there are no separate windows.
+// same webview — there are no separate windows on either platform.
 func shell(body string) string {
 	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Multi-Claude Switcher</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html{color-scheme:light}
-body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;color:#241f38;
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",system-ui,sans-serif;color:#241f38;
   background:linear-gradient(160deg,#efe9fb 0%,#f6eaf2 55%,#f9edf1 100%);padding:16px;-webkit-font-smoothing:antialiased;width:400px;overflow-x:hidden}
 .header{display:flex;align-items:center;gap:11px;margin:2px 2px 14px}
 .avatar{width:40px;height:40px;border-radius:12px;flex:none;background:linear-gradient(140deg,#8a74f0,#b96cee 55%,#e0607a);
@@ -69,7 +76,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-s
 .name{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sub{font-size:11.5px;color:#8b8598;margin-top:1px}
 .meta{font-size:11px;color:#8b8598;margin-top:5px;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
-.chip{font-family:ui-monospace,SFMono-Regular,monospace;font-size:10.5px;background:#f1eef9;color:#6b6580;padding:2px 6px;border-radius:5px}
+.chip{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:10.5px;background:#f1eef9;color:#6b6580;padding:2px 6px;border-radius:5px}
 .dot{opacity:.5}
 .pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
 .pill-team{background:#d6f5e3;color:#1a8a4f}
@@ -126,7 +133,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-s
   </div>
 </div>
 <script>
-  function send(a,arg){ window.webkit.messageHandlers.mcs.postMessage({action:a, folder:arg||''}); }
+  // Bridge: mac hosts webkit.messageHandlers.mcs; Windows hosts a Go function
+  // bound as window.mcsAction via go-webview2's Bind API. Feature-detect once.
+  function send(a, arg){
+    if (window.mcsAction) { window.mcsAction(a, arg || ''); return; }
+    window.webkit.messageHandlers.mcs.postMessage({action:a, folder:arg||''});
+  }
   function toggleCard(el){ el.classList.toggle('selected'); var c=el.querySelector('.chk'); if(c) c.checked=el.classList.contains('selected'); }
   function confirmManaged(){
     var picked=[];
@@ -147,7 +159,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-s
   // Enter is intentionally NOT hijacked: browsers activate the focused button on Enter,
   // so tabbing to Cancel and pressing Enter cancels — hijacking it would silently confirm.
   document.addEventListener('keydown', function(e){
-    if(e.key==='Escape' && document.getElementById('mcsModal').classList.contains('on')) closeConfirm();
+    if(e.key!=='Escape') return;
+    if(document.getElementById('mcsModal').classList.contains('on')) { closeConfirm(); return; }
+    // Inside a text input (Rename), Esc backs out to the list instead of
+    // killing the panel — hiding on Windows would discard the typed name.
+    var ae=document.activeElement;
+    if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA')) { send('showList',''); return; }
+    // Otherwise, Esc hides the whole panel (matches NSPopover click-outside).
+    send('hidePanel','');
   });
 </script></body></html>`
 }
@@ -159,9 +178,9 @@ func avatarHeader(title, subtitle string) string {
 </div>`
 }
 
-// renderList is the account-list view: click a card to switch, Rescan / Quit in
-// the footer.
-func renderList(profiles []profileVM) string {
+// RenderList is the account-list view: click a card to switch, Rescan / Quit
+// in the footer.
+func RenderList(profiles []ProfileVM) string {
 	esc := html.EscapeString
 	var cards strings.Builder
 	for _, p := range profiles {
@@ -191,8 +210,8 @@ func renderList(profiles []profileVM) string {
 	return shell(body)
 }
 
-// settingsVM holds the state shown in the Settings view.
-type settingsVM struct {
+// SettingsVM holds the state shown in the Settings view.
+type SettingsVM struct {
 	AutoSync   bool
 	StartLogin bool
 	Version    string
@@ -207,9 +226,9 @@ func toggleClass(on bool) string {
 	return "toggle"
 }
 
-// renderSettings is the in-panel Settings view: preferences and maintenance,
+// RenderSettings is the in-panel Settings view: preferences and maintenance,
 // reached from the gear on the account list. Back arrow returns to the list.
-func renderSettings(vm settingsVM) string {
+func RenderSettings(vm SettingsVM) string {
 	status := ""
 	if vm.Status != "" {
 		status = `<div class="status">` + html.EscapeString(vm.Status) + `</div>`
@@ -244,10 +263,10 @@ func renderSettings(vm settingsVM) string {
 	return shell(body)
 }
 
-// renderRescan is the in-panel Rescan view: check the accounts to manage. Ghost
-// accounts are shown read-only. Cancel / Confirm in the footer. No separate
-// window — this replaces the panel content and swaps back on confirm.
-func renderRescan(accounts []core.ScannedAccount, preselected map[string]bool) string {
+// RenderRescan is the in-panel Rescan view: check the accounts to manage.
+// Ghost accounts are shown read-only. Cancel / Confirm in the footer. No
+// separate window — this replaces the panel content and swaps back on confirm.
+func RenderRescan(accounts []core.ScannedAccount, preselected map[string]bool) string {
 	esc := html.EscapeString
 	var cards strings.Builder
 	for _, a := range accounts {
@@ -261,7 +280,7 @@ func renderRescan(accounts []core.ScannedAccount, preselected map[string]bool) s
         <div class="body"><div class="row1"><span class="name">Unrecognized account</span></div>
           <div class="meta"><span class="chip">%s</span><span class="dot">·</span>%d chats<span class="dot">·</span>%s</div>
           <div class="note-bad">%s</div></div></div>`,
-				esc(shortID(a.UUID)), a.Convos, esc(date), esc(a.Note)))
+				esc(ShortID(a.UUID)), a.Convos, esc(date), esc(a.Note)))
 			continue
 		}
 		name := a.Email
@@ -284,7 +303,7 @@ func renderRescan(accounts []core.ScannedAccount, preselected map[string]bool) s
         <input type="checkbox" class="chk"%s>
         <div class="body"><div class="row1"><span class="name">%s</span>%s</div>
           <div class="meta"><span class="chip">%s</span><span class="dot">·</span>%d chats<span class="dot">·</span>%s</div></div></div>`,
-			sel, esc(a.HomeFolder), chk, esc(name), badge, esc(shortID(a.UUID)), a.Convos, esc(date)))
+			sel, esc(a.HomeFolder), chk, esc(name), badge, esc(ShortID(a.UUID)), a.Convos, esc(date)))
 	}
 	body := `<div class="header">
   <button class="back" onclick="send('showList','')">‹</button>
@@ -298,9 +317,9 @@ func renderRescan(accounts []core.ScannedAccount, preselected map[string]bool) s
 	return shell(body)
 }
 
-// renderRename is the in-panel Rename view: a text field for a friendlier
+// RenderRename is the in-panel Rename view: a text field for a friendlier
 // display name for one account.
-func renderRename(folder, current string) string {
+func RenderRename(folder, current string) string {
 	esc := html.EscapeString
 	body := `<div class="header">
   <button class="back" onclick="send('showList','')">‹</button>
@@ -315,9 +334,9 @@ func renderRename(folder, current string) string {
 	return shell(body)
 }
 
-// renderSync is the in-panel Sync view: one card per direction (From → To).
+// RenderSync is the in-panel Sync view: one card per direction (From → To).
 // Tapping a direction copies that account's Code sessions into the other.
-func renderSync(profiles []profileVM, status string, busy bool) string {
+func RenderSync(profiles []ProfileVM, status string, busy bool) string {
 	esc := html.EscapeString
 	st := ""
 	if status != "" {
@@ -359,8 +378,8 @@ func renderSync(profiles []profileVM, status string, busy bool) string {
 	return shell(body)
 }
 
-// computePreselect returns the folders to pre-check in the Rescan view.
-func computePreselect(accounts []core.ScannedAccount, managed []string) map[string]bool {
+// ComputePreselect returns the folders to pre-check in the Rescan view.
+func ComputePreselect(accounts []core.ScannedAccount, managed []string) map[string]bool {
 	firstRun := managed == nil
 	set := map[string]bool{}
 	for _, m := range managed {
@@ -375,7 +394,8 @@ func computePreselect(accounts []core.ScannedAccount, managed []string) map[stri
 	return pre
 }
 
-func shortID(uuid string) string {
+// ShortID trims a UUID to its leading 8 characters for compact display.
+func ShortID(uuid string) string {
 	if len(uuid) > 8 {
 		return uuid[:8]
 	}

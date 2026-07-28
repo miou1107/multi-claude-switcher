@@ -28,6 +28,7 @@ import (
 	"unsafe"
 
 	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/internal/panelui"
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
 
@@ -202,6 +203,8 @@ func goPanelAction(caction, cfolder *C.char) {
 		setBusyStatus(true, "Checking for updates…")
 		reloadPanel()
 		go manualCheckAndInstall()
+	case "hidePanel":
+		C.ClosePopover()
 	case "quit":
 		C.TerminateApp()
 	}
@@ -263,16 +266,16 @@ func reloadPanel() {
 	switch view {
 	case "rescan":
 		accounts := core.ScanAccounts(mustFindProfiles())
-		htmlStr = renderRescan(accounts, computePreselect(accounts, core.LoadManaged()))
+		htmlStr = panelui.RenderRescan(accounts, panelui.ComputePreselect(accounts, core.LoadManaged()))
 	case "sync":
-		htmlStr = renderSync(buildProfiles(), getStatus(), getBusy())
+		htmlStr = panelui.RenderSync(buildProfiles(), getStatus(), getBusy())
 	case "rename":
 		mu.Lock()
 		f := renameFolder
 		mu.Unlock()
-		htmlStr = renderRename(f, core.DisplayName(f))
+		htmlStr = panelui.RenderRename(f, core.DisplayName(f))
 	case "settings":
-		htmlStr = renderSettings(settingsVM{
+		htmlStr = panelui.RenderSettings(panelui.SettingsVM{
 			AutoSync:   core.AutoSyncOnSwitch(),
 			StartLogin: core.LoginItemEnabled(),
 			Version:    core.Version,
@@ -280,7 +283,7 @@ func reloadPanel() {
 			Busy:       getBusy(),
 		})
 	default:
-		htmlStr = renderList(buildProfiles())
+		htmlStr = panelui.RenderList(buildProfiles())
 	}
 	c := C.CString(htmlStr)
 	defer C.free(unsafe.Pointer(c))
@@ -318,17 +321,17 @@ func doSwitch(folder string) {
 }
 
 // buildProfiles lists the managed accounts for the list view.
-func buildProfiles() []profileVM {
+func buildProfiles() []panelui.ProfileVM {
 	profiles := mustFindProfiles()
 	managed := core.LoadManaged()
 	running, _ := plat.DetectRunningProfile()
-	var out []profileVM
+	var out []panelui.ProfileVM
 	for _, p := range profiles {
 		_, uErr := platform.GetProfileAccountUUID(p.Path)
 		if !panelIncludes(managed, p.Name, uErr == nil, p.Managed) {
 			continue
 		}
-		vm := profileVM{Folder: p.Name, Name: core.DisplayName(p.Name), Current: p.Path == running, Plan: cachedPlan(p.Path)}
+		vm := panelui.ProfileVM{Folder: p.Name, Name: core.DisplayName(p.Name), Current: p.Path == running, Plan: cachedPlan(p.Path)}
 		out = append(out, vm)
 	}
 	return out
