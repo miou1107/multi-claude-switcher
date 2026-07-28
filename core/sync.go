@@ -42,13 +42,18 @@ type SyncReport struct {
 // rule. In practice local_<UUID>.json names are session-scoped, so a genuine
 // collision is effectively impossible.)
 func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
+	// Sessions are stored per account, so both ends need one. A profile that
+	// has never been signed in to has no bucket to read from or write to, and
+	// saying that plainly is far more use than the missing config key.
 	srcAccount, err := platform.GetProfileAccountUUID(srcProfilePath)
 	if err != nil {
-		return nil, fmt.Errorf("cannot determine source account (needed to know which bucket to sync): %w", err)
+		return nil, fmt.Errorf("%s has no account signed in yet, so it has no sessions to copy. Switch to it and sign in first",
+			DisplayName(filepath.Base(srcProfilePath)))
 	}
 	dstAccount, err := platform.GetProfileAccountUUID(dstProfilePath)
 	if err != nil {
-		return nil, fmt.Errorf("cannot determine target account (needed to know which bucket to write): %w", err)
+		return nil, fmt.Errorf("%s has no account signed in yet, so there is nowhere to copy sessions to. Switch to it and sign in first",
+			DisplayName(filepath.Base(dstProfilePath)))
 	}
 
 	report := &SyncReport{SourceAccount: srcAccount, TargetAccount: dstAccount}

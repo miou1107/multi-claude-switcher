@@ -100,6 +100,91 @@ func writeProfile(t *testing.T, root, name, liveUUID string, buckets map[string]
 	return &platform.ProfileInfo{Name: name, Path: dir}
 }
 
+// writeSignedOutProfile creates a real profile folder nobody has signed in to:
+// Claude Desktop ran with it and wrote a config.json, but there is no account
+// in it. This is the shape that used to be dropped silently.
+func writeSignedOutProfile(t *testing.T, root, name string) *platform.ProfileInfo {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	os.MkdirAll(dir, 0755)
+	os.WriteFile(filepath.Join(dir, "config.json"),
+		[]byte(`{"locale":"en-US","userThemeMode":"dark","windowSizeWasSignedIn":false}`), 0644)
+	return &platform.ProfileInfo{Name: name, Path: dir}
+}
+
+// writeNonProfileDir creates a directory that merely starts with "Claude", like
+// the one the Claude Code CLI keeps beside the Desktop profiles. It has no
+// config.json and must not be offered as a profile.
+func writeNonProfileDir(t *testing.T, root, name string) *platform.ProfileInfo {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	os.MkdirAll(filepath.Join(dir, "ChromeNativeHost"), 0755)
+	return &platform.ProfileInfo{Name: name, Path: dir}
+}
+
+func TestAssembleSignedOutProfile(t *testing.T) {
+	scans := []dirScan{
+		{Folder: "ClaudeWork", HasConfig: true, Buckets: map[string]bucketStat{}},
+	}
+	got := assembleAccounts(scans)
+	if len(got) != 1 {
+		t.Fatalf("want 1 row, got %d: %+v", len(got), got)
+	}
+	if !got[0].SignedOut || got[0].Complete || got[0].HomeFolder != "ClaudeWork" {
+		t.Fatalf("row: %+v", got[0])
+	}
+	if got[0].Note != SignedOutNote {
+		t.Fatalf("note should tell the user what to do, got %q", got[0].Note)
+	}
+}
+
+func TestAssembleRowOrder(t *testing.T) {
+	// Switchable accounts first, then folders awaiting sign-in, then ghosts.
+	scans := []dirScan{
+		{Folder: "ClaudeWork", HasConfig: true, Buckets: map[string]bucketStat{}},
+		{Folder: "Claude", HasConfig: true, LiveUUID: "aaa", Buckets: map[string]bucketStat{
+			"aaa": {Count: 1},
+			"zzz": {Count: 5}, // orphan → ghost
+		}},
+	}
+	got := assembleAccounts(scans)
+	if len(got) != 3 {
+		t.Fatalf("want 3 rows, got %d: %+v", len(got), got)
+	}
+	if !got[0].Complete || got[0].HomeFolder != "Claude" {
+		t.Fatalf("row0 should be the switchable account: %+v", got[0])
+	}
+	if !got[1].SignedOut || got[1].HomeFolder != "ClaudeWork" {
+		t.Fatalf("row1 should be the folder awaiting sign-in: %+v", got[1])
+	}
+	if got[2].Complete || got[2].SignedOut || got[2].UUID != "zzz" {
+		t.Fatalf("row2 should be the ghost: %+v", got[2])
+	}
+}
+
+func TestScanAccountsListsProfileAwaitingSignIn(t *testing.T) {
+	root := t.TempDir()
+	live := writeProfile(t, root, "Claude", "11111111", map[string]int{"11111111": 3})
+	waiting := writeSignedOutProfile(t, root, "ClaudeWork")
+	cli := writeNonProfileDir(t, root, "Claude Code")
+
+	got := ScanAccounts([]*platform.ProfileInfo{live, waiting, cli})
+	if len(got) != 2 {
+		t.Fatalf("want 2 rows (one signed in, one awaiting sign-in), got %d: %+v", len(got), got)
+	}
+	if !got[0].Complete || got[0].HomeFolder != "Claude" {
+		t.Fatalf("row0: %+v", got[0])
+	}
+	if !got[1].SignedOut || got[1].HomeFolder != "ClaudeWork" || got[1].Note != SignedOutNote {
+		t.Fatalf("row1: %+v", got[1])
+	}
+	for _, a := range got {
+		if a.HomeFolder == "Claude Code" {
+			t.Fatal("a directory with no config.json is not a profile and must not be listed")
+		}
+	}
+}
+
 func TestScanAccounts(t *testing.T) {
 	root := t.TempDir()
 	p1 := writeProfile(t, root, "Claude", "11111111", map[string]int{"11111111": 3, "33333333": 2})

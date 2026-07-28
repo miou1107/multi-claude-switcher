@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/getlantern/systray"
+	"fyne.io/systray"
 	"github.com/miou1107/multi-claude-switcher/core"
 )
 

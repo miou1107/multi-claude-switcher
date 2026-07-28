@@ -63,12 +63,14 @@
 
    之後直接雙擊即可。（終端機替代法：`xattr -dr com.apple.quarantine "/Applications/Multi-Claude Switcher.app"`。）
 
-這個 app 跑在**選單列**（右上角），顯示為一對眼睛的圖示，沒有 Dock 圖示。點它打開選單，每個帳號是一個子選單，裡面有 **Switch to this profile**（切換到這個 profile）和 **Rename…**（改名），目前使用中的帳號會標記出來。從選單開啟 **Start at Login** 可讓它開機自動啟動。App 會**自我更新**（從 GitHub Releases 抓），所以只要裝一次。
+這個 app 跑在**選單列**（右上角），顯示為一對眼睛的圖示，沒有 Dock 圖示。點它打開面板，面板會列出你的帳號和各自的訂閱方案、標出目前使用中的那個，點另一個帳號並確認後就切換過去。**Rescan**（重新掃描帳號）、**Sync**（同步對話）、**Rename**（改名）和 **Settings**（設定，含開機自動啟動）全部都在面板裡面。點面板以外的地方、或按 **Esc** 就關閉。App 會**自我更新**（從 GitHub Releases 抓），所以只要裝一次。
 
 ### Windows
 
 1. 下載上面的 **`Multi-Claude-Switcher_<版本>_windows_setup.exe`** 並執行。這是「每位使用者」安裝（不會跳系統管理員權限），會裝好程式、建立開始選單捷徑，並在「新增/移除程式」登記一項。
-2. 從**開始選單**啟動 **Multi-Claude Switcher**。它會出現在系統匣（右下角，可能要點「顯示隱藏的圖示」那個箭頭）成為一對眼睛的圖示。點它打開選單，每個帳號是一個子選單，裡面有 **Switch to this profile**（切換到這個 profile）和 **Rename…**（改名），目前使用中的帳號會標記出來。從選單開啟 **Start at Login** 可讓它開機自動啟動。有新版本時它會通知你；點 **Check for Updates** 會打開下載頁，執行新的安裝程式即可升級（會直接覆蓋舊版）。
+2. 從**開始選單**啟動 **Multi-Claude Switcher**。它會出現在系統匣（右下角，可能要點「顯示隱藏的圖示」那個箭頭）成為一對眼睛的圖示。點它打開面板，跟 macOS 是同一個面板：列出你的帳號和各自的訂閱方案、標出目前使用中的那個，點另一個帳號並確認後就切換過去。**Rescan**（重新掃描帳號）、**Sync**（同步對話）、**Rename**（改名）和 **Settings**（設定，含開機自動啟動）全部都在面板裡面。點面板以外的地方、按 **Esc**、或再點一次圖示都會關閉。對圖示按右鍵只有 **Quit**（結束）一項。有新版本時它會通知你；在面板的 **Settings** 裡點 **Check for Updates** 會打開下載頁，執行新的安裝程式即可升級（會直接覆蓋舊版）。
+
+   > 面板需要 **WebView2 Runtime**（微軟的網頁顯示元件）。Windows 11、以及 Windows 10 21H2 以後的版本都已經內建。更舊的系統上，app 會跳出對話框附上微軟的安裝連結。
 
 > **需要獨立安裝版的 Claude Desktop。** 請到 [claude.com/download](https://claude.com/download) 安裝 Claude Desktop（一般的個人安裝版）。**Microsoft Store / MSIX** 版**目前尚未支援**：它把資料存在一個虛擬化的位置，而且沒辦法用自訂的設定檔目錄重新啟動，而切換正是靠這個機制運作的。如果你裝的是商店版，請改裝獨立安裝版才能使用本工具。
 

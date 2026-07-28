@@ -5,6 +5,7 @@ package platform
 import (
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -336,6 +337,15 @@ func (w *WindowsPlatform) LaunchProfile(profilePath string) error {
 	exe, err := findClaudeExecutable()
 	if err != nil {
 		return err
+	}
+	// A profile with no account is about to be signed in to, and that sign-in
+	// comes back through claude://, which the shell resolves without our
+	// --user-data-dir. Hold the handler on this profile until the account
+	// appears, or the new login lands in the default profile instead. Profiles
+	// that already have an account need no callback and are left alone.
+	if _, err := GetProfileAccountUUID(profilePath); err != nil {
+		log.Printf("%s has no account yet; holding the claude:// handler for its sign-in", profilePath)
+		HoldProtocolHandlerForSignIn(profilePath)
 	}
 	// Start (not Run) so we return immediately, like macOS `open -n`.
 	return exec.Command(exe, "--user-data-dir="+profilePath).Start()

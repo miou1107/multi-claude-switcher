@@ -23,6 +23,12 @@ type ProfileVM struct {
 	Name    string
 	Plan    string // subscription label: "Team" | "Max 20×" | "Pro" | "Free" | …
 	Current bool
+
+	// SignedIn is false for a profile folder that exists but has no account in
+	// it yet. It can still be switched to, which is how the user signs in, but
+	// it cannot take part in a sync: sessions are stored per account, so with
+	// no account there is no bucket to read from or write to.
+	SignedIn bool
 }
 
 // planPill renders the subscription badge for an account.
@@ -83,6 +89,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .pill-personal{background:#eceaf3;color:#6b6580}
 .pill-plan{background:#ece8fb;color:#6a4fd0}
 .note-bad{margin-top:5px;display:inline-block;font-size:10.5px;font-weight:700;background:#fde4e4;color:#c0392b;padding:2px 8px;border-radius:999px}
+.note-todo{margin-top:5px;display:inline-block;font-size:10.5px;font-weight:700;background:#e6eefc;color:#2b62c9;padding:2px 8px;border-radius:999px;white-space:normal}
 .empty{color:#8b8598;font-size:13px;text-align:center;padding:18px 8px}
 .footer{display:flex;gap:9px;margin-top:14px}
 .btn{flex:1;font:inherit;font-weight:700;font-size:13px;border:none;cursor:pointer;border-radius:11px;padding:10px;transition:.13s}
@@ -193,10 +200,18 @@ func RenderList(profiles []ProfileVM) string {
 				esc(p.Name), badge, editBtn))
 			continue
 		}
+		// A profile with no account yet is still switchable: switching to it is
+		// how the user gets Claude open on it to sign in. Say so, otherwise the
+		// card looks identical to a ready account and switching to it lands on
+		// a login screen with no explanation.
+		sub := "Switch to this account"
+		if !p.SignedIn {
+			sub = "Not signed in yet. Switch here, then sign in."
+		}
 		cards.WriteString(fmt.Sprintf(`
       <div class="card selectable" data-folder="%s" data-name="%s" onclick="askSwitch(this.dataset.folder,this.dataset.name)"><div class="chev">⇄</div>
-        <div class="body"><div class="row1"><span class="name">%s</span>%s</div><div class="sub">Switch to this account</div></div>%s</div>`,
-			esc(p.Folder), esc(p.Name), esc(p.Name), badge, editBtn))
+        <div class="body"><div class="row1"><span class="name">%s</span>%s</div><div class="sub">%s</div></div>%s</div>`,
+			esc(p.Folder), esc(p.Name), esc(p.Name), badge, esc(sub), editBtn))
 	}
 	if len(profiles) == 0 {
 		cards.WriteString(`<div class="empty">No managed accounts yet. Run Rescan to add some.</div>`)
@@ -274,6 +289,22 @@ func RenderRescan(accounts []core.ScannedAccount, preselected map[string]bool) s
 		if !a.LastUpdated.IsZero() {
 			date = a.LastUpdated.Format("2006-01-02")
 		}
+		if a.SignedOut {
+			// A profile folder with no account in it yet. Selectable on
+			// purpose: managing it is what puts it in the account list, which
+			// is how the user gets to switch to it and sign in.
+			sel, chk := "", ""
+			if preselected[a.HomeFolder] {
+				sel, chk = " selected", " checked"
+			}
+			cards.WriteString(fmt.Sprintf(`
+      <div class="card selectable%s" data-folder="%s" onclick="toggleCard(this)">
+        <input type="checkbox" class="chk"%s>
+        <div class="body"><div class="row1"><span class="name">%s</span></div>
+          <div class="note-todo">%s</div></div></div>`,
+				sel, esc(a.HomeFolder), chk, esc(a.HomeFolder), esc(a.Note)))
+			continue
+		}
 		if !a.Complete {
 			cards.WriteString(fmt.Sprintf(`
       <div class="card ghost"><div style="width:21px;flex:none"></div>
@@ -344,9 +375,21 @@ func RenderSync(profiles []ProfileVM, status string, busy bool) string {
 	}
 	var cards strings.Builder
 	count := 0
+	waiting := 0
+	for _, p := range profiles {
+		if !p.SignedIn {
+			waiting++
+		}
+	}
 	for _, from := range profiles {
 		for _, to := range profiles {
 			if from.Folder == to.Folder {
+				continue
+			}
+			// Sessions are stored per account, so a profile with no account
+			// signed in has no bucket to read from or write to. Offering the
+			// direction anyway just fails at the point of clicking it.
+			if !from.SignedIn || !to.SignedIn {
 				continue
 			}
 			count++
@@ -370,6 +413,15 @@ func RenderSync(profiles []ProfileVM, status string, busy bool) string {
 	if count == 0 {
 		cards.WriteString(`<div class="empty">Add at least two managed accounts to sync between them.</div>`)
 	}
+	if waiting > 0 {
+		word := "account"
+		if waiting > 1 {
+			word = "accounts"
+		}
+		cards.WriteString(fmt.Sprintf(
+			`<div class="empty">%d %s not signed in yet, so it can't be synced. Switch to it and sign in first.</div>`,
+			waiting, word))
+	}
 	body := `<div class="header">
   <button class="back" onclick="send('showSettings','')">‹</button>
   <div class="htext"><h1>Sync sessions</h1><p>Copy Code sessions between accounts</p></div>
@@ -387,7 +439,10 @@ func ComputePreselect(accounts []core.ScannedAccount, managed []string) map[stri
 	}
 	pre := map[string]bool{}
 	for _, a := range accounts {
-		if a.Complete && (firstRun || set[a.HomeFolder]) {
+		// Folders awaiting sign-in count too: they are switch targets, and
+		// leaving them unchecked on a first run is what hides the profile the
+		// user set up precisely so they could sign in to it.
+		if (a.Complete || a.SignedOut) && (firstRun || set[a.HomeFolder]) {
 			pre[a.HomeFolder] = true
 		}
 	}

@@ -12,6 +12,12 @@ import (
 
 // ScannedAccount is one row of the rescan review: a deduped account with its
 // completeness, identity, activity stats, and derived note.
+//
+// A row is one of three kinds:
+//
+//	Complete            an account signed in to HomeFolder; switchable now
+//	SignedOut           a real profile folder nobody has signed in to yet
+//	neither             a ghost: session data whose account is signed in nowhere
 type ScannedAccount struct {
 	UUID        string
 	Complete    bool   // true = live login somewhere (switchable); false = ghost
@@ -21,7 +27,20 @@ type ScannedAccount struct {
 	Convos      int
 	LastUpdated time.Time
 	Note        string
+
+	// SignedOut marks a profile folder that Claude Desktop has run with but
+	// that has never been signed in to: it has a config.json but no account
+	// and no sessions. There is nothing to switch to yet, which is exactly why
+	// it has to be shown. Dropping these silently is what makes a user with a
+	// second profile ready and waiting see "only one account found" and have
+	// no idea what to do about it.
+	SignedOut bool
 }
+
+// SignedOutNote is the review note for a profile folder awaiting its one-time
+// sign-in. Sign-in is per folder and permanent, so this is a single step, not
+// something the user will have to repeat on every switch.
+const SignedOutNote = "Not signed in yet. Select it here, then switch to it and sign in."
 
 type bucketStat struct {
 	Count       int
@@ -29,11 +48,12 @@ type bucketStat struct {
 }
 
 type dirScan struct {
-	Folder   string
-	LiveUUID string // config.json lastKnownAccountUuid ("" if logged out)
-	Identity AccountIdentity
-	Account  AccountType
-	Buckets  map[string]bucketStat // accountUUID -> stats (from claude-code-sessions/)
+	Folder    string
+	LiveUUID  string // config.json lastKnownAccountUuid ("" if logged out)
+	HasConfig bool   // config.json exists, i.e. this really is a profile folder
+	Identity  AccountIdentity
+	Account   AccountType
+	Buckets   map[string]bucketStat // accountUUID -> stats (from claude-code-sessions/)
 }
 
 // deriveNote returns the review note for a row: incomplete rows are invalid data;
@@ -95,14 +115,27 @@ func assembleAccounts(scans []dirScan) []ScannedAccount {
 			}
 		}
 	}
+	// Profile folders waiting for their one-time sign-in. No account, no
+	// sessions, but a real folder the user can be pointed at.
+	for _, s := range scans {
+		if s.LiveUUID != "" || len(s.Buckets) > 0 || !s.HasConfig {
+			continue
+		}
+		out = append(out, ScannedAccount{
+			HomeFolder: s.Folder,
+			SignedOut:  true,
+			Account:    AccountUnknown,
+			Note:       SignedOutNote,
+		})
+	}
 	for _, g := range ghost {
 		out = append(out, *g)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Complete != out[j].Complete {
-			return out[i].Complete
+		if ri, rj := rowRank(out[i]), rowRank(out[j]); ri != rj {
+			return ri < rj
 		}
-		if out[i].Complete {
+		if out[i].Complete || out[i].SignedOut {
 			return out[i].HomeFolder < out[j].HomeFolder
 		}
 		return out[i].UUID < out[j].UUID
@@ -110,11 +143,30 @@ func assembleAccounts(scans []dirScan) []ScannedAccount {
 	return out
 }
 
+// rowRank orders the review: accounts you can switch to now, then folders
+// waiting to be signed in to, then ghosts.
+func rowRank(a ScannedAccount) int {
+	switch {
+	case a.Complete:
+		return 0
+	case a.SignedOut:
+		return 1
+	default:
+		return 2
+	}
+}
+
 // gatherDir reads one profile dir into a dirScan: its live-login UUID (cheap,
 // config.json), its session buckets (count + newest mtime), and — only for a
 // live login — the account identity and type (best-effort Local Storage reads).
 func gatherDir(p *platform.ProfileInfo) dirScan {
 	ds := dirScan{Folder: p.Name, Buckets: map[string]bucketStat{}}
+	// config.json is what separates a Claude Desktop profile folder from any
+	// other directory that happens to start with "Claude" (the Claude Code CLI
+	// keeps one next door, for instance).
+	if _, err := os.Stat(platform.GetProfileConfigPath(p.Path)); err == nil {
+		ds.HasConfig = true
+	}
 	if uuid, err := platform.GetProfileAccountUUID(p.Path); err == nil {
 		ds.LiveUUID = uuid
 	}
@@ -158,12 +210,13 @@ func countAndNewest(dir string) (int, time.Time) {
 }
 
 // ScanAccounts scans the given profile dirs and returns the deduped review rows.
-// Dirs with neither a live login nor any session bucket (junk) are dropped.
+// Dirs that are not Claude Desktop profiles at all (no config.json, no login,
+// no session bucket) are dropped.
 func ScanAccounts(profiles []*platform.ProfileInfo) []ScannedAccount {
 	var scans []dirScan
 	for _, p := range profiles {
 		ds := gatherDir(p)
-		if ds.LiveUUID == "" && len(ds.Buckets) == 0 {
+		if ds.LiveUUID == "" && len(ds.Buckets) == 0 && !ds.HasConfig {
 			continue
 		}
 		scans = append(scans, ds)

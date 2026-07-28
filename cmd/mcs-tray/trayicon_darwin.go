@@ -5,7 +5,7 @@ package main
 import (
 	_ "embed"
 
-	"github.com/getlantern/systray"
+	"fyne.io/systray"
 )
 
 //go:embed assets/icon.png

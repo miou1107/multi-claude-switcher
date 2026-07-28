@@ -107,9 +107,12 @@ On the [latest release](https://github.com/miou1107/multi-claude-switcher/releas
    com.apple.quarantine "/Applications/Multi-Claude Switcher.app"`.)
 
 The app runs in the **menu bar** (top-right), shown as a pair-of-eyes icon —
-it has no Dock icon. Click it to open the menu: each account is a submenu with
-**Switch to this profile** and **Rename…**, and the current account is marked. Enable **Start at Login** from the menu to launch it automatically. The
-app **updates itself** from GitHub Releases, so you only install once.
+it has no Dock icon. Click it to open the panel: it lists your accounts with
+their subscription plan, marks the one in use, and switches to another after a
+confirmation. **Rescan**, **Sync**, **Rename** and **Settings** (including
+**Start at Login**) all live inside the panel. Click outside it, or press
+**Esc**, to close it. The app **updates itself** from GitHub Releases, so you
+only install once.
 
 ### Windows
 
@@ -118,11 +121,19 @@ app **updates itself** from GitHub Releases, so you only install once.
    adds a Start Menu shortcut, and registers an entry in Add/Remove Programs.
 2. Launch **Multi-Claude Switcher** from the Start Menu. It appears as a
    pair-of-eyes icon in the system tray (bottom-right; you may need the "show
-   hidden icons" arrow). Click it to open the menu: each account is a submenu with
-   **Switch to this profile** and **Rename…**, and the current account is marked. Enable **Start at Login** from the menu to launch it automatically. When a
-   new version is released it notifies you; use **Check for Updates** to open the
-   download page, then run the new installer to upgrade (it installs over the old
-   version).
+   hidden icons" arrow). Click it to open the panel — the same panel as on
+   macOS: it lists your accounts with their subscription plan, marks the one in
+   use, and switches to another after a confirmation. **Rescan**, **Sync**,
+   **Rename** and **Settings** (including **Start at Login**) all live inside
+   the panel. Click outside it, press **Esc**, or click the icon again to close
+   it. Right-clicking the icon offers only **Quit**. When a new version is
+   released it notifies you; use **Check for Updates** in the panel's
+   **Settings** to open the download page, then run the new installer to
+   upgrade (it installs over the old version).
+
+   > The panel needs the **WebView2 Runtime**, which is already present on
+   > Windows 11 and on Windows 10 21H2 or newer. On older systems the app shows
+   > a dialog with a link to Microsoft's installer.
 
 > **Requires the standalone Claude Desktop build.** Install Claude Desktop from
 > [claude.com/download](https://claude.com/download) (the regular per-user

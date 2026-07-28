@@ -1,6 +1,8 @@
 # Windows WebView2 panel (parity with macOS)
 
-Status: design accepted 2026-07-28. Implementation to follow on `main`.
+Status: design accepted 2026-07-28. Shipped in v0.10.0; the tray-click and
+panel-positioning sections were revised and reshipped in v0.10.1 (see the
+"Resolved (v0.10.1)" notes below).
 
 ## Goal
 
@@ -107,6 +109,26 @@ preference are:
 
 Choose during implementation; document the choice in a code comment.
 
+**Resolved (v0.10.1).** v0.10.0 shipped option 1 and the extra click was
+visible in use, so it was replaced by a fourth option that had been missed:
+`getlantern/systray` is unmaintained, and its maintained successor
+**`fyne.io/systray`** already exposes the hook this spec wanted. Its
+`systray_windows.go` calls `SetOnTapped`'s handler from `WM_LBUTTONUP` and
+falls back to the context menu only when no handler is set, so left-click
+opens the panel and right-click still surfaces a menu. That is option 2's
+result without maintaining a fork. The public API is a superset of what this
+repo used, so the migration was an import-path change plus `SetOnTapped`.
+
+The panel toggles: clicking the icon while the panel is open closes it. The
+click deactivates the panel (which exits it) before `WM_LBUTTONUP` reaches the
+tray, so a short guard window after a panel exit suppresses the reopen that
+would otherwise follow. See `shouldSpawnPanel`.
+
+Right-click keeps a single **Quit** item rather than matching macOS's
+no-menu-at-all. Rationale: when the WebView2 Runtime is absent the panel
+cannot open, and the panel's own Quit is then unreachable — without the tray
+item the app could only be stopped from Task Manager.
+
 ### Panel positioning
 
 Position the panel above the tray icon so it opens near where the user
@@ -121,6 +143,86 @@ clicked, mirroring how NSPopover attaches to the status button on mac.
 
 Adjust so the panel never overflows the work area; nudge left/up if needed.
 
+**Resolved (v0.10.1).** `Shell_NotifyIconGetRect` was dropped: it needs the
+icon's owning window handle and id, which `systray` does not expose, and the
+panel is a separate process that could not receive them anyway. Instead the
+tray reads `GetCursorPos` at click time — the cursor is on the icon — and
+passes it to the panel as `--anchor X,Y`. The panel resolves the work area of
+the monitor containing that point (`MonitorFromRect` + `GetMonitorInfoW`,
+`MonitorFromRect` rather than `MonitorFromPoint` because it takes its argument
+by pointer and so needs no per-arch struct packing), centres itself
+horizontally on the click, opens upward or downward depending on which half of
+the monitor was clicked, and clamps to the work area. Because the work area
+already excludes the taskbar, this handles a taskbar on any edge, secondary
+monitors (including negative coordinates), and monitors smaller than the panel
+without special cases. See `panelPlacement`, which is pure and unit-tested.
+
+The move keeps setting the size to `panelWidth`×`panelHeight` and adds
+`SWP_FRAMECHANGED`. Both matter, and an attempt to "improve" this with
+`SWP_NOSIZE` during v0.10.1 development is worth recording as a trap:
+`wv.SetSize` runs while the window still has a frame, so it calls
+`AdjustWindowRect` and makes the window 416×579 for a 400×540 client.
+`makeBorderlessTopmost` then removes the frame, at which point that slack
+becomes bare client area the WebView2 control does not cover, and it paints
+**black down the right and bottom edges**. Resizing back to 400×540 is what
+makes client == control again, and the resulting `WM_SIZE` is what go-webview2
+listens for to resize the control.
+
+Note for anyone adding per-monitor DPI awareness later: the anchor crosses a
+process boundary, so the tray and the panel must keep the *same* awareness
+mode or the anchor lands in the wrong coordinate space. They are the same
+binary today, and neither ships a DPI manifest, which is what makes this safe.
+
+### First-paint flash
+
+go-webview2 creates its window, calls `ShowWindow` on it, and only then embeds
+the browser, which takes long enough that the empty window is visible at the
+system default position before anything can move it. The handle is not
+available until `NewWithOptions` returns, `WindowOptions` has no position or
+visibility field, and `WebViewOptions.Window` (which would let a caller supply
+their own window) is accepted but never read in this version.
+
+So a goroutine started *before* the WebView is created watches for the window
+by class name and parks it at −32000,−32000. It is **parked, not hidden**, and
+both halves of that matter:
+
+- Hiding is too weak. The library's own `ShowWindow`/`UpdateShowWindow`/
+  `SetFocus` land right after creation and can win the race, so the window
+  blinks at the default position anyway. Moving sticks, because nothing in the
+  library ever moves the window (`SetSize` passes `SWP_NOMOVE`).
+- Hiding is also too strong, and this one cost a QA round: **WebView2 stops
+  rendering while its host window is hidden, and does not resume when the
+  window is shown again.** The result is a panel that passes every check a test
+  can make from outside (right process, right position, right size, visible,
+  topmost) and is completely blank on screen. Verification therefore has to
+  screenshot the window rect, not just query it.
+
+The window stays visible and rendering the whole time, off where no monitor
+covers it, and the panel becomes visible to the user in one step: a
+`SWP_NOSIZE` move into place, followed by the foreground handover. The size is
+applied earlier, while parked, so the browser has re-laid out before anything
+is on screen.
+
+The same watcher also applies `WS_EX_TOOLWINDOW` the instant the window
+appears. The library creates a plain `WS_OVERLAPPEDWINDOW`, which earns a
+taskbar button; leaving the style change to the main styling step meant a
+button appeared and disappeared again on every open, for the ~750 ms the
+browser took to embed. The shell adds buttons asynchronously, so setting the
+style this early beats it.
+
+**Verifying this class of bug.** Pixel-diffing the taskbar does not work: it is
+translucent (no uniform background to key on), the running-underline blinks as
+unrelated processes come and go, and the hover/active highlight moves whenever
+focus changes, which opening the panel necessarily does. What does work is an
+A/B capture: run with the fix disabled and with it enabled, stack the taskbar
+frames from the launch window into one image, and compare. The offending button
+is unmistakable across four consecutive frames in the "disabled" strip and
+absent in the other.
+
+The window class is registered per-process, so it can be found by name from
+inside the panel process but not from an external test harness; verification
+has to enumerate windows by owning pid.
+
 ### Auto-close on outside click
 
 Match NSPopover's transient behavior. On the panel window, install a
@@ -129,6 +231,40 @@ Match NSPopover's transient behavior. On the panel window, install a
 - `WA_INACTIVE` → hide the window (do not destroy; the WebView is expensive
   to recreate).
 - `WA_ACTIVE` / `WA_CLICKACTIVE` → no-op.
+
+**Resolved (v0.10.1): the foreground handover.** Opening the panel on a single
+tray click exposed a race the two-click route hid. Immediately after a tray
+click the shell owns the foreground, so a *separate process* asking for it is
+refused: the panel's `SetForegroundWindow` failed, Windows deactivated the
+window, and the `WA_INACTIVE` handler read that as an outside click and
+dismissed the panel before the user saw anything. With the old "Show panel"
+menu item the foreground had already settled by the time the panel spawned,
+which is why v0.10.0 never hit this.
+
+Two changes, both needed:
+
+1. The tray calls `AllowSetForegroundWindow(panelPid)` right after spawning.
+   This is the supported way to hand the foreground right to another process,
+   and the tray is entitled to do it because the click made it the foreground
+   process.
+2. The panel arms its `WA_INACTIVE` dismissal only after confirming (by
+   polling `GetForegroundWindow`) that it actually reached the foreground.
+   Arming on `WM_ACTIVATE` instead does not work: the window is created,
+   focused and hidden before the message hook is installed, so re-showing it
+   need not produce a fresh `WM_ACTIVATE` for the hook to see.
+
+If the panel never reaches the foreground the rule stays disarmed on purpose.
+A window that was never active will not receive a genuine deactivation either,
+and Esc still closes the panel.
+
+This is the cost of the two-process split. A single-process panel (the
+"reuse the panel instead of respawning" item) would not have the problem at
+all, and is the obvious direction if more focus bugs turn up.
+
+**Diagnosability.** The panel is a GUI-subsystem process with no console, so a
+panel that started but never appeared left only its startup banner in the log.
+It now logs its window rect, visibility, foreground state and `WM_ACTIVATE`
+transitions. Both bugs above were invisible without it.
 
 Escape key inside the panel also hides it (JS already listens for Escape,
 just wire it to a new bind `mcsAction("hidePanel")` that calls the host to

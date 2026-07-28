@@ -4,7 +4,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/getlantern/systray"
+	"fyne.io/systray"
 	"github.com/miou1107/multi-claude-switcher/core"
 	"github.com/miou1107/multi-claude-switcher/platform"
 )

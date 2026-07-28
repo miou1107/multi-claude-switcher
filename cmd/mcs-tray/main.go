@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/getlantern/systray"
+	"fyne.io/systray"
 	"github.com/miou1107/multi-claude-switcher/core"
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
@@ -121,15 +121,23 @@ func onReady() {
 	type alignPair struct{ src, dst *platform.ProfileInfo }
 	alignItems := map[*systray.MenuItem]alignPair{}
 	var shown []*platform.ProfileInfo
+	signedIn := map[string]bool{}
 	for _, p := range profiles {
 		_, uErr := platform.GetProfileAccountUUID(p.Path)
 		if menuIncludes(managed, p.Name, uErr == nil, p.Managed) {
 			shown = append(shown, p)
+			signedIn[p.Path] = uErr == nil
 		}
 	}
 	for _, a := range shown {
 		for _, b := range shown {
 			if a.Path == b.Path {
+				continue
+			}
+			// Sessions are stored per account, so a profile with no account
+			// signed in has no bucket to read from or write to. Offering the
+			// direction would only fail when clicked.
+			if !signedIn[a.Path] || !signedIn[b.Path] {
 				continue
 			}
 			label := fmt.Sprintf("From %s → To %s", core.DisplayName(a.Name), core.DisplayName(b.Name))
@@ -335,6 +343,13 @@ func onReady() {
 }
 
 func onExit() {
+	// Windows keeps a warm panel process alive alongside the tray; take it
+	// down with us rather than orphaning it. No-op elsewhere.
+	stopPanelProcess()
+	// Windows also repoints the claude:// handler at the active profile while
+	// it runs. Put it back, so the switcher leaves nothing behind once it is
+	// not around to maintain it. No-op elsewhere.
+	restoreProtocolHandler()
 	log.Println("Multi-Claude Switcher Tray exited cleanly.")
 }
 

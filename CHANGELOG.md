@@ -1,5 +1,98 @@
 # CHANGELOG
 
+## [0.10.1] - 2026-07-28
+
+### Changed
+- **Windows: the panel opens instantly.** It used to be a process started on
+  every click, so each open paid for a fresh process, a fresh WebView2
+  environment and a fresh page load: 1.5–2 s before anything appeared. The
+  panel process is now started once, with the tray, and kept alive parked
+  off-screen; a click moves a window that already exists. Measured 1.5–2 s →
+  **under 30 ms**. Dismissing the panel parks it again instead of exiting, the
+  tray restarts it if it ever dies, and it exits with the tray rather than
+  being orphaned. Cost: ~314 MB resident (mostly WebView2's own processes) for
+  the lifetime of the tray. See
+  `docs/superpowers/specs/2026-07-28-windows-warm-panel-design.md`.
+- **Windows: one click on the tray icon opens the panel, as on macOS.** v0.10.0
+  shipped the panel behind a context-menu item, so opening it took two clicks
+  (icon → **Show panel**). The tray now switches from the unmaintained
+  `github.com/getlantern/systray` to its maintained successor
+  `fyne.io/systray`, whose `SetOnTapped` hook gives Windows a real left-click
+  callback. Clicking the icon again while the panel is open closes it, matching
+  the macOS popover's toggle.
+- **Windows: the tray's right-click menu is down to a single Quit.** **Show
+  panel** and **About** are gone; the panel is the UI and already shows the
+  version in **Settings**. Quit stays on the right-click menu on purpose: if the
+  WebView2 Runtime is missing the panel cannot open, and without this item the
+  app could only be stopped from Task Manager. macOS has no tray menu at all.
+
+### Fixed
+- **Rescan no longer hides a profile that is waiting to be signed in to**
+  (both platforms). Sign-in is per profile folder and permanent, so a second
+  account needs one sign-in in its own folder and then switching to it just
+  works. But a folder in that state has no account and no sessions, and Rescan
+  dropped it as junk: a user who had set up the second profile saw "one
+  account" and no hint of what was missing. Such folders are now listed and
+  selectable, with the next step spelled out on the card. Directories that
+  merely start with "Claude" but are not profiles at all (the Claude Code CLI
+  keeps one beside them) are still excluded, now by looking for a `config.json`
+  rather than by having account data.
+- **Windows: signing in to a switched-to profile now lands in that profile.**
+  Sign-in finishes in the browser, which hands the result back through the
+  `claude://` scheme; Windows resolves that with a registered command line that
+  carries no `--user-data-dir`, so the callback opened the *default* profile and
+  the new account was written there. The user appeared to be thrown back to the
+  account they had switched away from. Switching to a profile that has no
+  account now holds the `claude://` handler on that profile until the sign-in
+  lands (or 10 minutes pass), then restores Claude Desktop's own registration.
+  The hold is required rather than a single write: Claude Desktop re-registers
+  the handler itself about 825 ms after starting, so anything written before
+  launch is gone before the sign-in screen appears. Profiles that already have
+  an account are never touched. Standalone build only; the Store build swaps
+  profile folders and was never affected. See
+  `docs/superpowers/specs/2026-07-28-windows-signin-callback-design.md`.
+- **Sync no longer offers directions that cannot work** (both platforms).
+  Sessions are stored per account, so a profile with nobody signed in has no
+  bucket to read from or write to. Those directions were still listed and
+  failed on click with the missing config key quoted back at the user. They are
+  now omitted, with a line saying why, and the account list marks such a
+  profile "Not signed in yet. Switch here, then sign in." rather than looking
+  identical to a ready account. If a sync is attempted anyway (signed out
+  between opening the view and clicking), the error now names the account and
+  the fix instead of the config field.
+- **Windows: the panel opens next to the tray icon instead of always in the
+  bottom-right of the primary display.** The tray now passes the click position
+  to the panel, which places itself inside the work area of whichever monitor
+  was clicked. Fixes a panel that appeared on the wrong monitor, or over/under
+  the taskbar, for taskbars that are not at the bottom of the primary display.
+- **Windows: the panel no longer appears in the top-left corner for a moment
+  before jumping to the tray.** Its window is created by go-webview2, which
+  shows it at the system default position and only then spends a few hundred
+  milliseconds embedding the browser. The window is now parked off-screen from
+  the moment it exists and moved into view only once it is styled, sized and
+  filled. It is parked rather than hidden on purpose: WebView2 stops rendering
+  while its host window is hidden and does not resume when the window returns,
+  which produces a correctly placed but completely blank panel.
+- **Windows: the frame removal is applied with `SWP_FRAMECHANGED`.** Stripping
+  the caption and borders without it left Windows using stale frame metrics.
+- **Windows: no stray taskbar button while the panel starts.** go-webview2
+  creates a plain `WS_OVERLAPPEDWINDOW`, which earns a taskbar button, and the
+  button stayed for the ~750 ms the browser took to embed before the styling
+  step removed it again. `WS_EX_TOOLWINDOW` is now applied the moment the
+  window appears, before the shell gets a chance to add the button.
+- **Windows: the panel no longer dismisses itself before it is ever seen.**
+  Opening on a single tray click exposed a race that the old two-click route
+  did not: the shell owns the foreground immediately after a tray click, so the
+  panel's `SetForegroundWindow` was refused and the resulting deactivation was
+  read as an outside click. The tray now passes the foreground right on with
+  `AllowSetForegroundWindow`, the panel takes the foreground through an
+  `AttachThreadInput` handover (which succeeded every time in testing, where
+  the bare request succeeded about half the time), and it only arms its
+  outside-click dismissal once it has confirmed it reached the foreground.
+- **Windows: the panel logs where its window ended up** (position, visibility,
+  focus, activation transitions). It is a windowless GUI process, so a panel
+  that starts but never appears previously left nothing in the log to go on.
+
 ## [0.10.0] - 2026-07-28
 
 ### Changed
