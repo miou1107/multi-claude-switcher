@@ -5,10 +5,11 @@
 - `go.mod` — Go module definition file.
 - `.github/workflows/release.yml` — GitHub Actions: on a `v*` tag, builds the universal macOS `.app` (version injected) and the Windows `setup.exe` installer, publishes them to a GitHub Release, and bumps the multi-claude-switcher cask in `miou1107/homebrew-tap` to the new version + macOS zip SHA256 (needs the `HOMEBREW_TAP_TOKEN` secret).
 - `go.sum` — Go module checksum file.
-- `README.md` — Project overview, architecture, and quick start CLI/GUI guide (English).
-- `README.zh-TW.md` — Traditional Chinese translation of the README.
+- `README.md` — User-facing overview: what it does, install, usage, troubleshooting (English). Reference and contributor material lives in `docs/`.
+- `README.zh-TW.md` — Traditional Chinese counterpart of the README (mirrors its structure).
 - `FILELIST.md` — Inventory of project files and purpose.
 - `CHANGELOG.md` — Project version and change history.
+- `LICENSE` — MIT license text.
 - `bin/mcs` — Compiled CLI binary executable.
 - `bin/mcs-tray` — Compiled System Tray GUI binary executable.
 - `cmd/mcs/main.go` — Go CLI entry point (`mcs status`, `sync`, `switch`, `backup`, `restore`).
@@ -24,6 +25,10 @@
 - `cmd/mcs-tray/rsrc_windows_amd64.syso` — Windows resource object (generated from `icon.ico` via `rsrc`) that compiles the app icon into `mcs-tray.exe`; auto-linked for windows/amd64 so the Start Menu / taskbar / Explorer show the icon.
 - `scripts/gen-icons/main.go` — Standalone generator (`go run`) that rasterizes the eyes mark from geometry into all icon assets (app PNG, menu-bar template, Windows .ico, doc PNG); no external tools needed.
 - `docs/assets/icon.png` — 512px color icon for README and documentation.
+- `docs/building.md` — Building from source: which of the four binaries is the shipped app per platform, per-OS build commands, installer packaging, tests, release flow.
+- `docs/cli.md` — CLI reference for `mcs` (status/backup/sync/switch/restore), prefaced with the fact that the CLI is not shipped in releases.
+- `docs/team-accounts.md` — Why a Claude Team account can be a sync source but not a sync target: the on-device test results and the server-authoritative mechanism behind them.
+- `docs/how-it-works.md` — Background for the curious: profiles as data directories, why a switch restarts Claude Desktop, how sync re-homes sessions, the Windows sign-in callback, and where the app stores its own data.
 - `core/version.go` — Single source of truth for the product version (imported by CLI and tray).
 - `core/accounttype.go` — Account-type classifier: maps a profile's cached org tiers to Team / Personal / Unknown.
 - `core/accounttype_test.go` — Unit tests for the account-type classifier (tier → Team/Personal/Unknown).

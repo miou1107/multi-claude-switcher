@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Documentation
+- **Rewrote both READMEs around the reader instead of the feature list.** The
+  document opened with three stacked screenshots and a warning about what the
+  tool *cannot* do, and the download link sat a third of the way down, behind
+  ~50 lines of sync caveats and evidence. The section titled "Quick Start" began
+  with `go build`, ten lines after the page promised "nothing to build or
+  compile". Now: product name, one-line pitch, install commands and the
+  Claude Desktop prerequisite all above the fold; then what it does, switching
+  vs. syncing, install, usage, Team accounts, troubleshooting, contributing.
+  239 lines → ~150, and the reference material moved to `docs/` rather than
+  being deleted.
+- **Fixed documentation that was wrong, not just misplaced.**
+  - The README claimed MIT but the repository had **no `LICENSE` file** — added.
+  - **Homebrew was never mentioned**, though CI has been maintaining the cask in
+    `miou1107/homebrew-tap` on every release. The shortest macOS install existed
+    only in a workflow comment; it is now the first thing offered.
+  - The macOS build instructions said `go build ./cmd/mcs-tray`, but the shipped
+    macOS app is built from **`./cmd/mcs-menubar`** — following the README got
+    you a different, unshipped program. `docs/building.md` now spells out which
+    of the four binaries each platform ships.
+  - The **CLI was documented as a product it is not**: releases contain only the
+    tray/menu-bar app, so no user who downloads this has `mcs`. `docs/cli.md`
+    now opens by saying so, and the Automated Backup bullet no longer cites
+    `mcs sync` as an ordinary way to use the app.
+  - **Rescan was described as opening a review page in the browser** from a
+    "Maintenance" submenu. That flow was replaced by an in-panel view, and the
+    same README already said the tray's right-click menu holds only **Quit**.
+  - **"Repository Structure" listed no source directory at all** — no `cmd/`,
+    `core/`, `platform/` or `internal/` — and duplicated `FILELIST.md`, which is
+    accurate and maintained. Removed.
+- **Removed both README screenshots.** One showed the v0.4.0 dropdown menu, a UI
+  that no longer exists. The other exposed real account names and a private
+  project list on a public page.
+- **Answered questions the README never did:** how to uninstall on either
+  platform, that switching necessarily restarts Claude Desktop, that backups are
+  never pruned, that the app is not affiliated with Anthropic, and that it never
+  handles credentials.
+- New pages: `docs/building.md`, `docs/cli.md`, `docs/team-accounts.md`,
+  `docs/how-it-works.md`.
+
 ## [0.10.1] - 2026-07-28
 
 ### Internal
