@@ -3,16 +3,26 @@
 ## [Unreleased]
 
 ### Documentation
-- **Rewrote both READMEs around the reader instead of the feature list.** The
-  document opened with three stacked screenshots and a warning about what the
-  tool *cannot* do, and the download link sat a third of the way down, behind
-  ~50 lines of sync caveats and evidence. The section titled "Quick Start" began
-  with `go build`, ten lines after the page promised "nothing to build or
-  compile". Now: product name, one-line pitch, install commands and the
-  Claude Desktop prerequisite all above the fold; then what it does, switching
-  vs. syncing, install, usage, Team accounts, troubleshooting, contributing.
-  239 lines → ~150, and the reference material moved to `docs/` rather than
-  being deleted.
+- **Rewrote both READMEs from the reader's problem instead of the feature list.**
+  The old page was written outward from the product: here are my features, let
+  me introduce them. It opened with three stacked screenshots and a warning
+  about what the tool *cannot* do, never said why anyone has two Claude accounts
+  in the first place, and put the download link a third of the way down behind
+  ~50 lines of sync caveats. The section titled "Quick Start" began with
+  `go build`, ten lines after the page promised "nothing to build or compile".
+
+  The rewrite leads with the two situations people are actually in — a work
+  account and a personal one, or a limit hit on one account with quota left on
+  another — then the friction today, then what changes. Sync moved out of the
+  opening entirely: it is the second-order feature, it carries most of the
+  caveats, and it was occupying the most expensive space on the page.
+
+  The two READMEs are now written independently rather than one being a
+  translation of the other, so each reads natively.
+- **Removed the AI cadence.** The first draft of this rewrite had 17 em dashes
+  in 166 lines and eight bullets sharing one grammatical template
+  (`**bold** — explanation`). Both are gone: the English README now has zero of
+  each.
 - **Fixed documentation that was wrong, not just misplaced.**
   - The README claimed MIT but the repository had **no `LICENSE` file** — added.
   - **Homebrew was never mentioned**, though CI has been maintaining the cask in
