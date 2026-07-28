@@ -126,10 +126,10 @@ only install once.
    use, and switches to another after a confirmation. **Rescan**, **Sync**,
    **Rename** and **Settings** (including **Start at Login**) all live inside
    the panel. Click outside it, press **Esc**, or click the icon again to close
-   it. Right-clicking the icon offers only **Quit**. When a new version is
-   released it notifies you; use **Check for Updates** in the panel's
-   **Settings** to open the download page, then run the new installer to
-   upgrade (it installs over the old version).
+   it. Right-clicking the icon offers only **Quit**. The app **updates itself**
+   from GitHub Releases, so you only install once: a new version is downloaded
+   and installed silently in the background, and the app comes back on it. No
+   prompt, no download page, and no administrator rights.
 
    > The panel needs the **WebView2 Runtime**, which is already present on
    > Windows 11 and on Windows 10 21H2 or newer. On older systems the app shows

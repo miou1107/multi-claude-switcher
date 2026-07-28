@@ -49,7 +49,8 @@
 - `cmd/mcs-tray/update.go` — Update check plumbing shared by all OSes: find the platform's release asset, single-flight the check, periodic + manual triggers; delegates the actual install to the per-OS `installUpdate`.
 - `cmd/mcs-tray/update_test.go` — Unit tests for .app-bundle path detection and release-asset matching.
 - `cmd/mcs-tray/update_install_nonwindows.go` — macOS/Unix `installUpdate`: download the `.app` zip, atomically swap the tray binary, relaunch (bundle-aware).
-- `cmd/mcs-tray/update_install_windows.go` — Windows `installUpdate`: notify of a new version and open the download page (the setup.exe upgrades in place); no in-place binary swap.
+- `cmd/mcs-tray/update_install_windows.go` — Windows `installUpdate`: download the release's setup.exe, verify it is a real executable, run it with `/VERYSILENT`, and quit so it can replace the running exe (Windows locks a running image, so no in-place binary swap).
+- `cmd/mcs-tray/update_install_windows_test.go` — Unit tests for the Windows updater: the executable-signature check, the unattended installer flags, and the download scratch dir (clear-first, rejects a non-executable).
 - `cmd/mcs-tray/update_platform_darwin.go` — macOS self-update helpers: `_macos.zip` suffix, ditto extraction, quarantine strip, .app binary lookup.
 - `cmd/mcs-tray/update_platform_windows.go` — Windows release-asset suffix (`_windows_setup.exe`); the installer is the update signal.
 - `cmd/mcs-tray/update_platform_other.go` — Self-update stubs for unsupported OSes.
@@ -63,7 +64,7 @@
 - `cmd/mcs-tray/hidewindow_windows.go` — Windows helper: launch a spawned console helper (powershell/tasklist) with CREATE_NO_WINDOW so no console window flashes.
 - `cmd/mcs-tray/profiles_windows.go` — Windows-only tray flow: "New account profile…" (Store build) — save the current account and open a fresh Claude to sign into another, then relaunch the tray.
 - `cmd/mcs-tray/profiles_other.go` — Non-Windows no-ops for the new-profile flow (macOS standalone profiles are ordinary sibling data dirs).
-- `cmd/mcs-tray/openurl_windows.go` — Windows helper to open a URL in the default browser (used by the update-checker to open the releases page).
+- `cmd/mcs-tray/openurl_windows.go` — Windows helper to open a URL in the default browser (the updater's fallback: opens the releases page when a manual check cannot install on its own).
 - `cmd/mcs-tray/rescan.go` — "Rescan accounts" tray handler: launches the mcs-picker window helper, persists the chosen managed set, and rebuilds the menu.
 - `cmd/mcs-tray/rescanhelper.go` — Launches the sibling mcs-picker binary as a separate process and parses its result line (chosen folders / cancel).
 - `cmd/mcs-picker/main.go` — Standalone native "Rescan accounts" picker: scans accounts, shows a window, and prints the chosen folders as JSON for the tray.
@@ -83,7 +84,7 @@
 - `cmd/mcs-picker/picker_darwin.go` — macOS picker window via a native WKWebView (webview_go); returns the user's selection.
 - `cmd/mcs-picker/picker_other.go` — Non-macOS no-op picker (the native window is macOS-only).
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
-- `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller).
+- `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller). Also the second half of the Windows auto-updater: the `[Run]` entry has no `skipifsilent`, so a `/VERYSILENT` upgrade relaunches the app.
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon), ad-hoc signs it (`codesign --sign -`, no Apple Developer account needed), and zips it via ditto.
 - `core/backup.go` — Profile backup & snapshot restoration module (atomic restore).
 - `core/backup_test.go` — Unit tests for backup & restore manager.

@@ -13,6 +13,22 @@
   Note that these values remain in the git history.
 
 ### Changed
+- **Windows: updates install themselves, as on macOS.** The periodic check
+  already ran on Windows, but finding a newer version only produced a
+  notification and, on a manual check, a browser tab — the user then had to
+  download the installer and run it. The updater now downloads the release's
+  `setup.exe`, checks it really is an executable (a captive portal answering
+  `200` with an HTML page would otherwise be handed to `CreateProcess`), runs it
+  with `/VERYSILENT /SUPPRESSMSGBOXES /NOCANCEL /NORESTART`, and quits so the
+  installer can replace the running binary. The install is per-user, so there is
+  no UAC prompt, and a file fetched by the app carries no Mark-of-the-Web, so
+  SmartScreen does not intervene either — unlike a browser download. The
+  relaunch is the installer's own `[Run]` entry, which lost its `skipifsilent`
+  flag for exactly this reason; `CloseApplications=yes` is the backstop for a
+  hand-run installer, and `RestartApplications=no` keeps Restart Manager from
+  starting the app a second time. macOS is unchanged: it ships a bare binary in
+  a zip, so it still updates by atomically renaming its own executable —
+  Windows cannot, because it locks a running image.
 - **Windows: the panel opens instantly.** It used to be a process started on
   every click, so each open paid for a fresh process, a fresh WebView2
   environment and a fresh page load: 1.5–2 s before anything appeared. The

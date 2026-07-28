@@ -8,6 +8,12 @@
 ; Per-user install (PrivilegesRequired=lowest): installs under the user's
 ; %LOCALAPPDATA%\Programs, with no UAC / administrator prompt. Upgrades are done
 ; by running a newer installer, which replaces the exe in place (same AppId).
+;
+; This script is also the second half of the Windows auto-updater: the app
+; downloads a newer setup.exe and runs it with /VERYSILENT (see
+; cmd/mcs-tray/update_install_windows.go). Two settings below exist for that
+; unattended path — CloseApplications and the [Run] entry's flags — and are
+; commented where they appear.
 
 #define MyAppName "Multi-Claude Switcher"
 #define MyAppExeName "mcs-tray.exe"
@@ -36,6 +42,14 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+; The auto-updater quits the app before starting this installer, so mcs-tray.exe
+; is normally already unlocked. CloseApplications is the backstop for the other
+; cases: a user running the installer by hand while the tray is up, or the app
+; not having finished exiting yet. RestartApplications is off because the [Run]
+; entry below is the single relaunch path — letting Restart Manager also bring
+; the app back would start it twice.
+CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -51,4 +65,8 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch Multi-Claude Switcher"; Flags: nowait postinstall skipifsilent
+; No skipifsilent: a silent install is how the auto-updater upgrades, and the
+; app has quit to let this installer replace it, so this entry is what brings it
+; back on the new version. A postinstall entry runs in silent mode too (it is
+; treated as checked), which is exactly what is wanted here.
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch Multi-Claude Switcher"; Flags: nowait postinstall
