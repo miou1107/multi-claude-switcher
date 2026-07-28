@@ -26,6 +26,8 @@ Claude Desktop 一次只認一個帳號。要用第二個，你得登出、重�
 每個帳號都是一直保持登入的狀態。切換不用打任何密碼，因為根本沒人被登出過。
 而且除非你自己去打開同步，不然兩邊的資料完全不會互相搬動。
 
+<img src="docs/assets/panel.png" width="400" alt="面板列出三個帳號：Work 是 Team 方案並標示為目前帳號、Personal 是 Max 20×、Side project 是 Pro，下方是 Rescan 和 Settings 按鈕" />
+
 ## 安裝
 
 **macOS**

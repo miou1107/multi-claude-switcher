@@ -74,6 +74,21 @@ Pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds both
 platforms, publishes the GitHub Release, and bumps the Homebrew cask in
 `miou1107/homebrew-tap`. Nothing is released without a tag.
 
+## Regenerating the README screenshot
+
+`docs/assets/panel.png` is rendered from the shipped panel code with placeholder
+accounts, not photographed, so it cannot drift from the real UI and never
+contains anyone's real account names. After a UI change:
+
+```bash
+go run ./scripts/gen-screenshot panel.html
+msedge --headless --disable-gpu --hide-scrollbars \
+  --force-device-scale-factor=2 --screenshot=docs/assets/panel.png \
+  --window-size=400,347 "file://$PWD/panel.html"
+```
+
+Any Chromium works in place of `msedge`.
+
 ## Other tools
 
 `scripts/probe/probe_runner.py` inspects profiles and validates local session

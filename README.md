@@ -30,6 +30,8 @@ Every account stays permanently signed in. You never type a password to switch,
 because nothing ever signs out. And nothing is copied between accounts unless
 you deliberately turn that on.
 
+<img src="docs/assets/panel.png" width="400" alt="The panel listing three accounts: Work on a Team plan marked as the current account, Personal on Max 20×, and Side project on Pro, above Rescan and Settings buttons" />
+
 ## Install
 
 **macOS**

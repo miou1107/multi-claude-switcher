@@ -42,9 +42,13 @@
   - **"Repository Structure" listed no source directory at all** — no `cmd/`,
     `core/`, `platform/` or `internal/` — and duplicated `FILELIST.md`, which is
     accurate and maintained. Removed.
-- **Removed both README screenshots.** One showed the v0.4.0 dropdown menu, a UI
-  that no longer exists. The other exposed real account names and a private
-  project list on a public page.
+- **Replaced the README screenshots, and made the replacement regenerable.** One
+  of the old images showed the v0.4.0 dropdown menu, a UI removed six releases
+  ago; the other exposed real account names and a private project list on a
+  public page. The new `docs/assets/panel.png` is **rendered from the shipped
+  panel code** by `scripts/gen-screenshot` with placeholder accounts, so it
+  cannot drift from the real interface and never contains anyone's real data.
+  Regeneration is one command, documented in `docs/building.md`.
 - **Answered questions the README never did:** how to uninstall on either
   platform, that switching necessarily restarts Claude Desktop, that backups are
   never pruned, that the app is not affiliated with Anthropic, and that it never

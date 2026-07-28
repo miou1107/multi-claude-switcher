@@ -24,7 +24,9 @@
 - `cmd/mcs-tray/assets/icon.ico` — Color multi-resolution Windows icon (16–256px) for the tray/exe.
 - `cmd/mcs-tray/rsrc_windows_amd64.syso` — Windows resource object (generated from `icon.ico` via `rsrc`) that compiles the app icon into `mcs-tray.exe`; auto-linked for windows/amd64 so the Start Menu / taskbar / Explorer show the icon.
 - `scripts/gen-icons/main.go` — Standalone generator (`go run`) that rasterizes the eyes mark from geometry into all icon assets (app PNG, menu-bar template, Windows .ico, doc PNG); no external tools needed.
+- `scripts/gen-screenshot/main.go` — Standalone generator (`go run`) that renders the account panel with placeholder accounts, so the README screenshot comes from the shipped UI code instead of a photograph that can go stale or leak real account names.
 - `docs/assets/icon.png` — 512px color icon for README and documentation.
+- `docs/assets/panel.png` — README screenshot of the account panel, rendered from the shipped UI with placeholder accounts (regenerate with `scripts/gen-screenshot`).
 - `docs/building.md` — Building from source: which of the four binaries is the shipped app per platform, per-OS build commands, installer packaging, tests, release flow.
 - `docs/cli.md` — CLI reference for `mcs` (status/backup/sync/switch/restore), prefaced with the fact that the CLI is not shipped in releases.
 - `docs/team-accounts.md` — Why a Claude Team account can be a sync source but not a sync target: the on-device test results and the server-authoritative mechanism behind them.
