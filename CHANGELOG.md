@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-07-29
+
 ### Changed
 - **The version number now shows on the main account screen, not just in
   Settings, and both read the same way.** The account list gained a small
