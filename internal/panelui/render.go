@@ -221,7 +221,8 @@ func RenderList(profiles []ProfileVM) string {
 <div class="footer">
   <button class="btn btn-light" onclick="send('showRescan','')">⟳&nbsp; Rescan</button>
   <button class="btn btn-light" onclick="send('showSettings','')">⚙&nbsp; Settings</button>
-</div>`
+</div>
+<div class="about">v` + esc(core.Version) + `</div>`
 	return shell(body)
 }
 
@@ -274,7 +275,7 @@ func RenderSettings(vm SettingsVM) string {
   <button class="sbtn" onclick="send('openBackups','')">Open backup folder</button>
   <button class="sbtn danger" onclick="send('quit','')">Quit Multi-Claude Switcher</button>
 </div>
-<div class="about">Multi-Claude Switcher ` + html.EscapeString(vm.Version) + `</div>`
+<div class="about">v` + html.EscapeString(vm.Version) + `</div>`
 	return shell(body)
 }
 

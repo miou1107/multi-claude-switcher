@@ -103,6 +103,18 @@ func TestRenderListFlagsProfileAwaitingSignIn(t *testing.T) {
 	}
 }
 
+func TestVersionShownFromVariableOnBothViews(t *testing.T) {
+	want := "v" + core.Version // the "v" is a literal prefix; the number is never hardcoded
+	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true}})
+	if !strings.Contains(list, want) {
+		t.Fatalf("account list must show %q sourced from core.Version", want)
+	}
+	settings := RenderSettings(SettingsVM{Version: core.Version})
+	if !strings.Contains(settings, want) {
+		t.Fatalf("settings must show %q in the same format as the list", want)
+	}
+}
+
 func TestRenderRescanGhostStaysReadOnly(t *testing.T) {
 	accounts := []core.ScannedAccount{{UUID: "zzz-yyy", Convos: 4, Note: "Invalid account data"}}
 	html := RenderRescan(accounts, nil)

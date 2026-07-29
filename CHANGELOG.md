@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+- **The version number now shows on the main account screen, not just in
+  Settings, and both read the same way.** The account list gained a small
+  `v<version>` line under the Rescan/Settings buttons, and the Settings footer
+  changed from `Multi-Claude Switcher <version>` to the same `v<version>` form,
+  so the two panels agree. Both come from the single `core.Version` value, so a
+  release bump moves them together with nothing else to edit.
+
 ### Documentation
 - **Rewrote both READMEs from the reader's problem instead of the feature list.**
   The old page was written outward from the product: here are my features, let
