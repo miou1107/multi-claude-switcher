@@ -136,76 +136,40 @@ func TestRemovePendingMissingIsNotAnError(t *testing.T) {
 	}
 }
 
-func TestStalePending(t *testing.T) {
+func TestStalePendingOnlyWhenSignedIn(t *testing.T) {
 	// signedIn has a live login, so its pending entry has served its purpose.
-	// waiting has no login yet and must be kept. gone no longer exists on disk.
+	// waiting has no login yet. absent is not in the profile list at all, which is
+	// the Store build between creating a profile and the app's first launch —
+	// spec §3.3. Only the first is stale.
 	dir := t.TempDir()
 	signedIn := writeProfile(t, dir, "Claude_SignedIn", "uuid-a", nil)
-	waiting := &platform.ProfileInfo{Name: "Claude_Waiting", Path: filepath.Join(dir, "Claude_Waiting"), Exists: true}
+	waiting := writeSignedOutProfile(t, dir, "Claude_Waiting")
 
 	pending := []PendingProfile{
 		{Folder: "Claude_SignedIn", ExpectUUID: "uuid-a"},
 		{Folder: "Claude_Waiting", ExpectUUID: "uuid-b"},
-		{Folder: "Claude_Gone", ExpectUUID: "uuid-c"},
+		{Folder: "Claude_Absent", ExpectUUID: "uuid-c"},
 	}
 	got := StalePending(pending, []*platform.ProfileInfo{signedIn, waiting})
 
-	want := map[string]bool{"Claude_SignedIn": true, "Claude_Gone": true}
-	if len(got) != 2 {
-		t.Fatalf("want 2 stale, got %v", got)
-	}
-	for _, f := range got {
-		if !want[f] {
-			t.Fatalf("unexpected stale folder %q (got %v)", f, got)
-		}
+	if len(got) != 1 || got[0] != "Claude_SignedIn" {
+		t.Fatalf("want only the signed-in folder stale, got %v", got)
 	}
 }
 ```
 
-`writeProfile` is a shared test helper created in Task 3. For this task, add it to `core/pending_test.go` temporarily only if Task 3 has not landed yet; otherwise reuse it. To avoid a duplicate-symbol conflict, **create the helper in Task 3 and run this task after it**, or define it here and have Task 3 reuse it. This plan orders Task 1 first, so **define the helper here**:
+`writeProfile` and `writeSignedOutProfile` are **existing** helpers in the same package (`core/scan_test.go:85` and `:106`) — reuse them. Do not define your own: `core` is one test binary, so a second `func writeProfile` is a redeclaration, Go refuses to compile the package, and every "verify it fails" step in this plan then passes for the wrong reason.
 
-```go
-// writeProfile creates a profile dir under root with an optional live login and
-// session buckets, and returns the ProfileInfo the scanner would see. buckets
-// maps account UUID to the number of .json session files to create.
-func writeProfile(t *testing.T, root, name, liveUUID string, buckets map[string]int) *platform.ProfileInfo {
-	t.Helper()
-	path := filepath.Join(root, name)
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cfg := "{}"
-	if liveUUID != "" {
-		cfg = `{"lastKnownAccountUuid":"` + liveUUID + `"}`
-	}
-	if err := os.WriteFile(filepath.Join(path, "config.json"), []byte(cfg), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	info := &platform.ProfileInfo{Name: name, Path: path, Exists: true, UUIDBuckets: map[string]int{}}
-	for uuid, n := range buckets {
-		bucket := filepath.Join(path, "claude-code-sessions", uuid)
-		if err := os.MkdirAll(bucket, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for i := 0; i < n; i++ {
-			f := filepath.Join(bucket, "local_"+uuid+"_"+strconv.Itoa(i)+".json")
-			if err := os.WriteFile(f, []byte(`{}`), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-		info.UUIDBuckets[uuid] = n
-		info.HasSessionsDir = true
-	}
-	return info
-}
-```
-
-Add `"os"` and `"strconv"` to the test file's imports.
+`core/pending_test.go` imports exactly `"path/filepath"`, `"testing"`, and `"github.com/miou1107/multi-claude-switcher/platform"`.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./core/ -run 'TestPending|TestStalePending|TestRemovePending' -v`
 Expected: FAIL — `undefined: pendingPath`, `undefined: LoadPending`, and so on.
+
+Read the failure. It must name the undefined symbols. If instead it reports a
+redeclaration or any other compile error in a file you did not touch, the package is
+broken and this gate is meaningless — fix that first.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -337,10 +301,17 @@ func RemovePending(folder string) error {
 	return savePendingLocked(out)
 }
 
-// StalePending returns the folders whose pending entry no longer applies: the
-// folder now has a live login (the sign-in happened) or is gone from disk. Pure
-// so the rule is testable without a real profile tree; callers pass the result
-// to RemovePending.
+// StalePending returns the folders whose pending entry no longer applies, which
+// is exactly those that now have a live login: the sign-in happened, so the entry
+// has served its purpose. Pure, so the rule is testable without a real profile
+// tree; callers pass the result to RemovePending.
+//
+// A profile missing from profiles is deliberately NOT stale. On the Store build a
+// just-created profile has no directory at all until the packaged app launches and
+// makes one (msixParkForNewIn leaves the slot absent on purpose), so pruning on
+// absence would discard the entry seconds after writing it, on the one platform
+// this feature exists for. Sign-in is the only thing that means "finished". Spec
+// §3.3.
 func StalePending(pending []PendingProfile, profiles []*platform.ProfileInfo) []string {
 	byName := map[string]*platform.ProfileInfo{}
 	for _, p := range profiles {
@@ -350,11 +321,10 @@ func StalePending(pending []PendingProfile, profiles []*platform.ProfileInfo) []
 	for _, e := range pending {
 		p, ok := byName[e.Folder]
 		if !ok {
-			stale = append(stale, e.Folder) // folder no longer exists
 			continue
 		}
 		if _, err := platform.GetProfileAccountUUID(p.Path); err == nil {
-			stale = append(stale, e.Folder) // signed in; entry has served its purpose
+			stale = append(stale, e.Folder)
 		}
 	}
 	return stale
@@ -386,9 +356,16 @@ Runs before anything touches disk, so a bad name never leaves a half-made profil
 **Interfaces:**
 - Consumes: nothing.
 - Produces:
-  - `func ValidateProfileName(name string) error`
-  - `func ProfileFolderName(name string) string` — returns `"Claude_" + trimmed name`
+  - `func ValidateProfileName(name string) (clean string, err error)`
+  - `func ProfileFolderName(clean string) string` — returns `"Claude_" + clean`
   - `const ProfileFolderPrefix = "Claude_"`
+
+**It returns the cleaned name, not just an error** (spec §4.3). A validator that trims a
+local copy and reports only `error` leaves the caller holding the raw string, which is
+the shape of a live bug in shipped code: `msixValidateNameIn` trims for its checks and
+`msixParkForNewIn` then writes the untrimmed argument into `state.json`
+(`platform/windows_msix.go:151`, `:254`), so ` Work ` would become a profile identity
+with spaces around it. Only the cleaned name travels onward from here.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -400,45 +377,59 @@ import "testing"
 
 func TestValidateProfileName(t *testing.T) {
 	cases := []struct {
-		name    string
-		in      string
-		wantErr bool
+		name      string
+		in        string
+		wantClean string // ignored when wantErr
+		wantErr   bool
 	}{
-		{"plain", "Personal", false},
-		{"with space", "Work Team", false},
-		{"with dash and underscore", "work-2_b", false},
-		{"digits", "Acct2", false},
-		{"trims to valid", "  Personal  ", false},
-		{"empty", "", true},
-		{"whitespace only", "   ", true},
-		{"forward slash", "a/b", true},
-		{"backslash", `a\b`, true},
-		{"dot dot", "..", true},
-		{"leading dot", ".hidden", true},
-		{"colon", "a:b", true},
-		{"asterisk", "a*b", true},
-		{"question mark", "a?b", true},
-		{"quote", `a"b`, true},
-		{"angle brackets", "a<b>c", true},
-		{"pipe", "a|b", true},
-		{"newline", "a\nb", true},
-		{"reserved bare Claude", "Claude", true},
+		{"plain", "Personal", "Personal", false},
+		{"with space", "Work Team", "Work Team", false},
+		{"with dash and underscore", "work-2_b", "work-2_b", false},
+		{"digits", "Acct2", "Acct2", false},
+		{"trims to valid", "  Personal  ", "Personal", false},
+		{"empty", "", "", true},
+		{"whitespace only", "   ", "", true},
+		{"forward slash", "a/b", "", true},
+		{"backslash", `a\b`, "", true},
+		{"dot dot", "..", "", true},
+		{"leading dot", ".hidden", "", true},
+		{"colon", "a:b", "", true},
+		{"asterisk", "a*b", "", true},
+		{"question mark", "a?b", "", true},
+		{"quote", `a"b`, "", true},
+		{"angle brackets", "a<b>c", "", true},
+		{"pipe", "a|b", "", true},
+		{"newline", "a\nb", "", true},
+		{"reserved bare Claude", "Claude", "", true},
+		{"reserved, untrimmed", "  claude ", "", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := ValidateProfileName(c.in)
-			if c.wantErr && err == nil {
-				t.Fatalf("ValidateProfileName(%q) = nil, want an error", c.in)
+			clean, err := ValidateProfileName(c.in)
+			if c.wantErr {
+				if err == nil {
+					t.Fatalf("ValidateProfileName(%q) = %q, nil; want an error", c.in, clean)
+				}
+				return
 			}
-			if !c.wantErr && err != nil {
+			if err != nil {
 				t.Fatalf("ValidateProfileName(%q) = %v, want nil", c.in, err)
+			}
+			// The cleaned name is what becomes the identity and every registry
+			// key, so it has to come back from here rather than be re-derived.
+			if clean != c.wantClean {
+				t.Fatalf("ValidateProfileName(%q) cleaned to %q, want %q", c.in, clean, c.wantClean)
 			}
 		})
 	}
 }
 
 func TestProfileFolderName(t *testing.T) {
-	if got := ProfileFolderName("  Work Team  "); got != "Claude_Work Team" {
+	clean, err := ValidateProfileName("  Work Team  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ProfileFolderName(clean); got != "Claude_Work Team" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -469,23 +460,32 @@ const ProfileFolderPrefix = "Claude_"
 // producing it would collide with the profile Claude Desktop already owns.
 const reservedProfileName = "Claude"
 
-// ValidateProfileName reports whether name is usable for a new profile. It runs
-// before anything is created, so a rejected name never leaves a partial profile
-// behind. Platform-specific limits are checked separately by the platform layer
-// (see platform/windows_msix.go's msixValidateNameIn).
-func ValidateProfileName(name string) error {
+// ValidateProfileName reports whether name is usable for a new profile, and
+// returns the cleaned form to use from then on. It runs before anything is
+// created, so a rejected name never leaves a partial profile behind.
+//
+// The cleaned name is returned rather than just validated because it becomes the
+// profile's display name and, on the standalone builds, part of its identity
+// (spec §3.5). Callers must pass this value on, never the raw input: trimming in
+// one place and creating from another is how ` Work ` ends up as an identity with
+// spaces around it.
+//
+// Platform-specific limits — reserved names, collisions with an existing profile —
+// are checked by the platform layer, which knows what a collision is on its own
+// filesystem layout (platform/windows_msix.go's msixValidateNameIn).
+func ValidateProfileName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return errors.New("enter a name for this account")
+		return "", errors.New("enter a name for this account")
 	}
 	if strings.EqualFold(name, reservedProfileName) {
-		return fmt.Errorf("%q is taken by the default profile, pick another name", reservedProfileName)
+		return "", fmt.Errorf("%q is taken by the default profile, pick another name", reservedProfileName)
 	}
 	if strings.HasPrefix(name, ".") {
-		return errors.New("a name can't start with a dot")
+		return "", errors.New("a name can't start with a dot")
 	}
 	if strings.Contains(name, "..") {
-		return errors.New("a name can't contain ..")
+		return "", errors.New("a name can't contain ..")
 	}
 	// Allow letters, digits, space, dash, underscore. Everything else is either a
 	// path separator, a Windows-illegal filename character, or a control
@@ -495,23 +495,24 @@ func ValidateProfileName(name string) error {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
 		case r == ' ', r == '-', r == '_':
 		default:
-			return errors.New("use only letters, numbers, spaces, dashes and underscores")
+			return "", errors.New("use only letters, numbers, spaces, dashes and underscores")
 		}
 	}
-	return nil
+	return name, nil
 }
 
-// ProfileFolderName maps a display name to the folder that holds it. Call only
-// with a name ValidateProfileName has accepted.
-func ProfileFolderName(name string) string {
-	return ProfileFolderPrefix + strings.TrimSpace(name)
+// ProfileFolderName maps a cleaned name to the folder that holds it on the
+// standalone builds. Call only with a value ValidateProfileName returned; it does
+// no trimming of its own, on purpose, so a raw name cannot slip through.
+func ProfileFolderName(clean string) string {
+	return ProfileFolderPrefix + clean
 }
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./core/ -run 'TestValidateProfileName|TestProfileFolderName' -v`
-Expected: PASS, 20 subtests plus 1.
+Expected: PASS, 19 subtests plus 1.
 
 - [ ] **Step 5: Commit**
 
@@ -527,12 +528,24 @@ git commit -m "core: validate profile names before anything is created"
 A ghost with conversations in it can be brought back. One with an empty bucket cannot, and must keep reading as a dead end.
 
 **Files:**
-- Modify: `core/scan.go` — `ScannedAccount` (line 21), `assembleAccounts` (line 77), `rowRank` (line 148)
+- Modify: `core/scan.go` — `ScannedAccount`, `dirScan`, `assembleAccounts`, `gatherDir`, `rowRank`
 - Test: `core/scan_test.go`
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
-- Produces: `ScannedAccount.Recoverable bool`, `ScannedAccount.SourceFolder string`, `const RecoverableGhostNote`.
+- Produces: `ScannedAccount.Recoverable bool`, `ScannedAccount.Sources []GhostSource`, `type GhostSource`, `const RecoverableGhostNote`, `dirScan.Path`.
+
+**Locate every edit by symbol name, not by line number.** This task lengthens
+`core/scan.go`, so any line number quoted for a later task is already wrong by the time
+that task runs.
+
+A ghost's sources are a **list**, not one folder (spec §3.1). `assembleAccounts` already
+sums one orphan UUID across every dir holding a bucket for it, and that really happens:
+sign in as an account in profile A, switch to B, sign in there too, sign out of both. A
+single `SourceFolder` would recover one share and silently leave the rest behind, under a
+row whose count promised both. Each source carries its `Path` too, because a folder name
+cannot be turned back into a path outside `platform` (spec §3.5) — which means `dirScan`
+has to start carrying the path it was handed.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -542,7 +555,7 @@ func TestAssembleGhostRecoverable(t *testing.T) {
 	// Machine 2's layout from the spec: one dir, live login cccccccc, plus an orphan
 	// bbbbbbbb left behind by an in-app account switch.
 	scans := []dirScan{
-		{Folder: "Claude", LiveUUID: "cccccccc", Buckets: map[string]bucketStat{
+		{Folder: "Claude", Path: "/data/Claude", LiveUUID: "cccccccc", Buckets: map[string]bucketStat{
 			"cccccccc": {Count: 99, LastUpdated: ts("2026-07-30")},
 			"bbbbbbbb": {Count: 94, LastUpdated: ts("2026-07-29")},
 		}},
@@ -558,8 +571,16 @@ func TestAssembleGhostRecoverable(t *testing.T) {
 	if !ghost.Recoverable {
 		t.Fatalf("a ghost with 94 conversations is recoverable: %+v", ghost)
 	}
-	if ghost.SourceFolder != "Claude" {
-		t.Fatalf("SourceFolder must name the dir holding the bucket: %+v", ghost)
+	if len(ghost.Sources) != 1 {
+		t.Fatalf("want one source, got %+v", ghost.Sources)
+	}
+	// The path has to travel with the folder: recovery copies from it, and it
+	// cannot be reconstructed from the name outside the platform package.
+	if ghost.Sources[0].Folder != "Claude" || ghost.Sources[0].Path != "/data/Claude" {
+		t.Fatalf("source must name the dir and its path: %+v", ghost.Sources[0])
+	}
+	if ghost.Sources[0].Convos != 94 {
+		t.Fatalf("source must carry its own share: %+v", ghost.Sources[0])
 	}
 	if ghost.Note != RecoverableGhostNote {
 		t.Fatalf("note = %q, want %q", ghost.Note, RecoverableGhostNote)
@@ -581,20 +602,23 @@ func TestAssembleGhostEmptyBucketIsNotRecoverable(t *testing.T) {
 	if ghost.Recoverable {
 		t.Fatalf("nothing to recover from an empty bucket: %+v", ghost)
 	}
+	if len(ghost.Sources) != 0 {
+		t.Fatalf("a dead ghost has nothing to copy from: %+v", ghost.Sources)
+	}
 	if ghost.Note != "Invalid account data" {
 		t.Fatalf("dead ghost keeps its existing note, got %q", ghost.Note)
 	}
 }
 
-func TestAssembleGhostSourceFolderPrefersFullestBucket(t *testing.T) {
-	// The same orphan appears in two dirs. Recovery should copy from whichever
-	// holds more of its conversations.
+func TestAssembleGhostSplitAcrossTwoProfilesKeepsBothSources(t *testing.T) {
+	// The same orphan has conversations in two dirs. Recovery must copy from both,
+	// or the row's count promises more than it delivers.
 	scans := []dirScan{
-		{Folder: "Claude", LiveUUID: "a", Buckets: map[string]bucketStat{
-			"a": {Count: 1}, "orphan": {Count: 5, LastUpdated: ts("2026-07-01")},
-		}},
-		{Folder: "Claude_Two", LiveUUID: "b", Buckets: map[string]bucketStat{
+		{Folder: "Claude_Two", Path: "/data/Claude_Two", LiveUUID: "b", Buckets: map[string]bucketStat{
 			"b": {Count: 1}, "orphan": {Count: 40, LastUpdated: ts("2026-07-02")},
+		}},
+		{Folder: "Claude", Path: "/data/Claude", LiveUUID: "a", Buckets: map[string]bucketStat{
+			"a": {Count: 1}, "orphan": {Count: 5, LastUpdated: ts("2026-07-01")},
 		}},
 	}
 	got := assembleAccounts(scans)
@@ -605,10 +629,18 @@ func TestAssembleGhostSourceFolderPrefersFullestBucket(t *testing.T) {
 		}
 	}
 	if ghost.Convos != 45 {
-		t.Fatalf("counts still sum across dirs: %+v", ghost)
+		t.Fatalf("counts sum across dirs: %+v", ghost)
 	}
-	if ghost.SourceFolder != "Claude_Two" {
-		t.Fatalf("SourceFolder = %q, want the dir with 40 conversations", ghost.SourceFolder)
+	if len(ghost.Sources) != 2 {
+		t.Fatalf("want both sources, got %+v", ghost.Sources)
+	}
+	// Sorted by folder so the order is stable across scans — the scans slice
+	// arrives in filesystem order, which is not guaranteed.
+	if ghost.Sources[0].Folder != "Claude" || ghost.Sources[1].Folder != "Claude_Two" {
+		t.Fatalf("sources must be sorted by folder: %+v", ghost.Sources)
+	}
+	if ghost.Sources[0].Convos != 5 || ghost.Sources[1].Convos != 40 {
+		t.Fatalf("each source carries its own share: %+v", ghost.Sources)
 	}
 }
 
@@ -636,11 +668,11 @@ func TestRecoverableGhostSortsAboveDeadGhost(t *testing.T) {
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `go test ./core/ -run 'TestAssembleGhost|TestRecoverableGhost' -v`
-Expected: FAIL — `ghost.Recoverable undefined`, `undefined: RecoverableGhostNote`.
+Expected: FAIL — `unknown field Path in struct literal of type dirScan`, `ghost.Recoverable undefined`, `undefined: RecoverableGhostNote`.
 
 - [ ] **Step 3: Write the implementation**
 
-In `core/scan.go`, add to `ScannedAccount` (after the `SignedOut` field, line 37):
+In `core/scan.go`, add to `ScannedAccount`, after the `SignedOut` field:
 
 ```go
 	// Recoverable marks a ghost whose conversations can be brought back: its
@@ -650,14 +682,47 @@ In `core/scan.go`, add to `ScannedAccount` (after the `SignedOut` field, line 37
 	// really is a dead end.
 	Recoverable bool
 
-	// SourceFolder names the profile folder whose bucket holds this ghost's
-	// conversations, i.e. where a recovery copies from. When several dirs hold a
-	// bucket for the same orphan, it is the one with the most conversations.
-	// Ghost rows only.
-	SourceFolder string
+	// Sources lists every profile holding part of this ghost's conversations, in
+	// folder order. Recovery copies from all of them: an orphan's conversations
+	// really can be split across two profiles, and taking only the largest share
+	// would quietly deliver less than this row's count promises. Ghost rows only,
+	// and empty for a dead ghost.
+	Sources []GhostSource
 ```
 
-Add the note constant next to `SignedOutNote` (line 43):
+And, next to `ScannedAccount`:
+
+```go
+// GhostSource is one profile holding part of an orphaned account's conversations.
+// It carries the path as well as the folder because a folder name cannot be turned
+// back into a path outside the platform package — on the Store build the active
+// profile's directory is named "Claude" whatever the profile is called. The path is
+// already in hand: ScanAccounts is given []*platform.ProfileInfo.
+type GhostSource struct {
+	Folder string
+	Path   string
+	Convos int
+}
+```
+
+Add `Path` to `dirScan`, and set it in `gatherDir`:
+
+```go
+type dirScan struct {
+	Folder    string
+	Path      string // the dir this was read from; recovery copies out of it
+	LiveUUID  string
+	// … existing fields unchanged …
+}
+```
+
+In `gatherDir`, the first line becomes:
+
+```go
+	ds := dirScan{Folder: p.Name, Path: p.Path, Buckets: map[string]bucketStat{}}
+```
+
+Add the note constant next to `SignedOutNote`:
 
 ```go
 // RecoverableGhostNote is the review note for an account that was signed out
@@ -666,11 +731,11 @@ Add the note constant next to `SignedOutNote` (line 43):
 const RecoverableGhostNote = "Its conversations are still here. Recover to sign back in."
 ```
 
-In `assembleAccounts`, replace the ghost accumulation loop (lines 101-117) with one that also tracks the fullest source:
+In `assembleAccounts`, replace the ghost accumulation loop — the one that builds the
+`ghost` map — with one that records every source:
 
 ```go
 	ghost := map[string]*ScannedAccount{}
-	ghostBest := map[string]int{} // uuid -> conversation count of its best source so far
 	for _, s := range scans {
 		for uuid, b := range s.Buckets {
 			if uuid == s.LiveUUID || live[uuid] {
@@ -685,29 +750,36 @@ In `assembleAccounts`, replace the ghost accumulation loop (lines 101-117) with 
 			if b.LastUpdated.After(g.LastUpdated) {
 				g.LastUpdated = b.LastUpdated
 			}
-			// Recovery copies from one dir, so pick the one holding the most of
-			// this account's conversations. Ties break on folder name to keep the
-			// choice deterministic across scans.
-			if b.Count > ghostBest[uuid] || (b.Count == ghostBest[uuid] && s.Folder < g.SourceFolder) {
-				ghostBest[uuid] = b.Count
-				g.SourceFolder = s.Folder
+			if b.Count > 0 {
+				// Only non-empty buckets are worth copying from. An empty one is
+				// not a source, and listing it would make a dead ghost look
+				// recoverable.
+				g.Sources = append(g.Sources, GhostSource{Folder: s.Folder, Path: s.Path, Convos: b.Count})
 			}
 		}
 	}
 	for _, g := range ghost {
-		g.Recoverable = g.Convos > 0
+		// scans arrives in filesystem order, so sort for a stable UI and stable
+		// tests.
+		sort.Slice(g.Sources, func(i, j int) bool { return g.Sources[i].Folder < g.Sources[j].Folder })
+		g.Recoverable = len(g.Sources) > 0
 		if g.Recoverable {
 			g.Note = RecoverableGhostNote
 		} else {
 			g.Note = deriveNote(false, AccountUnknown)
-			g.SourceFolder = "" // nothing to copy from
 		}
 	}
 ```
 
-Note the `Note` field is no longer set at construction time, so remove `Note: deriveNote(false, AccountUnknown)` from the `&ScannedAccount{...}` literal as shown above.
+Two things to carry out of that snippet. The `Note` field is no longer set when the
+`&ScannedAccount{...}` literal is built, so remove `Note: deriveNote(false, AccountUnknown)`
+from it. And `Recoverable` is derived from `len(g.Sources)`, not from `g.Convos > 0` — they
+agree today, but sources is what recovery actually needs, so a ghost with no source must
+never be offered as recoverable regardless of what its count says.
 
-Replace `rowRank` (lines 148-157) with four bands:
+`sort` is already imported by `core/scan.go`.
+
+Replace `rowRank` with four bands:
 
 ```go
 // rowRank orders the review: accounts you can switch to now, then folders
@@ -732,6 +804,10 @@ func rowRank(a ScannedAccount) int {
 
 Run: `go test ./core/ -run 'TestAssemble|TestRecoverableGhost|TestScanAccounts' -v`
 Expected: PASS. The pre-existing `TestAssembleAccounts` still passes: its `33333333` ghost has 21 conversations, so it becomes `Recoverable` with the new note. **That assertion changes** — update the existing test's final check from `ghost.Note != "Invalid account data"` to `ghost.Note != RecoverableGhostNote`, and note in a comment that a populated bucket is now recoverable.
+
+Then run the whole package: `go test ./core/`. Expected: PASS. Anything else that asserted
+on a ghost's note is now wrong for the same reason and must be updated rather than worked
+around.
 
 - [ ] **Step 5: Commit**
 
@@ -923,9 +999,14 @@ git commit -m "core: detect two profiles signed in to one account"
 The riskiest scanner change: `ScanAccounts` gains a parameter, so three call sites move with it.
 
 **Files:**
-- Modify: `core/scan.go` — `dirScan` (line 50), `ScanAccounts` (line 215), `assembleAccounts`, sort comparator (line 134)
-- Modify: `cmd/mcs-menubar/main.go:268`, `cmd/mcs-picker/main.go:36`, `cmd/mcs-tray/panel_windows.go:395`
+- Modify: `core/scan.go` — `dirScan`, `ScanAccounts`, `assembleAccounts`, the sort comparator, `rowRank`
+- Modify: `cmd/mcs-menubar/main.go`, `cmd/mcs-picker/main.go`, `cmd/mcs-tray/panel_windows.go` — the `core.ScanAccounts(` call in each
 - Test: `core/scan_test.go`
+
+**Locate every edit by symbol, not by line number.** Task 3 lengthened `core/scan.go`
+before this task runs, so every line number that was accurate when this plan was written
+has drifted by roughly +25. Find the call sites with
+`grep -rn "ScanAccounts(" --include="*.go" .`
 
 **Interfaces:**
 - Consumes: `core.PendingProfile` (Task 1).
@@ -999,6 +1080,33 @@ func TestScanPendingRecoverySuppressesTheGhost(t *testing.T) {
 	}
 }
 
+func TestScanKeepsPendingProfileWithNoDirectoryYet(t *testing.T) {
+	// The Store build between creating a profile and the packaged app's first
+	// launch: msixParkForNewIn renamed the slot away on purpose, so the profile
+	// state.json names has no directory at all. msixFindProfiles reports it with
+	// Exists false (Task 7). It must still produce a pending row — this is the one
+	// platform the whole feature exists for. Spec §3.3.
+	dir := t.TempDir()
+	live := writeProfile(t, dir, "Claude_Parked", "live-uuid", map[string]int{"live-uuid": 3})
+	slot := &platform.ProfileInfo{
+		Name: "Work", Path: filepath.Join(dir, "Claude"), Exists: false,
+		UUIDBuckets: map[string]int{}, Managed: true,
+	}
+
+	got := ScanAccounts([]*platform.ProfileInfo{live, slot},
+		[]PendingProfile{{Folder: "Work"}})
+
+	for _, r := range got {
+		if r.HomeFolder == "Work" {
+			if !r.Pending || r.Note != PendingSignInNote {
+				t.Fatalf("row: %+v", r)
+			}
+			return
+		}
+	}
+	t.Fatalf("the just-created Store profile was dropped: %+v", got)
+}
+
 func TestScanPendingRowSortsWithFoldersAwaitingSignIn(t *testing.T) {
 	dir := t.TempDir()
 	live := writeProfile(t, dir, "Claude", "live-uuid", map[string]int{"live-uuid": 1, "orphan": 4})
@@ -1026,7 +1134,7 @@ func TestScanPendingRowSortsWithFoldersAwaitingSignIn(t *testing.T) {
 }
 ```
 
-Add `"os"` and `"path/filepath"` to `core/scan_test.go` imports if not already present.
+`core/scan_test.go` already imports `"os"` and `"path/filepath"` — no import changes.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -1057,14 +1165,14 @@ Add the note constant beside the others:
 const PendingSignInNote = "Sign in to finish setting this up."
 ```
 
-Add to `dirScan` (line 50):
+Add to `dirScan`:
 
 ```go
 	Pending     bool   // named in the pending-sign-in registry
 	PendingUUID string // account this profile was created to receive ("" = any)
 ```
 
-In `assembleAccounts`, emit pending rows. Insert after the `SignedOut` loop (after line 130) — and make the `SignedOut` loop skip pending dirs so one dir cannot produce two rows:
+In `assembleAccounts`, emit pending rows. Insert after the `SignedOut` loop — and make the `SignedOut` loop skip pending dirs so one dir cannot produce two rows:
 
 ```go
 	// Profiles MCS just created, still waiting for their one-time sign-in. These
@@ -1084,7 +1192,7 @@ In `assembleAccounts`, emit pending rows. Insert after the `SignedOut` loop (aft
 	}
 ```
 
-Change the existing `SignedOut` loop's guard (line 121) from:
+Change the existing `SignedOut` loop's guard from:
 
 ```go
 		if s.LiveUUID != "" || len(s.Buckets) > 0 || !s.HasConfig {
@@ -1118,7 +1226,7 @@ and add to the loop's skip condition:
 			}
 ```
 
-Update the sort comparator (line 138) so pending rows sort by folder like the other folder-bearing rows:
+Update the sort comparator so pending rows sort by folder like the other folder-bearing rows:
 
 ```go
 		if out[i].Complete || out[i].SignedOut || out[i].Pending {
@@ -1163,13 +1271,14 @@ func ScanAccounts(profiles []*platform.ProfileInfo, pending []PendingProfile) []
 }
 ```
 
-Now update the three call sites:
+Now update the three call sites — find them with `grep -rn "ScanAccounts(" --include="*.go" .`:
 
-- `cmd/mcs-menubar/main.go:268` → `core.ScanAccounts(mustFindProfiles(), core.LoadPending())`
-- `cmd/mcs-picker/main.go:36` → `core.ScanAccounts(profiles, core.LoadPending())`
-- `cmd/mcs-tray/panel_windows.go:395` → `core.ScanAccounts(panelMustFindProfiles(), core.LoadPending())`
+- `cmd/mcs-menubar/main.go` → `core.ScanAccounts(mustFindProfiles(), core.LoadPending())`
+- `cmd/mcs-picker/main.go` → `core.ScanAccounts(profiles, core.LoadPending())`
+- `cmd/mcs-tray/panel_windows.go` → `core.ScanAccounts(panelMustFindProfiles(), core.LoadPending())`
 
-And the two existing test call sites in `core/scan_test.go` (lines 171 and 194) take a `nil` second argument.
+The existing test call sites in `core/scan_test.go` take a `nil` second argument. The same
+grep finds them; do not go by line number.
 
 - [ ] **Step 4: Run tests and build to verify**
 
@@ -1300,17 +1409,44 @@ git commit -m "platform: hoist the directory-copy helper out of the windows-only
 ### Task 7: Platform methods for profile creation, recovery prep, and archive root
 
 **Files:**
-- Modify: `platform/platform.go` — the `Platform` interface
-- Modify: `platform/darwin.go`, `platform/windows.go`, `platform/unsupported.go`
+- Modify: `platform/platform.go` — the `Platform` interface, and `ProfileInfo.Exists`'s doc
+- Modify: `platform/darwin.go`, `platform/windows.go`, `platform/windows_msix.go`, `platform/unsupported.go`
 - Create: `platform/newprofile_test.go`
 - Modify: `core/switch_test.go` — `mockPlatform` must implement the three new methods
 
 **Interfaces:**
 - Consumes: `CopyDirMerge` (Task 6), `core.ProfileFolderPrefix` is **not** usable here (no core import); the prefix is duplicated as a package constant with a comment pointing at core.
 - Produces, on `Platform`:
-  - `CreateProfile(name string) (string, error)`
-  - `PrepareRecovery(newProfilePath, sourceProfilePath, expectUUID string) error`
+  - `CreateProfile(clean string) (identity string, dataDir string, err error)`
+  - `PrepareRecovery(newProfilePath string, sources []RecoverySource) error`
   - `ArchiveDir() string`
+- Produces, in `platform`: `type RecoverySource struct { Path string; UUID string }`
+
+**`CreateProfile` returns the identity, and callers must not compute it.** This is the
+defect that made the first draft of this plan inert on the Store build (spec §3.5). There,
+the active profile's directory is always named `Claude` — it is the shared slot — while
+`msixFindProfiles` names the profile from `state.json`'s `current`. So
+`filepath.Base(dataDir)` yields `Claude` for every Store profile, and keying
+`pending.json` on it writes an entry for a profile `FindProfiles` never reports: the entry
+never matches, `managed.json` gains a phantom, and the real profile stays invisible.
+Identity and directory are two different things and both have to come back.
+
+**Two supporting fixes go in the same task**, because the feature does not work without
+them:
+
+- `msixFindProfiles` must emit the `state.json` profile with `Exists: false` when the slot
+  directory is absent. Between `msixParkForNewIn` and the packaged app's next launch there
+  *is* no slot — that is the whole point — so today the account list silently drops the
+  current profile during that window, and a pending row could not be rendered at all.
+- `msixParkForNewIn` must trim `newName` before writing it to `state.json`.
+  `msixValidateNameIn` trims a local copy for its checks and the untrimmed argument is
+  what gets stored, so ` Work ` becomes an identity with spaces around it. `core` now
+  passes a cleaned name so this cannot be triggered from the new flow, but the bug is one
+  line from here and should be closed rather than avoided.
+
+**`PrepareRecovery` takes a list of sources**, because a ghost's conversations can live in
+more than one profile (spec §3.1, Task 3). Each source carries the path it was scanned
+from; nothing here reconstructs a path from a folder name.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1339,7 +1475,7 @@ func TestPrepareRecoveryCopiesTheBucket(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := prepareRecoveryByCopy(dst, src, "orphan-uuid"); err != nil {
+	if err := prepareRecoveryByCopy(dst, []RecoverySource{{Path: src, UUID: "orphan-uuid"}}); err != nil {
 		t.Fatalf("prepareRecoveryByCopy: %v", err)
 	}
 
@@ -1358,6 +1494,41 @@ func TestPrepareRecoveryCopiesTheBucket(t *testing.T) {
 	}
 }
 
+func TestPrepareRecoveryMergesEverySource(t *testing.T) {
+	// An orphan split across two profiles. Recovering one share and dropping the
+	// other would deliver less than the row's count promised.
+	root := t.TempDir()
+	dst := filepath.Join(root, "Claude_Recovered")
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var sources []RecoverySource
+	for i, name := range []string{"Claude", "Claude_Two"} {
+		src := filepath.Join(root, name)
+		bucket := filepath.Join(src, "claude-code-sessions", "orphan-uuid")
+		if err := os.MkdirAll(bucket, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		f := filepath.Join(bucket, "local_"+strconv.Itoa(i)+".json")
+		if err := os.WriteFile(f, []byte(`{}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sources = append(sources, RecoverySource{Path: src, UUID: "orphan-uuid"})
+	}
+
+	if err := prepareRecoveryByCopy(dst, sources); err != nil {
+		t.Fatalf("prepareRecoveryByCopy: %v", err)
+	}
+
+	entries, err := os.ReadDir(filepath.Join(dst, "claude-code-sessions", "orphan-uuid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("want both shares copied, got %d entries", len(entries))
+	}
+}
+
 func TestPrepareRecoveryMissingSourceBucketIsAnError(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "Claude")
@@ -1368,43 +1539,71 @@ func TestPrepareRecoveryMissingSourceBucketIsAnError(t *testing.T) {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := prepareRecoveryByCopy(dst, src, "not-there"); err == nil {
+	if err := prepareRecoveryByCopy(dst, []RecoverySource{{Path: src, UUID: "not-there"}}); err == nil {
 		t.Fatal("want an error when there is nothing to recover")
+	}
+}
+
+func TestPrepareRecoveryNoSourcesIsAnError(t *testing.T) {
+	if err := prepareRecoveryByCopy(t.TempDir(), nil); err == nil {
+		t.Fatal("a recovery with nothing to recover from must not report success")
 	}
 }
 ```
 
+Imports: `"os"`, `"path/filepath"`, `"strconv"`, `"testing"`.
+
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./platform/ -run TestPrepareRecovery -v`
-Expected: FAIL — `undefined: prepareRecoveryByCopy`.
+Expected: FAIL — `undefined: prepareRecoveryByCopy`, `undefined: RecoverySource`.
 
 - [ ] **Step 3: Write the shared helper and the interface**
 
 Add to `platform/copydir.go`:
 
 ```go
+// RecoverySource is one profile holding part of an orphaned account's
+// conversations, as scanned. It carries the path because a profile's folder name
+// cannot be turned back into a path (the Store build's active profile lives in a
+// directory named "Claude" whatever the profile is called), so callers pass the
+// path they were given rather than rebuilding one.
+type RecoverySource struct {
+	Path string
+	UUID string
+}
+
 // prepareRecoveryByCopy makes an orphaned account's conversations available in a
-// new profile by copying its session bucket across. Copy, not move: until the
-// user has signed in to the new profile the source is the only copy that
-// matters, and a failure here must lose nothing. Once the account is live in the
-// new profile the source's now-stale bucket is folded away by the scanner as a
-// duplicate of an account live elsewhere, so the user never sees it twice.
+// new profile by copying its session buckets across. Copy, not move: until the
+// user has signed in to the new profile the sources are the only copies that
+// matter, and a failure here must lose nothing. Once the account is live in the
+// new profile the sources' now-stale buckets are folded away by the scanner as
+// duplicates of an account live elsewhere, so the user never sees them twice.
 //
-// Used by the standalone builds. The Store build instead completes its copy
-// after sign-in, from a profile it has parked (see windows_msix.go).
-func prepareRecoveryByCopy(newProfilePath, sourceProfilePath, expectUUID string) error {
-	if expectUUID == "" {
-		return fmt.Errorf("no account to recover")
+// Every source is copied. An orphan's conversations can be split across two
+// profiles, and recovering one share would silently deliver less than the row
+// promised. Any single failure fails the whole call, so the caller's cleanup runs
+// and no half-recovered profile is left looking complete.
+//
+// Used by the standalone builds. The Store build instead completes its copy after
+// sign-in, from the one profile it has parked (see windows_msix.go).
+func prepareRecoveryByCopy(newProfilePath string, sources []RecoverySource) error {
+	if len(sources) == 0 {
+		return fmt.Errorf("no saved conversations to recover")
 	}
-	srcBucket := filepath.Join(GetProfileSessionsDir(sourceProfilePath), expectUUID)
-	fi, err := os.Stat(srcBucket)
-	if err != nil || !fi.IsDir() {
-		return fmt.Errorf("no saved conversations found for that account in %s", filepath.Base(sourceProfilePath))
-	}
-	dstBucket := filepath.Join(GetProfileSessionsDir(newProfilePath), expectUUID)
-	if _, err := CopyDirMerge(srcBucket, dstBucket); err != nil {
-		return fmt.Errorf("copy saved conversations: %w", err)
+	for _, s := range sources {
+		if s.UUID == "" {
+			return fmt.Errorf("no account to recover")
+		}
+		srcBucket := filepath.Join(GetProfileSessionsDir(s.Path), s.UUID)
+		fi, err := os.Stat(srcBucket)
+		if err != nil || !fi.IsDir() {
+			return fmt.Errorf("no saved conversations found for that account in %s", filepath.Base(s.Path))
+		}
+		dstBucket := filepath.Join(GetProfileSessionsDir(newProfilePath), s.UUID)
+		if _, err := CopyDirMerge(srcBucket, dstBucket); err != nil {
+			return fmt.Errorf("copy saved conversations from %s: %w", filepath.Base(s.Path), err)
+		}
 	}
 	return nil
 }
@@ -1416,23 +1615,48 @@ Add to the `Platform` interface in `platform/platform.go`, with the doc comments
 
 ```go
 	// CreateProfile makes a new profile that Claude Desktop will populate on its
-	// next launch, and returns its path. The path is not guaranteed to exist yet:
-	// the Store build deliberately leaves its slot absent so the packaged app
-	// creates a clean one. Caller must have terminated Claude first, and must
-	// have validated the name (see core.ValidateProfileName).
-	CreateProfile(name string) (string, error)
+	// next launch. It returns the profile's IDENTITY — the name FindProfiles will
+	// report for it, and the key every MCS registry uses — and the directory its
+	// data will live in.
+	//
+	// The two are returned separately because they are not the same thing and
+	// neither is derivable from the other. On the standalone builds the identity is
+	// the directory name; on the Store build the identity is the name written to
+	// state.json while the directory is the shared slot, always called "Claude".
+	// Callers must use what is returned and must never take filepath.Base of the
+	// directory.
+	//
+	// The directory is not guaranteed to exist yet: the Store build deliberately
+	// leaves its slot absent so the packaged app creates a clean one.
+	//
+	// Caller must have terminated Claude first, and must pass a name
+	// core.ValidateProfileName has accepted and cleaned.
+	CreateProfile(clean string) (identity string, dataDir string, err error)
 
-	// PrepareRecovery arranges for the account expectUUID's saved conversations
-	// to end up in newProfilePath once the user signs in as that account. The
-	// standalone builds copy the bucket across now; the Store build has already
-	// queued the copy as part of CreateProfile and does nothing here.
-	PrepareRecovery(newProfilePath, sourceProfilePath, expectUUID string) error
+	// PrepareRecovery arranges for the saved conversations named by sources to end
+	// up in newProfilePath once the user signs in. The standalone builds copy the
+	// buckets across now; the Store build has already queued the copy as part of
+	// CreateProfile and does nothing here.
+	PrepareRecovery(newProfilePath string, sources []RecoverySource) error
 
 	// ArchiveDir returns the root that archived profiles are parked under. It is
 	// chosen per platform so archiving is a same-volume rename and the result
 	// sits outside FindProfiles' scan path, which is what stops an archived
 	// profile reappearing on the next Rescan.
 	ArchiveDir() string
+```
+
+Also correct `ProfileInfo.Exists`'s meaning, since this task gives the field its first
+real use:
+
+```go
+	// Exists is false only for a profile MCS knows about that currently has no
+	// directory. That is a real state on the Windows Store build: creating a
+	// profile parks the live slot and leaves the slot absent so the packaged app
+	// makes a clean one, so between those two moments state.json names a profile
+	// with nothing on disk. It must still be listed — the user has just been told
+	// to sign in to it.
+	Exists bool
 ```
 
 Add a package constant near the top of `platform/platform.go`:
@@ -1447,23 +1671,26 @@ const profileFolderPrefix = "Claude_"
 `platform/darwin.go`:
 
 ```go
-func (d *DarwinPlatform) CreateProfile(name string) (string, error) {
+func (d *DarwinPlatform) CreateProfile(clean string) (string, string, error) {
 	appSup := d.AppSupportDir()
 	if appSup == "" {
-		return "", fmt.Errorf("could not determine user home directory")
+		return "", "", fmt.Errorf("could not determine user home directory")
 	}
-	path := filepath.Join(appSup, profileFolderPrefix+name)
+	// Here identity and directory name coincide. They do not on the Store build,
+	// which is why both are returned.
+	identity := profileFolderPrefix + clean
+	path := filepath.Join(appSup, identity)
 	if _, err := os.Stat(path); err == nil {
-		return "", fmt.Errorf("a profile folder named %q already exists", filepath.Base(path))
+		return "", "", fmt.Errorf("a profile folder named %q already exists", identity)
 	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
-		return "", fmt.Errorf("create profile folder: %w", err)
+		return "", "", fmt.Errorf("create profile folder: %w", err)
 	}
-	return path, nil
+	return identity, path, nil
 }
 
-func (d *DarwinPlatform) PrepareRecovery(newProfilePath, sourceProfilePath, expectUUID string) error {
-	return prepareRecoveryByCopy(newProfilePath, sourceProfilePath, expectUUID)
+func (d *DarwinPlatform) PrepareRecovery(newProfilePath string, sources []RecoverySource) error {
+	return prepareRecoveryByCopy(newProfilePath, sources)
 }
 
 func (d *DarwinPlatform) ArchiveDir() string {
@@ -1478,42 +1705,50 @@ func (d *DarwinPlatform) ArchiveDir() string {
 `platform/windows.go`:
 
 ```go
-func (w *WindowsPlatform) CreateProfile(name string) (string, error) {
+func (w *WindowsPlatform) CreateProfile(clean string) (string, string, error) {
 	if w.isMSIX() {
 		roaming := msixRoamingDir()
 		if roaming == "" {
-			return "", fmt.Errorf("Store Claude Desktop data directory not found")
+			return "", "", fmt.Errorf("Store Claude Desktop data directory not found")
 		}
-		if err := msixParkForNewIn(roaming, name); err != nil {
-			return "", err
+		if err := msixParkForNewIn(roaming, clean); err != nil {
+			return "", "", err
 		}
-		// The slot is deliberately absent now: the packaged app creates a clean
-		// one on next launch, which is what makes it a signed-out profile.
-		return msixSlotDir(roaming), nil
+		// The identity is the name state.json now holds, which is what
+		// msixFindProfiles will report. It is NOT the slot's directory name: that
+		// is always "Claude". The slot is deliberately absent right now — the
+		// packaged app creates a clean one on next launch, which is what makes
+		// this a signed-out profile.
+		return clean, msixSlotDir(roaming), nil
 	}
 	root := w.AppSupportDir()
 	if root == "" {
-		return "", fmt.Errorf("could not determine %%APPDATA%% directory")
+		return "", "", fmt.Errorf("could not determine %%APPDATA%% directory")
 	}
-	path := filepath.Join(root, profileFolderPrefix+name)
+	identity := profileFolderPrefix + clean
+	path := filepath.Join(root, identity)
 	if _, err := os.Stat(path); err == nil {
-		return "", fmt.Errorf("a profile folder named %q already exists", filepath.Base(path))
+		return "", "", fmt.Errorf("a profile folder named %q already exists", identity)
 	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
-		return "", fmt.Errorf("create profile folder: %w", err)
+		return "", "", fmt.Errorf("create profile folder: %w", err)
 	}
-	return path, nil
+	return identity, path, nil
 }
 
-func (w *WindowsPlatform) PrepareRecovery(newProfilePath, sourceProfilePath, expectUUID string) error {
+func (w *WindowsPlatform) PrepareRecovery(newProfilePath string, sources []RecoverySource) error {
 	if w.isMSIX() {
 		// msixParkForNewIn already set PendingMigrateFrom on the parked profile,
 		// and msixAttemptMigrationIn copies the bucket matching whatever account
 		// the user signs in as — which is exactly this recovery. Nothing to do,
 		// and nothing may be written into a slot the app has not created yet.
+		//
+		// It copies from the one profile it parked, so a ghost split across
+		// several profiles recovers only that profile's share here. The rest stays
+		// visible as a ghost and can be recovered on a second pass (spec §9.7).
 		return nil
 	}
-	return prepareRecoveryByCopy(newProfilePath, sourceProfilePath, expectUUID)
+	return prepareRecoveryByCopy(newProfilePath, sources)
 }
 
 func (w *WindowsPlatform) ArchiveDir() string {
@@ -1536,51 +1771,172 @@ func (w *WindowsPlatform) ArchiveDir() string {
 }
 ```
 
+`platform/windows_msix.go` — two corrections, both required for the Store build to work
+at all:
+
+```go
+// in msixParkForNewIn, immediately after the msixValidateNameIn call:
+	newName = strings.TrimSpace(newName)
+```
+
+Validation trims a local copy and this function stores its argument, so without this
+` Work ` becomes a profile identity with spaces around it. `core` now passes a cleaned
+name, so this closes the hole rather than papering over a live symptom. `strings` is
+already imported.
+
+```go
+// platform/windows.go, in msixFindProfiles: replace the slot branch
+	slot := msixSlotDir(roaming)
+	if fi, err := os.Stat(slot); err == nil && fi.IsDir() {
+		p := w.inspectProfile(st.Current, slot)
+		p.Managed = true
+		profiles = append(profiles, p)
+	} else {
+		// No slot directory. That is a real, expected state: creating a profile
+		// parks the live slot and leaves the slot absent on purpose so the
+		// packaged app makes a clean one. state.json still names the current
+		// profile, and the user has just been told to sign in to it, so it has to
+		// be listed. Reporting it with Exists false is how the scanner learns the
+		// difference between "no data yet" and "not there".
+		profiles = append(profiles, &ProfileInfo{
+			Name: st.Current, Path: slot, Exists: false,
+			UUIDBuckets: map[string]int{}, Managed: true,
+		})
+	}
+```
+
 `platform/unsupported.go`:
 
 ```go
-func (p *unsupportedPlatform) CreateProfile(name string) (string, error) { return "", notSupported() }
-func (p *unsupportedPlatform) PrepareRecovery(newProfilePath, sourceProfilePath, expectUUID string) error {
+func (p *unsupportedPlatform) CreateProfile(clean string) (string, string, error) {
+	return "", "", notSupported()
+}
+func (p *unsupportedPlatform) PrepareRecovery(newProfilePath string, sources []RecoverySource) error {
 	return notSupported()
 }
 func (p *unsupportedPlatform) ArchiveDir() string { return "" }
 ```
 
-`core/switch_test.go` — extend `mockPlatform` (the struct begins at line 15) with recording fields and the three methods:
+`core/switch_test.go` — extend `mockPlatform` (find it with
+`grep -n "type mockPlatform" core/switch_test.go`) with recording fields and the three
+methods. Note that `createdIdentity` and `createdPath` are **separate** fields: the mock
+must be able to represent the Store build's case, where they differ, or tests written
+against it cannot catch the bug this task exists to fix.
 
 ```go
 // add to the mockPlatform struct
-	createdName   string
-	createdPath   string
-	preparedFrom  string
-	preparedUUID  string
-	archiveRoot   string
+	createdName     string // the cleaned name the caller passed in
+	createdIdentity string // what CreateProfile hands back as the identity
+	createdPath     string // and the directory, which need not share its name
+	preparedSources []platform.RecoverySource
+	archiveRoot     string
 
-func (m *mockPlatform) CreateProfile(name string) (string, error) {
-	m.createdName = name
-	return m.createdPath, nil
+func (m *mockPlatform) CreateProfile(clean string) (string, string, error) {
+	m.createdName = clean
+	return m.createdIdentity, m.createdPath, nil
 }
-func (m *mockPlatform) PrepareRecovery(newProfilePath, sourceProfilePath, expectUUID string) error {
-	m.preparedFrom = sourceProfilePath
-	m.preparedUUID = expectUUID
+func (m *mockPlatform) PrepareRecovery(newProfilePath string, sources []platform.RecoverySource) error {
+	m.preparedSources = sources
 	return nil
 }
 func (m *mockPlatform) ArchiveDir() string { return m.archiveRoot }
 ```
 
-- [ ] **Step 4: Verify**
+- [ ] **Step 4: Write the Store-build identity tests**
+
+These go in `platform/windows_msix_test.go`, which carries `//go:build windows`. They
+**cannot run on macOS** — the whole file is excluded from the build. That is already true
+of the eight MSIX tests there. Write them anyway: they are what a Windows run and the QA
+pass in Task 18 execute.
+
+```go
+func TestMSIXCreateProfileIdentityIsNotTheDirectoryName(t *testing.T) {
+	roaming := t.TempDir()
+	slot := filepath.Join(roaming, "Claude")
+	if err := os.MkdirAll(slot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := msixParkForNewIn(roaming, "Work"); err != nil {
+		t.Fatalf("park: %v", err)
+	}
+	if got := readMSIXStateIn(roaming).Current; got != "Work" {
+		t.Fatalf("state.json current = %q, want %q", got, "Work")
+	}
+	// The identity is "Work"; the directory is "Claude". Anything deriving the
+	// identity from the path gets "Claude" and silently addresses a profile that
+	// does not exist.
+	if filepath.Base(slot) == "Work" {
+		t.Fatal("this test is meaningless if the slot is named after the profile")
+	}
+}
+
+func TestMSIXParkTrimsTheName(t *testing.T) {
+	roaming := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(roaming, "Claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := msixParkForNewIn(roaming, "  Work  "); err != nil {
+		t.Fatalf("park: %v", err)
+	}
+	if got := readMSIXStateIn(roaming).Current; got != "Work" {
+		t.Fatalf("state.json current = %q, want it trimmed", got)
+	}
+}
+
+func TestMSIXFindProfilesListsTheSlotProfileWhenTheSlotIsAbsent(t *testing.T) {
+	// Exactly the state msixParkForNewIn leaves behind: state.json names a
+	// profile, and its directory does not exist yet.
+	roaming := t.TempDir()
+	if err := writeMSIXStateIn(roaming, msixState{Current: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	w := &WindowsPlatform{}
+	got, err := w.msixFindProfilesIn(roaming)
+	if err != nil {
+		t.Fatalf("msixFindProfilesIn: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want the current profile listed, got %+v", got)
+	}
+	if got[0].Name != "Work" {
+		t.Fatalf("name = %q, want the state.json name", got[0].Name)
+	}
+	if got[0].Exists {
+		t.Fatal("a profile with no directory must report Exists false")
+	}
+}
+```
+
+The third test needs `msixFindProfiles` split so the roaming dir can be injected, the same
+way `msixParkForNewIn`/`msixSwapToIn` already are (`platform/windows_msix.go:176`, `:228`).
+Extract the body into `func (w *WindowsPlatform) msixFindProfilesIn(roaming string) ([]*ProfileInfo, error)`
+and have `msixFindProfiles` call it with `msixRoamingDir()`, returning the existing
+"Store Claude Desktop data directory not found" error when that is empty. Without the
+split there is no way to test any of this without a real Store install.
+
+- [ ] **Step 5: Verify**
 
 Run: `go test ./platform/ -run TestPrepareRecovery -v`
-Expected: PASS, 2 tests.
+Expected: PASS, 4 tests.
 
-Run: `go build ./... && GOOS=windows GOARCH=amd64 go build ./... && go test ./... 2>&1 | tail -20`
+Run: `go build ./... && go test ./... 2>&1 | tail -20`
 Expected: builds exit 0; all existing tests still pass now that `mockPlatform` satisfies the widened interface.
 
-- [ ] **Step 5: Commit**
+Run: `GOOS=windows GOARCH=amd64 go build ./... && GOOS=windows GOARCH=amd64 go vet ./...`
+Expected: exit 0 for both. `go vet` is what type-checks the windows-only test files —
+`go build` skips `_test.go` entirely, so a broken MSIX test would go unnoticed until a
+Windows run.
+
+Run: `GOOS=linux GOARCH=amd64 go build ./platform/`
+Expected: exit 0. `platform/unsupported.go` is `//go:build !darwin && !windows`, so it is
+compiled by neither of the builds above; a missing method there is invisible until
+somebody builds for a third OS.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add platform/platform.go platform/darwin.go platform/windows.go platform/unsupported.go platform/copydir.go platform/newprofile_test.go core/switch_test.go
-git commit -m "platform: per-OS profile creation, recovery prep, and archive root"
+git add platform/platform.go platform/darwin.go platform/windows.go platform/windows_msix.go platform/unsupported.go platform/copydir.go platform/newprofile_test.go platform/windows_msix_test.go core/switch_test.go
+git commit -m "platform: profile creation returns an identity, not just a path"
 ```
 
 ---
