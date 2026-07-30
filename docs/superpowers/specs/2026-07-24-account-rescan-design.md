@@ -194,10 +194,11 @@ Cancel at either step makes no change.
 
 ## 6. Known limitations (accepted, documented)
 
-1. **Logged-out accounts in a shared dir are unrecoverable.** `config.json` / cookies /
-   Local Storage are single-slot; re-login overwrites them. Only accounts that occupy
-   their own directory are surfaceable. A user who only ever used one `Claude` dir sees
-   exactly one account.
+1. ~~**Logged-out accounts in a shared dir are unrecoverable.**~~ **Superseded** by
+   `2026-07-30-ghost-account-recovery-design.md`: the credentials genuinely cannot be
+   restored (`config.json` / cookies / Local Storage are single-slot; re-login
+   overwrites them), but the conversations survive in the session bucket, so the account
+   can be given its own profile and signed back in to.
 2. **UUID count ≠ manageable accounts.** Session buckets reveal every account that used
    *Code* in a dir, but a ghost has no login/token and **cannot be switched to** — it is
    informational only, shown as `Incomplete` / `Invalid account data`.

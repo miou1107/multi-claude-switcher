@@ -151,6 +151,16 @@ Open the panel and run **Rescan**, then tick the accounts you want to manage.
 Accounts you have never signed into are listed too: tick one, switch to it, and
 sign in from there.
 
+**Rescan shows "Signed out in Claude Desktop" and I can't tick it.**
+That account was signed out from inside Claude Desktop, which overwrites the one
+login slot that folder has. Its conversations are still on disk. Click
+**Recover**, give it a name, and sign in to it once in the Claude window that
+opens — the conversations come back on their own.
+
+To avoid this, add accounts with **＋ Add another account** in the panel rather
+than signing out inside Claude Desktop. Each account then gets its own profile
+from the start.
+
 **(Windows) The panel will not open.**
 Usually WebView2 is missing. Right-click the eyes icon in the tray, choose
 **Quit**, install WebView2, and start the app again.

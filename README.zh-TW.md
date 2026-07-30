@@ -119,6 +119,14 @@ xattr -dr com.apple.quarantine "/Applications/Multi-Claude Switcher.app"
 打開面板點 **Rescan**，勾選你要管理的帳號。還沒登入過的帳號也會列出來：先勾選它，
 切換過去，再在 Claude Desktop 裡完成登入。
 
+**Q：Rescan 出現「Signed out in Claude Desktop」而且勾不動？**
+那個帳號是在 Claude Desktop 裡登出的，這會蓋掉該資料夾唯一的一組登入資料。它的對話
+其實都還在硬碟上。點 **Recover**，替它取個名字，在跳出來的 Claude 視窗裡登入一次就好，
+對話會自己跟回來。
+
+要避免這種狀況，加帳號請用面板裡的 **＋ Add another account**，不要在 Claude Desktop
+裡登出。這樣每個帳號一開始就有自己獨立的設定檔。
+
 **Q：（Windows）面板打不開怎麼辦？**
 通常是你的電腦缺了 WebView2 套件。對系統匣的眼睛圖示按右鍵選 **Quit**，請自行安裝好 WebView2 之後再重開 (理論上 Win10 21H2 版本都有內建)。
 

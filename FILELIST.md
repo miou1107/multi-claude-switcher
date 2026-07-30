@@ -43,6 +43,16 @@
 - `core/managed_test.go` — Unit tests for the managed-profile registry (load/save round-trip).
 - `core/scan.go` — Account scanner: walks all profiles, dedups accounts by UUID across folders, and classifies each as complete (switchable), awaiting sign-in (a real profile folder with a `config.json` but no account yet), or a ghost (session data whose account is signed in nowhere), with a derived review note. `config.json` is also what distinguishes a profile folder from any other directory starting with "Claude".
 - `core/scan_test.go` — Unit tests for the account scanner (dedup, completeness/ghost classification, derived notes).
+- `core/pending.go` — Registry of profiles MCS has just created that are awaiting their one-time sign-in, so the panel can label them and not mistake them for ghosts; `StalePending` reports which have since been signed in to and can be pruned.
+- `core/pending_test.go` — Unit tests for the pending-sign-in registry (add/remove, and staleness once a profile has an account).
+- `core/profilename.go` — Validates a user-typed profile name (letters, numbers, spaces, dashes, underscores) before anything is created from it.
+- `core/profilename_test.go` — Unit tests for profile-name validation (accepted characters, rejection messages).
+- `core/newprofile.go` — The create-a-profile orchestrator shared by both hosts: one sequence for the plain add path and the recovery path, keyed on the identity every registry uses rather than the directory (they differ on the Store build). On recovery it copies the orphaned account's conversations in from its source profiles.
+- `core/newprofile_test.go` — Unit tests for profile creation, including that registries are keyed on the identity and not the path.
+- `core/archive.go` — Moves a profile out of the scan path into the archive root, so a merged-away profile is set aside rather than deleted and can be put back by hand.
+- `core/archive_test.go` — Unit tests for archiving (the profile leaves the scan path, retries on a busy directory).
+- `core/merge.go` — Merges two profiles signed in to one account: `MergePreview` computes the union total and the conflicts before the user commits, and `MergeDuplicates` snapshots the keeper, syncs the other's conversations in, and archives it. The total is the union, never the sum, so a record both hold counts once.
+- `core/merge_test.go` — Unit tests for the merge plan and execution (union total, conflict counting, keeper snapshot, the loser archived not deleted).
 - `core/logging.go` — Persistent per-component logging to ~/.multi-claude-switcher/logs (stderr + file).
 - `core/names.go` — User-chosen profile display names, stored in ~/.multi-claude-switcher/names.json.
 - `core/loginitem_darwin.go` — Start-at-login LaunchAgent management on macOS (install/remove per-user plist).
@@ -129,6 +139,9 @@
 - `platform/windows_msix_test.go` — Unit tests for the MSIX create→switch lifecycle, rollback, and name validation (temp-dir driven, no real Claude).
 - `platform/hidewindow_windows.go` — Windows helper: run the spawned `powershell`/`taskkill` helpers with CREATE_NO_WINDOW so no console window flashes.
 - `platform/windows_test.go` — Unit tests for Windows `--user-data-dir` parsing, desktop-vs-CLI process detection, and path matching.
+- `platform/copydir.go` — One hardened directory-copy helper shared by both platforms: stages into a temp sibling and renames into place so an interrupted copy never leaves a half-written profile, and refuses to follow a symlink out of the tree.
+- `platform/copydir_test.go` — Unit tests for the copy helper (atomic replace, interrupted copy leaves the destination intact, symlink refusal).
+- `platform/newprofile_test.go` — Unit tests for each platform's `CreateProfile`/`ArchiveDir` (the identity and data dir it returns, where archives are parked).
 - `platform/unsupported.go` — Platform stub for non-macOS/Windows builds (safe "not supported" errors).
 - `docs/plans/2026-07-22-phase-0-probe.md` — Phase 0 probe execution plan.
 - `docs/plans/2026-07-22-phase-2-gui.md` — Phase 2 GUI execution plan.
