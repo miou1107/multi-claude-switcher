@@ -386,6 +386,12 @@ func goPanelAction(caction, cfolder *C.char) {
 	case "openBackups":
 		home, _ := os.UserHomeDir()
 		_ = exec.Command("open", filepath.Join(home, ".multi-claude-switcher", "backups")).Start()
+	case "openArchive":
+		dir := plat.ArchiveDir()
+		// Create it first: until something has been archived the folder does not
+		// exist, and `open` on a missing path fails with a dialog.
+		_ = os.MkdirAll(dir, 0o755)
+		_ = exec.Command("open", dir).Start()
 	case "checkUpdates":
 		if getBusy() {
 			return

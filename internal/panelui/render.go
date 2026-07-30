@@ -423,6 +423,7 @@ func RenderSettings(vm SettingsVM) string {
   ` + updateBtn + `
   <button class="sbtn" onclick="send('openLog','')">Open log folder</button>
   <button class="sbtn" onclick="send('openBackups','')">Open backup folder</button>
+  <button class="sbtn" onclick="send('openArchive','')">Open archive folder</button>
   <button class="sbtn danger" onclick="send('quit','')">Quit Multi-Claude Switcher</button>
 </div>
 <div class="about">v` + html.EscapeString(vm.Version) + `</div>`

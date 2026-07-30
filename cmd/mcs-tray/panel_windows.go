@@ -374,6 +374,12 @@ func dispatchAction(action, arg string) {
 	case "openBackups":
 		home, _ := os.UserHomeDir()
 		_ = exec.Command("explorer.exe", filepath.Join(home, ".multi-claude-switcher", "backups")).Start()
+	case "openArchive":
+		dir := panelPlat.ArchiveDir()
+		// Create it first: until something has been archived the folder does not
+		// exist, and explorer on a missing path opens the wrong place.
+		_ = os.MkdirAll(dir, 0o755)
+		_ = exec.Command("explorer.exe", dir).Start()
 	case "checkUpdates":
 		if panelGetBusy() {
 			return

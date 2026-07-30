@@ -611,3 +611,13 @@ func TestRenderMergeBusyDisablesTheAction(t *testing.T) {
 		t.Fatalf("the button must be live when no merge is running:\n%s", idle)
 	}
 }
+
+func TestRenderSettingsOffersTheArchiveFolder(t *testing.T) {
+	html := RenderSettings(SettingsVM{Version: "0.11.0"})
+	if !strings.Contains(html, "Open archive folder") {
+		t.Fatalf("merged-away profiles have to be findable:\n%s", html)
+	}
+	if !strings.Contains(html, "send('openArchive'") {
+		t.Fatalf("want the openArchive action:\n%s", html)
+	}
+}
