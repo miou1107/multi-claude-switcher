@@ -78,6 +78,25 @@ func msixAUMID() string {
 }
 
 func msixSlotDir(roaming string) string      { return filepath.Join(roaming, msixSlotName) }
+
+// msixProfilePath returns where the profile called identity keeps its data: the
+// shared slot if it is the current profile, otherwise its parked directory.
+//
+// This is the only correct way to get a Store profile's path, and the inverse does
+// not exist: filepath.Base of the slot is always "Claude", whatever the profile is
+// called.
+//
+// The comparison folds case, matching msixSwapToIn and msixValidateNameIn. Two
+// Store profiles cannot differ only in case — validation rejects that, and the
+// filesystem is case-insensitive anyway — so folding cannot pick the wrong one,
+// while exact matching would resolve a differently-cased current name to a parked
+// path that does not exist.
+func msixProfilePath(roaming, identity string) string {
+	if strings.EqualFold(readMSIXStateIn(roaming).Current, identity) {
+		return msixSlotDir(roaming)
+	}
+	return filepath.Join(msixContainerDir(roaming), identity)
+}
 func msixContainerDir(roaming string) string { return filepath.Join(roaming, msixContainerName) }
 func msixStatePath(roaming string) string {
 	return filepath.Join(msixContainerDir(roaming), msixStateName)
@@ -228,6 +247,9 @@ func msixParkForNewIn(roaming, newName string) error {
 	if err := msixValidateNameIn(roaming, newName); err != nil {
 		return err
 	}
+	// Validation trims a local copy; this function stores its argument. Without
+	// this, " Work " becomes a profile identity with spaces around it.
+	newName = strings.TrimSpace(newName)
 	slot := msixSlotDir(roaming)
 	container := msixContainerDir(roaming)
 	st := readMSIXStateIn(roaming)

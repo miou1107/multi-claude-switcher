@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -118,6 +119,53 @@ func copyFile(src, dst string) error {
 	if err := os.Rename(tmp, dst); err != nil {
 		os.Remove(tmp)
 		return err
+	}
+	return nil
+}
+
+// RecoverySource is one profile holding part of an orphaned account's
+// conversations, as scanned. It carries the path because a profile's folder name
+// cannot be turned back into a path — the Store build's active profile lives in a
+// directory named "Claude" whatever the profile is called — so callers pass the
+// path they were given rather than rebuilding one.
+type RecoverySource struct {
+	Path string
+	UUID string
+}
+
+// prepareRecoveryByCopy makes an orphaned account's conversations available in a
+// new profile by copying its session buckets across.
+//
+// Copy, not move: until the user has signed in to the new profile the sources are
+// the only copies that matter, and a failure here must lose nothing. Once the
+// account is live in the new profile the sources' now-stale buckets are folded
+// away by the scanner as duplicates of an account live elsewhere, so the user
+// never sees them twice.
+//
+// Every source is copied. An orphan's conversations can be split across two
+// profiles, and recovering one share would silently deliver less than the row
+// promised. Any single failure fails the whole call, so the caller's cleanup runs
+// and no half-recovered profile is left looking complete.
+//
+// Used by the standalone builds. The Store build instead completes its copy after
+// sign-in, from the one profile it has parked (see windows_msix.go).
+func prepareRecoveryByCopy(newProfilePath string, sources []RecoverySource) error {
+	if len(sources) == 0 {
+		return fmt.Errorf("no saved conversations to recover")
+	}
+	for _, s := range sources {
+		if s.UUID == "" {
+			return fmt.Errorf("no account to recover")
+		}
+		srcBucket := filepath.Join(GetProfileSessionsDir(s.Path), s.UUID)
+		fi, err := os.Stat(srcBucket)
+		if err != nil || !fi.IsDir() {
+			return fmt.Errorf("no saved conversations found for that account in %s", filepath.Base(s.Path))
+		}
+		dstBucket := filepath.Join(GetProfileSessionsDir(newProfilePath), s.UUID)
+		if _, err := CopyDirMerge(srcBucket, dstBucket); err != nil {
+			return fmt.Errorf("copy saved conversations from %s: %w", filepath.Base(s.Path), err)
+		}
 	}
 	return nil
 }

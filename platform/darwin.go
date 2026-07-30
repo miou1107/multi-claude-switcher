@@ -187,3 +187,50 @@ func (d *DarwinPlatform) LaunchProfile(profilePath string) error {
 	cmd := exec.Command("open", "-n", "-a", "Claude", "--args", fmt.Sprintf("--user-data-dir=%s", profilePath))
 	return cmd.Run()
 }
+
+// CreateProfile makes a sibling data directory Claude Desktop populates on first
+// launch. Here the identity and the directory name coincide; they do not on the
+// Store build, which is why both are returned.
+func (d *DarwinPlatform) CreateProfile(clean string) (string, string, error) {
+	appSup := d.AppSupportDir()
+	if appSup == "" {
+		return "", "", fmt.Errorf("could not determine user home directory")
+	}
+	identity := profileFolderPrefix + clean
+	path := filepath.Join(appSup, identity)
+	if _, err := os.Stat(path); err == nil {
+		return "", "", fmt.Errorf("a profile folder named %q already exists", identity)
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return "", "", fmt.Errorf("create profile folder: %w", err)
+	}
+	return identity, path, nil
+}
+
+func (d *DarwinPlatform) PrepareRecovery(newProfilePath string, sources []RecoverySource) error {
+	return prepareRecoveryByCopy(newProfilePath, sources)
+}
+
+// PrepareArchive has nothing to prepare here: every profile is its own directory,
+// so any of them can be renamed away without disturbing the others. It still
+// resolves the two identities, so resolution happens in exactly one place per
+// platform.
+func (d *DarwinPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (string, string, error) {
+	appSup := d.AppSupportDir()
+	if appSup == "" {
+		return "", "", fmt.Errorf("could not determine user home directory")
+	}
+	return filepath.Join(appSup, keepIdentity), filepath.Join(appSup, archiveIdentity), nil
+}
+
+// ArchiveDir keeps archives in MCS's own directory, beside backups/. It is outside
+// AppSupportDir() and therefore outside FindProfiles' scan path, which is what
+// stops an archived profile reappearing on the next Rescan, and it is on the same
+// volume so archiving is a rename.
+func (d *DarwinPlatform) ArchiveDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "multi-claude-switcher-archive")
+	}
+	return filepath.Join(home, ".multi-claude-switcher", "archive")
+}

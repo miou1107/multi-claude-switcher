@@ -228,3 +228,80 @@ func TestMSIXStateRoundTrip(t *testing.T) {
 		t.Fatalf("round-trip current = %q, want Personal", got)
 	}
 }
+
+// TestMSIXCreateProfileIdentityIsNotTheDirectoryName pins the rule the whole
+// identity model rests on: on this build a profile's name and its directory name
+// are different things. Anything deriving the identity from the path gets "Claude"
+// for every profile and addresses one that FindProfiles never reports.
+func TestMSIXCreateProfileIdentityIsNotTheDirectoryName(t *testing.T) {
+	roaming := t.TempDir()
+	slot := filepath.Join(roaming, "Claude")
+	if err := os.MkdirAll(slot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := msixParkForNewIn(roaming, "Work"); err != nil {
+		t.Fatalf("park: %v", err)
+	}
+	if got := readMSIXStateIn(roaming).Current; got != "Work" {
+		t.Fatalf("state.json current = %q, want %q", got, "Work")
+	}
+	if filepath.Base(slot) == "Work" {
+		t.Fatal("this test is meaningless if the slot is named after the profile")
+	}
+	// And the resolver maps the identity back to the slot, not to a parked dir.
+	if got := msixProfilePath(roaming, "Work"); got != slot {
+		t.Fatalf("msixProfilePath(%q) = %q, want the slot %q", "Work", got, slot)
+	}
+}
+
+func TestMSIXParkTrimsTheName(t *testing.T) {
+	roaming := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(roaming, "Claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := msixParkForNewIn(roaming, "  Work  "); err != nil {
+		t.Fatalf("park: %v", err)
+	}
+	if got := readMSIXStateIn(roaming).Current; got != "Work" {
+		t.Fatalf("state.json current = %q, want it trimmed", got)
+	}
+}
+
+func TestMSIXProfilePathResolvesAParkedProfile(t *testing.T) {
+	roaming := t.TempDir()
+	if err := writeMSIXStateIn(roaming, msixState{Current: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(msixContainerDir(roaming), "Personal")
+	if got := msixProfilePath(roaming, "Personal"); got != want {
+		t.Fatalf("msixProfilePath = %q, want %q", got, want)
+	}
+}
+
+// TestMSIXFindProfilesListsTheSlotProfileWhenTheSlotIsAbsent covers exactly the
+// state msixParkForNewIn leaves behind: state.json names a profile and its
+// directory does not exist yet. Dropping it there is what made a just-created
+// profile vanish from the account list before the user could sign in.
+func TestMSIXFindProfilesListsTheSlotProfileWhenTheSlotIsAbsent(t *testing.T) {
+	roaming := t.TempDir()
+	if err := writeMSIXStateIn(roaming, msixState{Current: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	w := &WindowsPlatform{}
+	got, err := w.msixFindProfilesIn(roaming)
+	if err != nil {
+		t.Fatalf("msixFindProfilesIn: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want the current profile listed, got %+v", got)
+	}
+	if got[0].Name != "Work" {
+		t.Fatalf("name = %q, want the state.json name", got[0].Name)
+	}
+	if got[0].Exists {
+		t.Fatal("a profile with no directory must report Exists false")
+	}
+	if !got[0].Managed {
+		t.Fatal("Store profiles are MCS-managed, so it must stay listed with no data")
+	}
+}

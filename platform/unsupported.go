@@ -33,3 +33,17 @@ func (p *unsupportedPlatform) DetectRunningProfile() (string, error) { return ""
 func (p *unsupportedPlatform) TerminateApp() error { return notSupported() }
 
 func (p *unsupportedPlatform) LaunchProfile(profilePath string) error { return notSupported() }
+
+func (p *unsupportedPlatform) CreateProfile(clean string) (string, string, error) {
+	return "", "", notSupported()
+}
+
+func (p *unsupportedPlatform) PrepareRecovery(newProfilePath string, sources []RecoverySource) error {
+	return notSupported()
+}
+
+func (p *unsupportedPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (string, string, error) {
+	return "", "", notSupported()
+}
+
+func (p *unsupportedPlatform) ArchiveDir() string { return "" }

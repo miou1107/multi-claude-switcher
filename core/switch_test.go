@@ -19,7 +19,40 @@ type mockPlatform struct {
 	// onTerminate runs at the moment Claude is closed, so a test can inspect state
 	// in the window where Claude is shut and MCS has not yet reopened it.
 	onTerminate func()
+
+	// createdIdentity and createdPath are separate on purpose. They differ on the
+	// Store build, where the identity comes from state.json and the directory is
+	// the shared slot, so a mock that conflated them could not catch a caller
+	// deriving one from the other.
+	createdName     string // the cleaned name the caller passed in
+	createdIdentity string
+	createdPath     string
+	preparedSources []platform.RecoverySource
+	prepareErr      error
+	archiveRoot     string
+	// prepareArchive lets a test decide what PrepareArchive hands back, which is
+	// how the Store build's swap — where both paths move — gets represented.
+	prepareArchive func(keep, archive string) (string, string, error)
 }
+
+func (m *mockPlatform) CreateProfile(clean string) (string, string, error) {
+	m.createdName = clean
+	return m.createdIdentity, m.createdPath, nil
+}
+
+func (m *mockPlatform) PrepareRecovery(newProfilePath string, sources []platform.RecoverySource) error {
+	m.preparedSources = sources
+	return m.prepareErr
+}
+
+func (m *mockPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (string, string, error) {
+	if m.prepareArchive != nil {
+		return m.prepareArchive(keepIdentity, archiveIdentity)
+	}
+	return keepIdentity, archiveIdentity, nil
+}
+
+func (m *mockPlatform) ArchiveDir() string { return m.archiveRoot }
 
 func (m *mockPlatform) AppSupportDir() string                          { return "" }
 func (m *mockPlatform) FindProfiles() ([]*platform.ProfileInfo, error) { return nil, nil }

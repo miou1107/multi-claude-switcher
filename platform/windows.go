@@ -95,13 +95,31 @@ func (w *WindowsPlatform) msixFindProfiles() ([]*ProfileInfo, error) {
 	if roaming == "" {
 		return nil, fmt.Errorf("Store Claude Desktop data directory not found")
 	}
+	return w.msixFindProfilesIn(roaming)
+}
+
+// msixFindProfilesIn takes the roaming dir explicitly so it can be tested without
+// a real Store install, the same way msixParkForNewIn and msixSwapToIn are.
+func (w *WindowsPlatform) msixFindProfilesIn(roaming string) ([]*ProfileInfo, error) {
 	st := readMSIXStateIn(roaming)
 
 	var profiles []*ProfileInfo
-	if fi, err := os.Stat(msixSlotDir(roaming)); err == nil && fi.IsDir() {
-		p := w.inspectProfile(st.Current, msixSlotDir(roaming))
+	slot := msixSlotDir(roaming)
+	if fi, err := os.Stat(slot); err == nil && fi.IsDir() {
+		p := w.inspectProfile(st.Current, slot)
 		p.Managed = true
 		profiles = append(profiles, p)
+	} else {
+		// No slot directory. That is a real, expected state: creating a profile
+		// parks the live slot and leaves the slot absent on purpose so the packaged
+		// app makes a clean one. state.json still names the current profile and the
+		// user has just been told to sign in to it, so it has to be listed. Before
+		// this, the account list silently dropped the current profile for that whole
+		// window.
+		profiles = append(profiles, &ProfileInfo{
+			Name: st.Current, Path: slot, Exists: false,
+			UUIDBuckets: map[string]int{}, Managed: true,
+		})
 	}
 	if entries, err := os.ReadDir(msixContainerDir(roaming)); err == nil {
 		for _, e := range entries {
@@ -448,4 +466,98 @@ func psEncodedCommand(script string) string {
 		buf = append(buf, byte(c), byte(c>>8)) // little-endian
 	}
 	return base64.StdEncoding.EncodeToString(buf)
+}
+
+// CreateProfile makes a new profile and returns its identity and data directory.
+//
+// The two differ on the Store build and that difference is the whole reason this
+// returns both: there, the identity is the name written to state.json while the
+// directory is the shared slot, always called "Claude". Deriving the identity from
+// the directory yields "Claude" for every profile, which names a profile
+// FindProfiles never reports.
+func (w *WindowsPlatform) CreateProfile(clean string) (string, string, error) {
+	if w.isMSIX() {
+		roaming := msixRoamingDir()
+		if roaming == "" {
+			return "", "", fmt.Errorf("Store Claude Desktop data directory not found")
+		}
+		if err := msixParkForNewIn(roaming, clean); err != nil {
+			return "", "", err
+		}
+		// The slot is deliberately absent now: the packaged app creates a clean one
+		// on next launch, which is what makes this a signed-out profile.
+		return clean, msixSlotDir(roaming), nil
+	}
+	root := w.AppSupportDir()
+	if root == "" {
+		return "", "", fmt.Errorf("could not determine %%APPDATA%% directory")
+	}
+	identity := profileFolderPrefix + clean
+	path := filepath.Join(root, identity)
+	if _, err := os.Stat(path); err == nil {
+		return "", "", fmt.Errorf("a profile folder named %q already exists", identity)
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return "", "", fmt.Errorf("create profile folder: %w", err)
+	}
+	return identity, path, nil
+}
+
+func (w *WindowsPlatform) PrepareRecovery(newProfilePath string, sources []RecoverySource) error {
+	if w.isMSIX() {
+		// msixParkForNewIn already set PendingMigrateFrom on the parked profile, and
+		// msixAttemptMigrationIn copies the bucket matching whatever account the user
+		// signs in as — which is exactly this recovery. Nothing to do, and nothing
+		// may be written into a slot the app has not created yet.
+		//
+		// It copies from the one profile it parked, so a ghost split across several
+		// profiles recovers only that profile's share here. The rest stays visible as
+		// a ghost and can be recovered on a second pass.
+		return nil
+	}
+	return prepareRecoveryByCopy(newProfilePath, sources)
+}
+
+func (w *WindowsPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (string, string, error) {
+	if !w.isMSIX() {
+		root := w.AppSupportDir()
+		if root == "" {
+			return "", "", fmt.Errorf("could not determine %%APPDATA%% directory")
+		}
+		return filepath.Join(root, keepIdentity), filepath.Join(root, archiveIdentity), nil
+	}
+	roaming := msixRoamingDir()
+	if roaming == "" {
+		return "", "", fmt.Errorf("Store Claude Desktop data directory not found")
+	}
+	if strings.EqualFold(readMSIXStateIn(roaming).Current, archiveIdentity) {
+		// The profile to archive is the slot occupant. Renaming the slot away would
+		// leave state.json naming a directory that does not exist, so swap the keeper
+		// in first: the keeper becomes the active profile — where the user wants to
+		// end up anyway — and the other lands in .mcs-profiles, ready to be renamed
+		// out. msixSwapToIn rolls its own parking back on failure.
+		if err := msixSwapToIn(roaming, keepIdentity); err != nil {
+			return "", "", err
+		}
+	}
+	// Resolve after any swap: state.json has moved, and so have both directories.
+	return msixProfilePath(roaming, keepIdentity), msixProfilePath(roaming, archiveIdentity), nil
+}
+
+// ArchiveDir keeps Store archives inside the package container, beside
+// .mcs-profiles, because renames within the container are what the shipped code
+// already does successfully and moving out of an MSIX virtualized container is
+// unverified. msixFindProfiles enumerates only the slot and .mcs-profiles, so the
+// archive stays invisible to scanning either way.
+func (w *WindowsPlatform) ArchiveDir() string {
+	if w.isMSIX() {
+		if roaming := msixRoamingDir(); roaming != "" {
+			return filepath.Join(roaming, ".mcs-archive")
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "multi-claude-switcher-archive")
+	}
+	return filepath.Join(home, ".multi-claude-switcher", "archive")
 }
