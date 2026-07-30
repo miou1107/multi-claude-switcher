@@ -85,7 +85,13 @@ func copyFile(src, dst string) error {
 	// Clear any staging file a previous run was killed before it could rename. It
 	// carries the source's mode, so a read-only one would make the O_TRUNC below
 	// fail on Windows and block this file from ever being copied again.
+	//
+	// Make it writable first. On Windows os.Remove refuses a read-only file, so
+	// without this the clear-up silently fails and the file is wedged permanently —
+	// the very state this clean-up exists to prevent. On Unix removal depends on the
+	// directory, so the chmod is a harmless no-op there.
 	tmp := dst + copyTmpSuffix
+	_ = os.Chmod(tmp, 0o600)
 	_ = os.Remove(tmp)
 
 	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
@@ -129,8 +135,22 @@ func copyFile(src, dst string) error {
 // directory named "Claude" whatever the profile is called — so callers pass the
 // path they were given rather than rebuilding one.
 type RecoverySource struct {
-	Path string
-	UUID string
+	// Folder is the profile's identity, carried for messages. Deriving it from Path
+	// would name every Store-build profile "Claude", since the active profile's
+	// directory is the shared slot.
+	Folder string
+	Path   string
+	UUID   string
+}
+
+// describe names the source for a message, preferring the identity it was given.
+// It falls back to the directory name only when no identity came through, which is
+// wrong on the Store build but better than an empty string.
+func (s RecoverySource) describe() string {
+	if s.Folder != "" {
+		return s.Folder
+	}
+	return filepath.Base(s.Path)
 }
 
 // prepareRecoveryByCopy makes an orphaned account's conversations available in a
@@ -160,11 +180,11 @@ func prepareRecoveryByCopy(newProfilePath string, sources []RecoverySource) erro
 		srcBucket := filepath.Join(GetProfileSessionsDir(s.Path), s.UUID)
 		fi, err := os.Stat(srcBucket)
 		if err != nil || !fi.IsDir() {
-			return fmt.Errorf("no saved conversations found for that account in %s", filepath.Base(s.Path))
+			return fmt.Errorf("no saved conversations found for that account in %s", s.describe())
 		}
 		dstBucket := filepath.Join(GetProfileSessionsDir(newProfilePath), s.UUID)
 		if _, err := CopyDirMerge(srcBucket, dstBucket); err != nil {
-			return fmt.Errorf("copy saved conversations from %s: %w", filepath.Base(s.Path), err)
+			return fmt.Errorf("copy saved conversations from %s: %w", s.describe(), err)
 		}
 	}
 	return nil

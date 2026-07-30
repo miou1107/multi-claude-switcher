@@ -50,16 +50,16 @@ type MergePlan struct {
 // that aborted over one junk file would block a merge of hundreds of
 // conversations, which is the failure mode the sync itself was fixed for.
 func MergePreview(keepPath, archivePath, uuid string) (*MergePlan, error) {
-	keepFiles, err := sessionFilesByRelPath(filepath.Join(platform.GetProfileSessionsDir(keepPath), uuid))
+	keepFiles, keepSkipped, err := sessionFilesByRelPath(filepath.Join(platform.GetProfileSessionsDir(keepPath), uuid))
 	if err != nil {
 		return nil, err
 	}
-	archiveFiles, err := sessionFilesByRelPath(filepath.Join(platform.GetProfileSessionsDir(archivePath), uuid))
+	archiveFiles, archiveSkipped, err := sessionFilesByRelPath(filepath.Join(platform.GetProfileSessionsDir(archivePath), uuid))
 	if err != nil {
 		return nil, err
 	}
 
-	plan := &MergePlan{Combined: len(keepFiles)}
+	plan := &MergePlan{Combined: len(keepFiles), Unreadable: keepSkipped + archiveSkipped}
 	for rel, archiveAbs := range archiveFiles {
 		keepAbs, both := keepFiles[rel]
 		if !both {
@@ -91,29 +91,43 @@ func MergePreview(keepPath, archivePath, uuid string) (*MergePlan, error) {
 }
 
 // sessionFilesByRelPath maps each .json session file under bucket to its full
-// path, keyed by path relative to bucket. An absent bucket is empty, not an error:
-// a profile that has never used Code has no bucket, and that is a valid side of a
-// merge.
-func sessionFilesByRelPath(bucket string) (map[string]string, error) {
+// path, keyed by path relative to bucket, and reports how many entries could not
+// be read.
+//
+// An absent bucket is empty, not an error: a profile that has never used Code has
+// no bucket, and that is a valid side of a merge.
+//
+// A failure on an entry INSIDE the bucket is counted and skipped, never returned.
+// Returning it aborts the whole walk, which would fail the preview — and therefore
+// block the merge — over one unreadable file, while the sync this preview must
+// predict skips that file and carries on. Only a failure to read the bucket itself
+// is fatal, because then there is nothing to count.
+func sessionFilesByRelPath(bucket string) (map[string]string, int, error) {
 	out := map[string]string{}
 	if _, err := os.Stat(bucket); errors.Is(err, os.ErrNotExist) {
-		return out, nil
+		return out, 0, nil
 	}
+	skipped := 0
 	err := filepath.Walk(bucket, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			if path == bucket {
+				return err // the bucket itself is unreadable; nothing to count
+			}
+			skipped++
+			return nil
 		}
 		if info.IsDir() || !strings.HasSuffix(info.Name(), ".json") {
 			return nil
 		}
-		rel, err := filepath.Rel(bucket, path)
-		if err != nil {
-			return err
+		rel, relErr := filepath.Rel(bucket, path)
+		if relErr != nil {
+			skipped++
+			return nil
 		}
 		out[rel] = path
 		return nil
 	})
-	return out, err
+	return out, skipped, err
 }
 
 // MergeDuplicates resolves two profiles signed in to the same account: the
@@ -129,6 +143,14 @@ func sessionFilesByRelPath(bucket string) (map[string]string, error) {
 // exactly as it found it — including on the Store build, where a later step swaps
 // two directories.
 func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, error) {
+	// Merging a profile into itself would pass every check below — one path, so
+	// trivially the same account — then archive the profile it just "kept",
+	// renaming the user's live profile out of the scan path and unmanaging it. The
+	// panel only ever offers two distinct rows, but this is a core API and a stale
+	// panel is exactly the case the account check exists for.
+	if req.KeepIdentity == req.ArchiveIdentity {
+		return nil, fmt.Errorf("%s can't be merged into itself", DisplayName(req.KeepIdentity))
+	}
 	keepName := DisplayName(req.KeepIdentity)
 	archiveName := DisplayName(req.ArchiveIdentity)
 
@@ -190,6 +212,11 @@ func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, err
 	// Registries last, and only now that the folder really is gone from the scan
 	// path. Unmanaging a folder still in place would hide it while leaving it to
 	// reappear on the next Rescan.
+	// From here the folder is physically gone, so every registry entry naming it is
+	// now wrong. Report the first failure but keep going: stopping at one would
+	// leave the others describing a profile that no longer exists, which is worse
+	// than the failure being reported.
+	var registryErr error
 	var kept []string
 	for _, m := range LoadManaged() {
 		if m != req.ArchiveIdentity {
@@ -197,7 +224,8 @@ func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, err
 		}
 	}
 	if err := SetManaged(kept); err != nil {
-		return report, fmt.Errorf("update the managed list: %w", err)
+		registryErr = fmt.Errorf("archived, but the managed list still lists it: %w", err)
+		log.Printf("merge: %v", registryErr)
 	}
 	// The display name goes with the profile. Left behind, it would be inherited by
 	// any later profile that happened to reuse the identity.
@@ -210,7 +238,7 @@ func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, err
 	if err := RemovePending(req.ArchiveIdentity); err != nil {
 		log.Printf("merge: could not clear the pending entry for %q: %v", req.ArchiveIdentity, err)
 	}
-	return report, nil
+	return report, registryErr
 }
 
 // profilePathsByIdentity maps every discovered profile's identity to its path.

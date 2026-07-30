@@ -294,11 +294,76 @@ func TestMergePreviewMatchesWhatTheMergeDoes(t *testing.T) {
 	if report.ConflictCount != plan.Conflicts {
 		t.Errorf("preview promised %d conflicts, the merge reported %d", plan.Conflicts, report.ConflictCount)
 	}
-	held, err := sessionFilesByRelPath(filepath.Join(keep, "claude-code-sessions", "same-uuid"))
+	held, _, err := sessionFilesByRelPath(filepath.Join(keep, "claude-code-sessions", "same-uuid"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(held) != plan.Combined {
 		t.Errorf("preview promised %d conversations, the keeper holds %d", plan.Combined, len(held))
+	}
+}
+
+// TestMergeDuplicatesRefusesToMergeAProfileIntoItself
+//
+// One identity on both sides passes every check trivially — one path, so of course
+// the same account — and then the archive step renames the profile it just "kept"
+// out of the scan path and unmanages it. The user's live profile disappears. The
+// panel only ever offers two distinct rows, but a stale panel acting on rows that
+// changed underneath it is exactly the case the account check exists for.
+func TestMergeDuplicatesRefusesToMergeAProfileIntoItself(t *testing.T) {
+	withStubbedManaged(t)
+	withStubbedNames(t)
+	withStubbedPending(t)
+	keep, archive, archiveRoot := mergeFixture(t, "same-uuid", "same-uuid")
+	if err := SetManaged([]string{"Claude_Keep"}); err != nil {
+		t.Fatal(err)
+	}
+	plat := newMergePlatform(t, keep, archive, archiveRoot)
+
+	if _, err := MergeDuplicates(plat, MergeRequest{
+		KeepIdentity: "Claude_Keep", ArchiveIdentity: "Claude_Keep",
+		BackupRoot: filepath.Join(t.TempDir(), "backups"),
+	}); err == nil {
+		t.Fatal("merging a profile into itself must be refused")
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("the profile must still be there: %v", err)
+	}
+	if len(LoadManaged()) != 1 {
+		t.Fatalf("managed = %v, want it untouched", LoadManaged())
+	}
+}
+
+// TestMergePreviewSurvivesAnUnreadableSubdirectory: the walk delivers a failure for
+// entries it cannot read. Returning it aborts the whole walk and fails the preview,
+// which blocks the merge — over one bad directory, while the sync this preview must
+// predict skips it and carries on.
+func TestMergePreviewSurvivesAnUnreadableSubdirectory(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs POSIX permissions and a non-root user to deny the walk")
+	}
+	keep, archive, _ := mergeFixture(t, "same-uuid", "same-uuid")
+	locked := filepath.Join(archive, "claude-code-sessions", "same-uuid", "locked")
+	if err := os.MkdirAll(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "deep.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	plan, err := MergePreview(keep, archive, "same-uuid")
+	if err != nil {
+		t.Fatalf("an unreadable subdirectory must not fail the preview: %v", err)
+	}
+	if plan.Unreadable == 0 {
+		t.Fatal("what could not be read must be counted, not silently dropped")
+	}
+	// The readable records on both sides are still accounted for.
+	if plan.Combined < 2 {
+		t.Fatalf("Combined = %d, want the readable records still counted", plan.Combined)
 	}
 }

@@ -77,7 +77,7 @@ func (c *ProfileCreator) Create(req CreateProfileRequest) (*CreatedProfile, erro
 	if req.RecoverUUID != "" {
 		sources := make([]platform.RecoverySource, 0, len(req.Sources))
 		for _, s := range req.Sources {
-			sources = append(sources, platform.RecoverySource{Path: s.Path, UUID: req.RecoverUUID})
+			sources = append(sources, platform.RecoverySource{Folder: s.Folder, Path: s.Path, UUID: req.RecoverUUID})
 		}
 		if err := c.Plat.PrepareRecovery(dataDir, sources); err != nil {
 			// The sources were only ever read from, so removing what we just made
