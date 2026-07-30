@@ -285,11 +285,26 @@ though the folder is `Claude_Work` on one and `Work` on the other — and this i
 fixes today's behaviour, where a profile created on the Store build shows a clean name
 and one created anywhere else shows a `Claude_`-prefixed one.
 
-**Identity comparisons use the exact recorded string.** `managed.json` compares with `==`
-(`core/managed.go:76`). MCS writes the identity into every registry from one value
-returned by one call, so the strings agree. Do not add case-insensitive matching to work
-around a mismatch; a mismatch means something reconstructed an identity instead of
-carrying it.
+**Registry comparisons use the exact recorded string.** `managed.json` compares with `==`
+(`core/managed.go:76`). MCS writes the identity into every registry from one value returned
+by one call, so the strings agree. Do not add case-insensitive matching to work around a
+mismatch; a mismatch means something reconstructed an identity instead of carrying it.
+
+**Comparisons against `state.json` are the one exception, and stay case-insensitive.** The
+shipped Store-build code already matches that way — `msixSwapToIn` compares its target
+against `current` with `EqualFold`, and `msixValidateNameIn` rejects a new name that folds
+onto `current` or onto an existing parked directory (`platform/windows_msix.go`). Two Store
+profiles therefore cannot exist differing only in case, so folding cannot select the wrong
+one; and switching to exact matching *would* break, because a `current` written in one case
+and compared against a directory in another would resolve to a path that does not exist.
+Follow the shipped convention there, and the exact-match rule everywhere else.
+
+**One known pre-existing violation, out of scope here.** `SyncSessions` formats its
+"no account signed in" errors with `DisplayName(filepath.Base(profilePath))`
+(`core/sync.go:85`, `:90`), so on the Store build both ends of a failed sync are called
+`Claude` whatever the profiles are named. It is error text only — nothing is keyed on it —
+and fixing it means changing a shipped signature, so it is recorded rather than folded into
+this change. Do not copy the pattern.
 
 ## 4. User-visible design
 
@@ -453,8 +468,16 @@ func MergeDuplicates(keepPath, archivePath string) (*SyncReport, error)
    there.
 5. **Store build only, and only when the keeper is a parked profile:** swap the keeper
    into the slot with `msixSwapToIn` before archiving. See §5.3 for why.
+
+   **Nothing may move before step 1 has passed.** Identities are resolved to paths
+   read-only, from the scan, so a merge refused for holding two different accounts leaves
+   the disk exactly as it found it. This swap is the first mutating step after the copy, and
+   it reports the paths as they stand afterwards — any path held from before it is stale.
 6. `ArchiveProfile(archivePath)`.
-7. Remove the archived identity from `managed.json`, and its entry from `names.json`.
+7. Remove the archived identity from `managed.json`, and its entries from `names.json` and
+   `pending.json`. The last one matters because pending entries are pruned only on sign-in
+   (§3.3) and an archived profile never appears in `FindProfiles` again, so an entry left
+   behind would render a sign-in prompt the user could never clear.
 
 **Conflicts, and why the merge screen must be a preview.** `SyncSessions` copies what
 the keeper lacks and, where both hold the same record, keeps the newer mtime. A record
@@ -474,6 +497,7 @@ func MergePreview(keepPath, archivePath, uuid string) (*MergePlan, error)
 type MergePlan struct {
     Combined   int    // conversations the keeper will hold afterwards
     Conflicts  int    // records held on both sides with different content
+    Unreadable int    // records that could not be compared, so neither side counts them
     ArchiveTo  string // where the other profile will be parked
 }
 ```
@@ -483,6 +507,12 @@ sum of the two counts, so it is the number the user will actually have afterward
 conflict does not reduce it: a record present on both sides is in the union once either
 way. §4.4's "union of both profiles' bucket contents" was already the correct definition;
 the sum would have been wrong.
+
+`Unreadable` exists because `SyncSessions` does not fail a run over one unreadable file — it
+records a skip error and carries on. A preview that aborted instead would let a single junk
+file block a merge of hundreds of conversations, which is the failure mode the sync itself was
+fixed for. Such a record is counted in neither `Combined` nor `Conflicts`, matching what the
+sync will do, and the screen says how many there were.
 
 The merge screen renders the plan before the user commits, and when `Conflicts > 0` says
 so plainly: *"N conversations exist in both profiles and have changed since they were
@@ -611,6 +641,13 @@ leaves MCS's view of the world ahead of the disk.
 - `MergePreview` returns the union size, not the sum, when the two buckets overlap.
 - `MergePreview` counts a record present on both sides with different content as a
   conflict, and does not count identical copies.
+- `MergePreview` with one unreadable record still returns a plan, counting that record as
+  unreadable rather than failing. `SyncSessions` skips such a file and carries on, so a
+  preview that aborted would let one junk file block a merge of hundreds of conversations.
+- Merge refused for two different accounts leaves both directories exactly where they were,
+  including on the Store build where a later step would have swapped them.
+- Merge clears the archived identity from `managed.json`, `names.json`, **and**
+  `pending.json`.
 - Two temp profiles with the same UUID and partly overlapping sessions: after merge
   the keeper holds the union, the archive folder is gone from the scan path and
   present at the archive path, byte-identical to before, and `managed.json` no longer
@@ -696,6 +733,11 @@ release rather than assumed.
 - 2026-07-30 three machines inspected; the reported ghost rows traced to
   in-app account switching, and `runNewProfileFlow` found to be already implemented and
   unreachable since the v0.10.0 Windows panel replaced the systray menu.
+- 2026-07-30, after a second adversarial review of the revision: merge's mutating steps moved
+  after its checks, so a refused merge cannot leave the Store build's directories swapped;
+  `MergePreview` gained `Unreadable` and stopped aborting over one bad file; archiving now
+  clears `pending.json` too; the `state.json` case-folding exception and the pre-existing
+  `core/sync.go` display-name violation written down rather than left to be rediscovered.
 - 2026-07-30, after adversarial review of the first implementation plan: profile identity
   given its own section (§3.5) because the plan had keyed MCS's registries on
   `filepath.Base(path)`, which is `Claude` for every active Store profile and would have

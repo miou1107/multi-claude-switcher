@@ -170,6 +170,23 @@ func TestStalePendingOnlyWhenSignedIn(t *testing.T) {
 		t.Fatalf("want only the signed-in folder stale, got %v", got)
 	}
 }
+
+func TestStalePendingWhenSignedInAsSomeOtherAccount(t *testing.T) {
+	// The user was told to sign in as one account and signed in as another. The
+	// entry has still served its purpose: the profile is real and has a login, so
+	// the row must stop asking for a sign-in. Whether the account was the expected
+	// one is the duplicate warning's problem, not this registry's.
+	dir := t.TempDir()
+	p := writeProfile(t, dir, "Claude_Recovered", "some-other-uuid", nil)
+
+	got := StalePending(
+		[]PendingProfile{{Folder: "Claude_Recovered", ExpectUUID: "the-orphan-uuid"}},
+		[]*platform.ProfileInfo{p})
+
+	if len(got) != 1 || got[0] != "Claude_Recovered" {
+		t.Fatalf("a signed-in profile is no longer pending whatever it signed in as, got %v", got)
+	}
+}
 ```
 
 `writeProfile` and `writeSignedOutProfile` are **existing** helpers in the same package (`core/scan_test.go:85` and `:106`) — reuse them. Do not define your own: `core` is one test binary, so a second `func writeProfile` is a redeclaration, Go refuses to compile the package, and every "verify it fails" step in this plan then passes for the wrong reason.
@@ -348,7 +365,7 @@ func StalePending(pending []PendingProfile, profiles []*platform.ProfileInfo) []
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./core/ -run 'TestPending|TestStalePending|TestRemovePending' -v`
-Expected: PASS, 5 tests.
+Expected: PASS, 6 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2681,6 +2698,11 @@ type MergePlan struct {
 	// then moves the other copy out of the UI's reach, so the user has to be told
 	// before committing.
 	Conflicts int
+	// Unreadable counts records that could not be compared. They are neither counted
+	// as conflicts nor as combined, because SyncSessions will not count them either:
+	// it records a skip error and moves on. One junk file must not block a merge of
+	// hundreds of conversations.
+	Unreadable int
 	// ArchiveTo is where the profile being given up will be parked.
 	ArchiveTo string
 }
@@ -2709,7 +2731,13 @@ func MergePreview(keepPath, archivePath, uuid string) (*MergePlan, error) {
 		}
 		same, err := filesEqual(archivePathAbs, keepPathAbs)
 		if err != nil {
-			return nil, fmt.Errorf("compare %s: %w", rel, err)
+			// SyncSessions does not fail the run over one unreadable file — it
+			// records a skip error and carries on — so neither may the preview. A
+			// preview that aborts here would let a single junk file block a merge of
+			// hundreds of conversations, which is the failure mode the sync itself
+			// was fixed for.
+			plan.Unreadable++
+			continue
 		}
 		if same {
 			continue
@@ -2720,7 +2748,8 @@ func MergePreview(keepPath, archivePath, uuid string) (*MergePlan, error) {
 		ai, err1 := os.Stat(archivePathAbs)
 		ki, err2 := os.Stat(keepPathAbs)
 		if err1 != nil || err2 != nil {
-			return nil, fmt.Errorf("compare timestamps for %s", rel)
+			plan.Unreadable++
+			continue
 		}
 		if !ai.ModTime().After(ki.ModTime()) {
 			plan.Conflicts++
@@ -2771,12 +2800,21 @@ func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, err
 	keepName := DisplayName(req.KeepIdentity)
 	archiveName := DisplayName(req.ArchiveIdentity)
 
-	// Resolve identities to paths, and on the Store build swap the keeper into the
-	// slot if it is the other profile that currently holds it. Both paths can move
-	// here, which is why nothing upstream is allowed to pass paths in.
-	keepPath, archivePath, err := plat.PrepareArchive(req.KeepIdentity, req.ArchiveIdentity)
+	// Resolve identities to paths read-only, from the scan. Not PrepareArchive yet:
+	// that can MOVE directories on the Store build, and nothing may move before the
+	// checks below have passed. A merge that aborts on "different accounts" must
+	// leave the disk exactly as it found it.
+	paths, err := profilePathsByIdentity(plat)
 	if err != nil {
 		return nil, err
+	}
+	keepPath, ok := paths[req.KeepIdentity]
+	if !ok {
+		return nil, fmt.Errorf("%s is no longer there — run Rescan", keepName)
+	}
+	archivePath, ok := paths[req.ArchiveIdentity]
+	if !ok {
+		return nil, fmt.Errorf("%s is no longer there — run Rescan", archiveName)
 	}
 
 	keepUUID, err := platform.GetProfileAccountUUID(keepPath)
@@ -2804,6 +2842,17 @@ func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, err
 		return nil, fmt.Errorf("combine conversations: %w", err)
 	}
 
+	// Only now, with everything copied and nothing left to refuse, make the archive
+	// possible. On the Store build this swaps the keeper into the slot when the other
+	// profile holds it, so both paths move and the ones returned here are the ones to
+	// use from this point on.
+	_, archivePath, err = plat.PrepareArchive(req.KeepIdentity, req.ArchiveIdentity)
+	if err != nil {
+		// Nothing has been given up: both profiles are in place and the keeper now
+		// holds the union, so a retry is safe and the warning is still showing.
+		return report, fmt.Errorf("could not make %s ready to archive: %w", archiveName, err)
+	}
+
 	if _, err := ArchiveProfile(archivePath, plat.ArchiveDir()); err != nil {
 		return report, err
 	}
@@ -2825,7 +2874,29 @@ func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, err
 	if err := SetProfileName(req.ArchiveIdentity, ""); err != nil {
 		log.Printf("merge: could not clear the display name for %q: %v", req.ArchiveIdentity, err)
 	}
+	// And its pending entry, if it somehow still has one. Pending entries are pruned
+	// only on sign-in (spec §3.3), and an archived profile is gone from FindProfiles
+	// forever — so an entry left here would render a "Sign in to finish setting this
+	// up" row the user could never clear.
+	if err := RemovePending(req.ArchiveIdentity); err != nil {
+		log.Printf("merge: could not clear the pending entry for %q: %v", req.ArchiveIdentity, err)
+	}
 	return report, nil
+}
+
+// profilePathsByIdentity maps every discovered profile's identity to its path. This
+// is the only correct identity-to-path direction outside the platform package: the
+// paths come from the scan rather than being rebuilt from a root (spec §3.5).
+func profilePathsByIdentity(plat platform.Platform) (map[string]string, error) {
+	profiles, err := plat.FindProfiles()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(profiles))
+	for _, p := range profiles {
+		out[p.Name] = p.Path
+	}
+	return out, nil
 }
 ```
 
@@ -2835,6 +2906,11 @@ Imports for `core/merge.go`: `"errors"`, `"fmt"`, `"log"`, `"os"`, `"path/filepa
 `filesEqual` is already in `core/sync.go` and unexported, so `MergePreview` reuses it
 rather than defining a second notion of "the same record". That matters: a preview that
 compared files differently from the sync would promise a number the sync does not deliver.
+
+The preview only returns an error when a whole bucket cannot be walked. Per-file failures
+increment `Unreadable`, matching `SyncSessions`, which records them in `SkipErrors` and
+neither copies nor counts them as conflicts. Two different behaviours would mean the number
+on the screen is not the number the merge produces.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -4050,6 +4126,10 @@ func RenderMerge(a, b MergeCandidateVM, plan core.MergePlan, status string, busy
 	conflictNote := ""
 	if plan.Conflicts > 0 {
 		conflictNote = fmt.Sprintf(`<div class="hintw">%d conversations exist in both profiles and have changed since they were last in step. The newer version is kept. The other stays in the archived folder, which you can open from Settings.</div>`, plan.Conflicts)
+	}
+	// Say so rather than quietly delivering a smaller number than promised.
+	if plan.Unreadable > 0 {
+		conflictNote += fmt.Sprintf(`<div class="hintw">%d files couldn't be read and will be left where they are.</div>`, plan.Unreadable)
 	}
 
 	body := `<div class="header">
