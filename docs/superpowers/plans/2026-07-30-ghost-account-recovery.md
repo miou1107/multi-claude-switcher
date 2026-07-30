@@ -2854,12 +2854,29 @@ The one place both hosts call, so the sequence cannot drift between macOS and Wi
 - Test: `core/newprofile_test.go`
 
 **Interfaces:**
-- Consumes: `ValidateProfileName`/`ProfileFolderName` (Task 2), `AddPending`/`RemovePending` (Task 1), `LoadManaged`/`SetManaged`, and the three new `platform` methods (Task 7).
+- Consumes: `ValidateProfileName` (Task 2), `AddPending` (Task 1), `LoadManaged`/`SetManaged`, `SetProfileName`, `GhostSource` (Task 3), and the new `platform` methods (Task 7).
 - Produces:
-  - `type CreateProfileRequest struct { Name string; RecoverUUID string; SourceFolder string }`
+  - `type CreateProfileRequest struct { Name string; RecoverUUID string; Sources []GhostSource }`
+  - `type CreatedProfile struct { Identity string; DataDir string }`
   - `type ProfileCreator struct { Plat platform.Platform }`
   - `func NewProfileCreator(p platform.Platform) *ProfileCreator`
-  - `func (c *ProfileCreator) Create(req CreateProfileRequest) (createdPath string, err error)`
+  - `func (c *ProfileCreator) Create(req CreateProfileRequest) (*CreatedProfile, error)`
+
+**This task is where the identity bug lived, and it had three faces.** All three must stay
+fixed (spec §3.5):
+
+1. It derived the registry key with `filepath.Base(createdPath)`. On the Store build that is
+   `Claude` for every profile, so `pending.json` and `managed.json` would name a profile
+   `FindProfiles` never reports — a phantom in the account list, an invisible real profile,
+   and a pending entry that never matches. `CreateProfile` now returns the identity; use it.
+2. It rebuilt the recovery source's path with
+   `filepath.Join(c.Plat.AppSupportDir(), req.SourceFolder)`. On the Store build
+   `AppSupportDir()` is `%APPDATA%` while the data is under
+   `%LOCALAPPDATA%\Packages\…\LocalCache\Roaming`, and a parked profile is a level deeper
+   again. The sources now arrive with their paths already in them, from the scan.
+3. It passed `req.Name` to the platform untrimmed while validation trimmed, so ` Work `
+   would have been validated as `Work` and created as ` Work `. Only the cleaned name
+   travels on.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2876,28 +2893,30 @@ import (
 func TestCreateProfileAddPath(t *testing.T) {
 	withStubbedManaged(t)
 	withStubbedPending(t)
+	withStubbedNames(t)
 	root := t.TempDir()
 	created := filepath.Join(root, "Claude_Personal")
 	if err := os.MkdirAll(created, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m := &mockPlatform{running: true, createdPath: created}
+	m := &mockPlatform{running: true, createdIdentity: "Claude_Personal", createdPath: created}
 
-	got, err := NewProfileCreator(m).Create(CreateProfileRequest{Name: "Personal"})
+	got, err := NewProfileCreator(m).Create(CreateProfileRequest{Name: "  Personal  "})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if got != created {
-		t.Fatalf("path = %q, want %q", got, created)
+	if got.DataDir != created || got.Identity != "Claude_Personal" {
+		t.Fatalf("got %+v, want identity Claude_Personal at %q", got, created)
 	}
 	if !m.terminated {
 		t.Fatal("Claude must be quit before its data dirs are touched")
 	}
+	// The platform receives the cleaned name, never the raw input.
 	if m.createdName != "Personal" {
-		t.Fatalf("platform got name %q", m.createdName)
+		t.Fatalf("platform got name %q, want it trimmed", m.createdName)
 	}
-	if m.preparedUUID != "" {
-		t.Fatalf("the add path must not prepare a recovery, got %q", m.preparedUUID)
+	if len(m.preparedSources) != 0 {
+		t.Fatalf("the add path must not prepare a recovery, got %+v", m.preparedSources)
 	}
 	if !m.launched || m.launchedPath != created {
 		t.Fatalf("must launch the new profile, launched=%v path=%q", m.launched, m.launchedPath)
@@ -2910,29 +2929,77 @@ func TestCreateProfileAddPath(t *testing.T) {
 	if len(managed) != 1 || managed[0] != "Claude_Personal" {
 		t.Fatalf("managed = %v, want the new folder listed so it shows up at once", managed)
 	}
+	// The name the user typed becomes the display name, so both platforms show it
+	// even though only one of them puts it in the folder name.
+	if n := LoadProfileNames()["Claude_Personal"]; n != "Personal" {
+		t.Fatalf("display name = %q, want %q", n, "Personal")
+	}
+}
+
+func TestCreateProfileKeysRegistriesOnTheIdentityNotThePath(t *testing.T) {
+	// The Store build: CreateProfile returns identity "Work" while the data lives
+	// in a directory called "Claude" — the shared slot. Anything using
+	// filepath.Base of the path writes "Claude" into the registries, names a
+	// profile FindProfiles never reports, and leaves the real one invisible. Spec
+	// §3.5.
+	withStubbedManaged(t)
+	withStubbedPending(t)
+	withStubbedNames(t)
+	root := t.TempDir()
+	slot := filepath.Join(root, "Claude")
+	if err := os.MkdirAll(slot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &mockPlatform{createdIdentity: "Work", createdPath: slot}
+
+	got, err := NewProfileCreator(m).Create(CreateProfileRequest{Name: "Work"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got.Identity != "Work" {
+		t.Fatalf("identity = %q, want what the platform returned", got.Identity)
+	}
+	if p := LoadPending(); len(p) != 1 || p[0].Folder != "Work" {
+		t.Fatalf("pending = %+v, want it keyed on the identity", p)
+	}
+	if mg := LoadManaged(); len(mg) != 1 || mg[0] != "Work" {
+		t.Fatalf("managed = %v, want it keyed on the identity", mg)
+	}
 }
 
 func TestCreateProfileRecoveryPath(t *testing.T) {
 	withStubbedManaged(t)
 	withStubbedPending(t)
+	withStubbedNames(t)
 	root := t.TempDir()
 	created := filepath.Join(root, "Claude_Recovered")
 	if err := os.MkdirAll(created, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m := &mockPlatform{createdPath: created}
+	m := &mockPlatform{createdIdentity: "Claude_Recovered", createdPath: created}
 
 	_, err := NewProfileCreator(m).Create(CreateProfileRequest{
-		Name: "Recovered", RecoverUUID: "orphan-uuid", SourceFolder: "Claude",
+		Name: "Recovered", RecoverUUID: "orphan-uuid",
+		Sources: []GhostSource{
+			{Folder: "Claude", Path: "/data/Claude", Convos: 5},
+			{Folder: "Claude_Two", Path: "/data/Claude_Two", Convos: 40},
+		},
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if m.preparedUUID != "orphan-uuid" {
-		t.Fatalf("recovery must be prepared for the orphan, got %q", m.preparedUUID)
+	// Every source is passed through, with the path the scan gave it — nothing here
+	// reconstructs a path from a folder name.
+	if len(m.preparedSources) != 2 {
+		t.Fatalf("all sources must reach the platform, got %+v", m.preparedSources)
 	}
-	if filepath.Base(m.preparedFrom) != "Claude" {
-		t.Fatalf("recovery source = %q, want the folder holding the bucket", m.preparedFrom)
+	for _, s := range m.preparedSources {
+		if s.UUID != "orphan-uuid" {
+			t.Fatalf("source has the wrong account: %+v", s)
+		}
+	}
+	if m.preparedSources[0].Path != "/data/Claude" || m.preparedSources[1].Path != "/data/Claude_Two" {
+		t.Fatalf("paths must come from the scan: %+v", m.preparedSources)
 	}
 	pending := LoadPending()
 	if len(pending) != 1 || pending[0].ExpectUUID != "orphan-uuid" {
@@ -2943,6 +3010,7 @@ func TestCreateProfileRecoveryPath(t *testing.T) {
 func TestCreateProfileRejectsBadNameBeforeTouchingAnything(t *testing.T) {
 	withStubbedManaged(t)
 	withStubbedPending(t)
+	withStubbedNames(t)
 	m := &mockPlatform{}
 
 	if _, err := NewProfileCreator(m).Create(CreateProfileRequest{Name: "  "}); err == nil {
@@ -2959,18 +3027,36 @@ func TestCreateProfileRejectsBadNameBeforeTouchingAnything(t *testing.T) {
 	}
 }
 
+func TestCreateProfileRecoveryWithNoSourcesIsRefused(t *testing.T) {
+	withStubbedManaged(t)
+	withStubbedPending(t)
+	withStubbedNames(t)
+	m := &mockPlatform{createdIdentity: "Claude_Recovered", createdPath: t.TempDir()}
+
+	if _, err := NewProfileCreator(m).Create(CreateProfileRequest{
+		Name: "Recovered", RecoverUUID: "orphan-uuid",
+	}); err == nil {
+		t.Fatal("a recovery with nowhere to copy from must be refused")
+	}
+	if m.terminated {
+		t.Fatal("refuse before quitting Claude — nothing has changed yet")
+	}
+}
+
 func TestCreateProfileRecoveryFailureLeavesNoState(t *testing.T) {
 	withStubbedManaged(t)
 	withStubbedPending(t)
+	withStubbedNames(t)
 	root := t.TempDir()
 	created := filepath.Join(root, "Claude_Recovered")
 	if err := os.MkdirAll(created, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m := &mockPlatform{createdPath: created, prepareErr: os.ErrPermission}
+	m := &mockPlatform{createdIdentity: "Claude_Recovered", createdPath: created, prepareErr: os.ErrPermission}
 
 	if _, err := NewProfileCreator(m).Create(CreateProfileRequest{
-		Name: "Recovered", RecoverUUID: "orphan-uuid", SourceFolder: "Claude",
+		Name: "Recovered", RecoverUUID: "orphan-uuid",
+		Sources: []GhostSource{{Folder: "Claude", Path: "/data/Claude", Convos: 5}},
 	}); err == nil {
 		t.Fatal("want the copy failure surfaced")
 	}
@@ -2995,12 +3081,14 @@ func TestCreateProfileRecoveryFailureLeavesNoState(t *testing.T) {
 // core/switch_test.go — add the field and honour it
 	prepareErr error
 
-func (m *mockPlatform) PrepareRecovery(newProfilePath, sourceProfilePath, expectUUID string) error {
-	m.preparedFrom = sourceProfilePath
-	m.preparedUUID = expectUUID
+func (m *mockPlatform) PrepareRecovery(newProfilePath string, sources []platform.RecoverySource) error {
+	m.preparedSources = sources
 	return m.prepareErr
 }
 ```
+
+`withStubbedNames` comes from Task 9. If Task 10 is being done first, define it there
+instead and have Task 9 reuse it — it must exist exactly once in the package.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -3022,14 +3110,27 @@ import (
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
 
-// CreateProfileRequest describes a profile to create. RecoverUUID and
-// SourceFolder are set together, and only on the recovery path: they name the
-// orphaned account whose conversations should end up in the new profile, and the
-// folder currently holding them.
+// CreateProfileRequest describes a profile to create. RecoverUUID and Sources are
+// set together, and only on the recovery path: they name the orphaned account whose
+// conversations should end up in the new profile, and every profile currently
+// holding some of them.
+//
+// Sources carry their own paths, straight from the scan. Nothing here rebuilds a
+// path from a folder name: on the Store build the data root is not AppSupportDir()
+// and a parked profile is a level deeper still (spec §3.5).
 type CreateProfileRequest struct {
-	Name         string
-	RecoverUUID  string
-	SourceFolder string
+	Name        string
+	RecoverUUID string
+	Sources     []GhostSource
+}
+
+// CreatedProfile is what a create produced: the identity every MCS registry keys
+// on, and the directory the data lives in. They are separate because they differ on
+// the Store build, where the directory is the shared slot and always called
+// "Claude". Never derive one from the other.
+type CreatedProfile struct {
+	Identity string
+	DataDir  string
 }
 
 // ProfileCreator runs the create-a-profile sequence. It exists so the macOS and
@@ -3051,40 +3152,48 @@ func NewProfileCreator(p platform.Platform) *ProfileCreator {
 // good. A recovery that cannot copy its conversations removes the profile it
 // just made, so a retry starts from a clean slate rather than colliding with a
 // half-made folder.
-func (c *ProfileCreator) Create(req CreateProfileRequest) (string, error) {
-	if err := ValidateProfileName(req.Name); err != nil {
-		return "", err
+func (c *ProfileCreator) Create(req CreateProfileRequest) (*CreatedProfile, error) {
+	clean, err := ValidateProfileName(req.Name)
+	if err != nil {
+		return nil, err
 	}
-	if req.RecoverUUID != "" && req.SourceFolder == "" {
-		return "", fmt.Errorf("internal: a recovery needs the folder holding the conversations")
+	if req.RecoverUUID != "" && len(req.Sources) == 0 {
+		return nil, fmt.Errorf("internal: a recovery needs the profiles holding the conversations")
 	}
 
 	// Claude holds its data dir open, and on the Store build the profile is
 	// created by moving that very directory.
 	if err := c.Plat.TerminateApp(); err != nil {
-		return "", err
+		return nil, err
 	}
 
-	createdPath, err := c.Plat.CreateProfile(req.Name)
+	// Both come back from the platform. The identity is what FindProfiles will
+	// report and what every registry below keys on; the directory is where the data
+	// goes. On the Store build they differ, and filepath.Base of the directory is
+	// "Claude" for every profile — deriving the identity that way is the defect this
+	// signature exists to prevent (spec §3.5).
+	identity, dataDir, err := c.Plat.CreateProfile(clean)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if req.RecoverUUID != "" {
-		sourcePath := filepath.Join(c.Plat.AppSupportDir(), req.SourceFolder)
-		if err := c.Plat.PrepareRecovery(createdPath, sourcePath, req.RecoverUUID); err != nil {
-			// The source was only ever read from, so removing what we just made
+		sources := make([]platform.RecoverySource, 0, len(req.Sources))
+		for _, s := range req.Sources {
+			sources = append(sources, platform.RecoverySource{Path: s.Path, UUID: req.RecoverUUID})
+		}
+		if err := c.Plat.PrepareRecovery(dataDir, sources); err != nil {
+			// The sources were only ever read from, so removing what we just made
 			// loses nothing and leaves the name free for a retry.
-			if rmErr := os.RemoveAll(createdPath); rmErr != nil {
-				log.Printf("could not clean up the half-made profile %q: %v", createdPath, rmErr)
+			if rmErr := os.RemoveAll(dataDir); rmErr != nil {
+				log.Printf("could not clean up the half-made profile %q: %v", dataDir, rmErr)
 			}
-			return "", err
+			return nil, err
 		}
 	}
 
-	folder := filepath.Base(createdPath)
-	if err := AddPending(folder, req.RecoverUUID); err != nil {
-		return "", fmt.Errorf("record the new profile: %w", err)
+	if err := AddPending(identity, req.RecoverUUID); err != nil {
+		return nil, fmt.Errorf("record the new profile: %w", err)
 	}
 	// Managed at once, so the account list shows it while the user is being told
 	// to go and sign in to it.
@@ -3092,37 +3201,53 @@ func (c *ProfileCreator) Create(req CreateProfileRequest) (string, error) {
 	if managed != nil {
 		already := false
 		for _, m := range managed {
-			if m == folder {
+			if m == identity {
 				already = true
 			}
 		}
 		if !already {
-			if err := SetManaged(append(managed, folder)); err != nil {
-				return "", fmt.Errorf("update the managed list: %w", err)
+			if err := SetManaged(append(managed, identity)); err != nil {
+				return nil, fmt.Errorf("update the managed list: %w", err)
 			}
 		}
-	} else if err := SetManaged([]string{folder}); err != nil {
-		return "", fmt.Errorf("update the managed list: %w", err)
+	} else if err := SetManaged([]string{identity}); err != nil {
+		return nil, fmt.Errorf("update the managed list: %w", err)
+	}
+	// Show the name the user typed, whatever the platform chose to call the folder.
+	// Without this a profile created on macOS or Windows standalone reads as
+	// "Claude_Work" while the same profile on the Store build reads as "Work".
+	if err := SetProfileName(identity, clean); err != nil {
+		log.Printf("could not record the display name for %q: %v", identity, err)
 	}
 
-	if err := c.Plat.LaunchProfile(createdPath); err != nil {
-		return createdPath, fmt.Errorf("the profile is ready but Claude didn't open: %w", err)
+	created := &CreatedProfile{Identity: identity, DataDir: dataDir}
+	if err := c.Plat.LaunchProfile(dataDir); err != nil {
+		return created, fmt.Errorf("the profile is ready but Claude didn't open: %w", err)
 	}
-	return createdPath, nil
+	return created, nil
 }
 ```
 
-`os.RemoveAll(createdPath)` is the one removal in this codebase that touches a Claude data dir. It is confined to a directory MCS created seconds earlier, that no account has ever been signed in to, and whose only content is a copy whose source is untouched. Do not widen it.
+`os.RemoveAll(dataDir)` is the one removal in this codebase that touches a Claude data dir. It is confined to a directory MCS created seconds earlier, that no account has ever been signed in to, and whose only content is a copy whose sources are untouched. Do not widen it.
 
-Note the `managed == nil` branch: `LoadManaged` returns nil on first run and callers must not treat that as "configured empty" (`core/managed.go:26`).
+On the Store build that directory does not exist at this point — the slot is deliberately absent — so the `RemoveAll` is a no-op there and the parked original is untouched. That is correct: `PrepareRecovery` is also a no-op on that platform, so there is nothing to undo.
+
+Note the `managed == nil` branch: `LoadManaged` returns nil on first run and callers must not treat that as "configured empty" (`core/managed.go`).
+
+The display name is recorded with `SetProfileName` and a failure there is logged, not fatal: the profile exists, is registered, and works — a missing display name is cosmetic, and undoing a successful creation over it would be worse than the symptom.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./core/ -run TestCreateProfile -v`
-Expected: PASS, 4 tests.
+Expected: PASS, 6 tests.
 
 Run: `go test ./... 2>&1 | tail -10`
 Expected: all packages pass.
+
+`TestCreateProfileKeysRegistriesOnTheIdentityNotThePath` is the one that matters most here.
+Confirm it is a real gate by temporarily replacing `identity` with
+`filepath.Base(dataDir)` in the three registry calls: that test must fail and the others
+must still pass. Put it back.
 
 - [ ] **Step 5: Commit**
 
@@ -3136,7 +3261,7 @@ git commit -m "core: one create-a-profile sequence shared by both hosts"
 ### Task 11: Account list — add card and duplicate warning
 
 **Files:**
-- Modify: `internal/panelui/render.go` — `ProfileVM` (line 21), `RenderList` (line 188), `shell` CSS (line 53)
+- Modify: `internal/panelui/render.go` — `ProfileVM`, `RenderList`, `shell`'s CSS
 - Test: `internal/panelui/render_test.go`
 
 **Interfaces:**
@@ -3166,11 +3291,18 @@ func TestRenderListWarnsAboutDuplicates(t *testing.T) {
 	if !strings.Contains(html, "the same account") {
 		t.Fatalf("want a duplicate warning:\n%s", html)
 	}
-	if !strings.Contains(html, `send('showMerge','Claude|Claude_Work')`) {
+	// Folder names go through data-* and are read back with dataset, never
+	// interpolated into an inline JS string. That is the v0.9.1 bug class: a folder
+	// containing an apostrophe becomes &#39; via html.EscapeString, which the HTML
+	// parser decodes back to ' before the JS is parsed.
+	if !strings.Contains(html, `data-dup-a="Claude" data-dup-b="Claude_Work"`) {
 		t.Fatalf("warning must offer the merge for that group:\n%s", html)
 	}
-	if strings.Count(html, "dup-pill") != 2 {
-		t.Fatalf("both duplicate cards must be marked, got %d:\n%s", strings.Count(html, "dup-pill"), html)
+	// Assert on the markup, not the class name: shell() emits every class name in
+	// its <style> block on every page, so strings.Contains("dup-pill") is true even
+	// on a page with no pills at all.
+	if got := strings.Count(html, dupPillMarkup); got != 2 {
+		t.Fatalf("both duplicate cards must be marked, got %d:\n%s", got, html)
 	}
 }
 
@@ -3182,7 +3314,7 @@ func TestRenderListNoWarningWhenAccountsAreUnique(t *testing.T) {
 	if strings.Contains(html, "the same account") {
 		t.Fatal("no duplicates, no warning")
 	}
-	if strings.Contains(html, "dup-pill") {
+	if strings.Contains(html, dupPillMarkup) {
 		t.Fatal("no duplicates, no pills")
 	}
 }
@@ -3209,18 +3341,27 @@ func TestRenderListOneWarningForTheFirstGroupOnly(t *testing.T) {
 	if strings.Count(html, "the same account") != 1 {
 		t.Fatalf("one group at a time, got %d warnings:\n%s", strings.Count(html, "the same account"), html)
 	}
-	if !strings.Contains(html, `send('showMerge','Claude_A|Claude_B')`) {
+	if !strings.Contains(html, `data-dup-a="Claude_A" data-dup-b="Claude_B"`) {
 		t.Fatal("the first group by folder order goes first")
 	}
 	// All four cards are still flagged, so the user can see the second pair is
 	// coming.
-	if strings.Count(html, "dup-pill") != 4 {
-		t.Fatalf("every duplicate card is marked, got %d", strings.Count(html, "dup-pill"))
+	if got := strings.Count(html, dupPillMarkup); got != 4 {
+		t.Fatalf("every duplicate card is marked, got %d", got)
 	}
 }
 ```
 
-Check `internal/panelui/render_test.go`'s existing imports include `strings` and add it if not.
+And, at the top of the test file, the one place the pill's markup is written down:
+
+```go
+// dupPillMarkup is the rendered pill, not its class name. shell() puts every class
+// name into the <style> block of every page, so asserting on a bare class name
+// passes whether or not the element was rendered — and its negation can never fail.
+const dupPillMarkup = `<span class="dup-pill">Duplicate</span>`
+```
+
+`internal/panelui/render_test.go` already imports `strings`.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -3238,7 +3379,7 @@ Add to `ProfileVM`:
 	UUID string
 ```
 
-Add CSS to `shell` (beside `.note-bad`, line 91):
+Add CSS to `shell`, beside the existing `.note-bad` rule:
 
 ```css
 .dup{background:#fde4e4;border-radius:12px;padding:11px 13px;margin-bottom:11px;display:flex;align-items:center;gap:10px}
@@ -3285,11 +3426,23 @@ In `RenderList`, before the card loop, compute the duplicate state:
 	dupWarning := ""
 	if firstGroup != nil {
 		a, b := firstGroup[0], firstGroup[1]
+		// The two folder names travel as data-* and are read back with dataset.
+		// Interpolating them into the onclick string would reintroduce the v0.9.1
+		// bug: html.EscapeString turns an apostrophe into &#39;, the HTML parser
+		// decodes it back to ' before the JS is parsed, and the handler breaks (or
+		// worse) on any folder containing one.
 		dupWarning = fmt.Sprintf(`<div class="dup">
   <div class="dt">%s and %s are the same account. Merge them to clean this up.</div>
-  <button class="btn-sm" onclick="send('showMerge','%s')">Merge</button>
-</div>`, esc(nameOf(profiles, a)), esc(nameOf(profiles, b)), esc(a+"|"+b))
+  <button class="btn-sm" data-dup-a="%s" data-dup-b="%s" onclick="mergePair(this.dataset.dupA,this.dataset.dupB)">Merge</button>
+</div>`, esc(nameOf(profiles, a)), esc(nameOf(profiles, b)), esc(a), esc(b))
 	}
+```
+
+Add the JS helper beside `syncDir` in `shell`, which already does exactly this for its own
+pair of folder names:
+
+```js
+  function mergePair(a,b){ send('showMerge', a+'|'+b); }
 ```
 
 `profiles` arrives in folder order from both hosts (`buildProfiles` iterates `FindProfiles`, which reads a sorted directory), so `uuidOrder` yields groups ordered by their first folder without a sort.
@@ -3352,12 +3505,17 @@ git commit -m "panel: offer to add an account, and insist on merging duplicates"
 ### Task 12: Rescan — Recover on recoverable ghosts
 
 **Files:**
-- Modify: `internal/panelui/render.go` — `RenderRescan` ghost branch (line 309)
+- Modify: `internal/panelui/render.go` — the `if !a.Complete` branch in `RenderRescan`
 - Test: `internal/panelui/render_test.go`
 
 **Interfaces:**
-- Consumes: `core.ScannedAccount.Recoverable`, `.SourceFolder`, `.Note` (Task 3).
-- Produces: the panel action `showRecover` with arg `uuid|sourceFolder`.
+- Consumes: `core.ScannedAccount.Recoverable`, `.Sources`, `.Note` (Task 3).
+- Produces: the panel action `showRecover` with arg `uuid`.
+
+The action carries **only the account UUID**. The sources are looked up again by the host
+when the recovery runs, from a fresh scan: a ghost can have several source profiles, and
+their paths are only valid for the scan that produced them (spec §3.5). Packing them into
+an onclick would be both wrong and unbounded.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3366,7 +3524,8 @@ git commit -m "panel: offer to add an account, and insist on merging duplicates"
 func TestRenderRescanRecoverableGhostOffersRecovery(t *testing.T) {
 	accounts := []core.ScannedAccount{{
 		UUID: "bbbbbbbb-0000-4000-8000-000000000002", Complete: false,
-		Recoverable: true, SourceFolder: "Claude", Convos: 94,
+		Recoverable: true, Convos: 94,
+		Sources:     []core.GhostSource{{Folder: "Claude", Path: "/data/Claude", Convos: 94}},
 		LastUpdated: time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC),
 		Note:        core.RecoverableGhostNote,
 	}}
@@ -3377,13 +3536,16 @@ func TestRenderRescanRecoverableGhostOffersRecovery(t *testing.T) {
 	if strings.Contains(html, "Unrecognized account") {
 		t.Fatal("a recoverable account is not unrecognised")
 	}
-	if !strings.Contains(html, `send('showRecover','bbbbbbbb-0000-4000-8000-000000000002|Claude')`) {
-		t.Fatalf("want a Recover action carrying uuid and source folder:\n%s", html)
+	if !strings.Contains(html, `data-uuid="bbbbbbbb-0000-4000-8000-000000000002"`) {
+		t.Fatalf("want a Recover action carrying the account:\n%s", html)
 	}
-	if !strings.Contains(html, "note-todo") {
-		t.Fatal("recoverable note uses the blue style, not the red one")
+	// Assert on the rendered note, not the class name: shell() emits .note-todo and
+	// .note-bad in the <style> block of every page, so a bare class-name check is
+	// true regardless of what was rendered, and its negation can never fail.
+	if !strings.Contains(html, `<div class="note-todo">`+core.RecoverableGhostNote+`</div>`) {
+		t.Fatalf("recoverable note uses the blue style, not the red one:\n%s", html)
 	}
-	if strings.Contains(html, "note-bad") {
+	if strings.Contains(html, `<div class="note-bad">`) {
 		t.Fatal("red is reserved for dead ghosts")
 	}
 	if !strings.Contains(html, "94 chats") {
@@ -3402,15 +3564,16 @@ func TestRenderRescanDeadGhostStaysReadOnly(t *testing.T) {
 	if strings.Contains(html, "showRecover") {
 		t.Fatal("nothing to recover, so no Recover button")
 	}
-	if !strings.Contains(html, "note-bad") {
+	if !strings.Contains(html, `<div class="note-bad">Invalid account data</div>`) {
 		t.Fatal("dead ghost keeps the red note")
 	}
 }
 
 func TestRenderRescanRecoverableGhostIsNotSelectable(t *testing.T) {
 	accounts := []core.ScannedAccount{{
-		UUID: "u", Complete: false, Recoverable: true, SourceFolder: "Claude", Convos: 1,
-		Note: core.RecoverableGhostNote,
+		UUID: "u", Complete: false, Recoverable: true, Convos: 1,
+		Sources: []core.GhostSource{{Folder: "Claude", Path: "/data/Claude", Convos: 1}},
+		Note:    core.RecoverableGhostNote,
 	}}
 	html := RenderRescan(accounts, nil)
 	// It has no folder to manage yet, so it must not join the checkbox set that
@@ -3421,7 +3584,7 @@ func TestRenderRescanRecoverableGhostIsNotSelectable(t *testing.T) {
 }
 ```
 
-Check that `render_test.go` imports `time` and `core`; the existing tests at line 50 use `core.ScannedAccount`, so `core` is present.
+`render_test.go` already imports `core` — its existing tests build `core.ScannedAccount` values. Add `time` if it is not there.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -3430,7 +3593,7 @@ Expected: FAIL — the existing ghost branch renders "Unrecognized account" for 
 
 - [ ] **Step 3: Write the implementation**
 
-Replace the `if !a.Complete` branch in `RenderRescan` (lines 309-317) with a split on `Recoverable`:
+Replace the `if !a.Complete` branch in `RenderRescan` with a split on `Recoverable`:
 
 ```go
 		if !a.Complete {
@@ -3444,9 +3607,9 @@ Replace the `if !a.Complete` branch in `RenderRescan` (lines 309-317) with a spl
         <div class="body"><div class="row1"><span class="name">Signed out in Claude Desktop</span></div>
           <div class="meta"><span class="chip">%s</span><span class="dot">·</span>%d chats<span class="dot">·</span>%s</div>
           <div class="note-todo">%s</div></div>
-        <button class="btn-sm" onclick="send('showRecover','%s')">Recover</button></div>`,
+        <button class="btn-sm" data-uuid="%s" onclick="send('showRecover',this.dataset.uuid)">Recover</button></div>`,
 					esc(ShortID(a.UUID)), a.Convos, esc(date), esc(a.Note),
-					esc(a.UUID+"|"+a.SourceFolder)))
+					esc(a.UUID)))
 				continue
 			}
 			cards.WriteString(fmt.Sprintf(`
@@ -3461,12 +3624,17 @@ Replace the `if !a.Complete` branch in `RenderRescan` (lines 309-317) with a spl
 
 The recoverable card drops the `ghost` class so it is not dimmed to 55% opacity: it is the one ghost row the user can act on.
 
+A UUID could not contain an apostrophe, but it still travels as `data-uuid` and is read back
+with `dataset`. Every value that reaches JS goes the same way, so there is no judgement call
+per call site about which strings are "safe enough" — that judgement is what produced the
+v0.9.1 bug.
+
 `.btn-sm` was added to `shell` in Task 11. If Task 11 has not landed, add it here instead and drop it from Task 11.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/panelui/ -v`
-Expected: PASS. `TestRenderRescanGhostStaysReadOnly` (existing, line 118) may assert on the old markup — read it and, if it uses a populated bucket, retarget it at a dead ghost so it keeps testing what it was written to test.
+Expected: PASS. The pre-existing ghost test (`grep -n "Unrecognized account" internal/panelui/render_test.go`) may assert on the old markup — read it and, if its fixture has a populated bucket, retarget it at a dead ghost so it keeps testing what it was written to test.
 
 - [ ] **Step 5: Commit**
 
@@ -3484,11 +3652,15 @@ git commit -m "panel: let a signed-out account be recovered from Rescan"
 - Test: `internal/panelui/render_test.go`
 
 **Interfaces:**
-- Consumes: `.btn-sm` and CSS from Task 11; `.rninput` already exists (line 122).
+- Consumes: `.btn-sm` and CSS from Task 11; `.rninput` already exists in `shell`.
 - Produces:
-  - `type NewProfileVM struct { RecoverUUID, SourceFolder, SuggestedName string; Convos int; Err string }`
+  - `type NewProfileVM struct { RecoverUUID, SuggestedName string; Convos int; Err string }`
   - `func RenderNewProfile(vm NewProfileVM) string`
-  - the panel action `createProfile` with a JSON arg `[name, recoverUUID, sourceFolder]`
+  - the panel action `createProfile` with a JSON arg `[name, recoverUUID]`
+
+There is no source folder in the view or the action. A ghost can have several source
+profiles and their paths are only valid for the scan that produced them, so the host looks
+them up from a fresh scan when the recovery runs (spec §3.5, Task 12).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3502,6 +3674,10 @@ func TestRenderNewProfileAddVariant(t *testing.T) {
 	if !strings.Contains(html, `value=""`) {
 		t.Fatal("the add path starts with an empty name")
 	}
+	// The copy is "a <b>different account</b>", so the phrase survives the markup.
+	// Wrapping only the word — "a <b>different</b> account" — makes this assertion
+	// fail against its own implementation, which is how the first draft of this task
+	// shipped a test that could not pass.
 	if !strings.Contains(html, "different account") {
 		t.Fatal("the add path must warn against signing in as an existing account")
 	}
@@ -3513,7 +3689,6 @@ func TestRenderNewProfileAddVariant(t *testing.T) {
 func TestRenderNewProfileRecoverVariant(t *testing.T) {
 	html := RenderNewProfile(NewProfileVM{
 		RecoverUUID:   "bbbbbbbb-0000-4000-8000-000000000002",
-		SourceFolder:  "Claude",
 		SuggestedName: "Recovered 2026-07-29",
 		Convos:        94,
 	})
@@ -3542,10 +3717,10 @@ func TestRenderNewProfileShowsAnError(t *testing.T) {
 }
 
 func TestRenderNewProfilePassesContextThroughDataAttributes(t *testing.T) {
-	html := RenderNewProfile(NewProfileVM{RecoverUUID: "u-1", SourceFolder: "Claude"})
-	// The v0.9.1 bug class: folder names must never be interpolated into inline
-	// JS string arguments.
-	if !strings.Contains(html, `data-uuid="u-1"`) || !strings.Contains(html, `data-source="Claude"`) {
+	html := RenderNewProfile(NewProfileVM{RecoverUUID: "u-1"})
+	// The v0.9.1 bug class: values must never be interpolated into inline JS string
+	// arguments.
+	if !strings.Contains(html, `data-uuid="u-1"`) {
 		t.Fatalf("context must travel as data attributes:\n%s", html)
 	}
 	if strings.Contains(html, "createProfileSave('") {
@@ -3578,7 +3753,6 @@ Add to `internal/panelui/render.go`:
 // the two from drifting apart.
 type NewProfileVM struct {
 	RecoverUUID   string
-	SourceFolder  string
 	SuggestedName string
 	Convos        int
 	Err           string
@@ -3594,7 +3768,9 @@ func RenderNewProfile(vm NewProfileVM) string {
 		title, sub, confirm = "Recover this account", "It gets its own profile", "Recover"
 	}
 
-	second := `<div class="hintw">Sign in as a <b>different</b> account. Signing in as one you already have creates a duplicate, and MCS will ask you to merge.</div>`
+	// "different account" stays one unbroken phrase inside the <b>, so a test can
+	// assert on it as the user reads it.
+	second := `<div class="hintw">Sign in as a <b>different account</b>. Signing in as one you already have creates a duplicate, and MCS will ask you to merge.</div>`
 	if recovering {
 		second = fmt.Sprintf(`<div class="hintw">Sign in as the account ending <b>%s</b> (%d chats). Its conversations come back on their own.</div>`,
 			esc(ShortID(vm.RecoverUUID)), vm.Convos)
@@ -3613,7 +3789,7 @@ func RenderNewProfile(vm NewProfileVM) string {
 <div class="hint">Claude closes, your current account is saved, and a clean Claude opens.</div>` + second + `
 <div class="footer">
   <button class="btn btn-light" onclick="send('showList','')">Cancel</button>
-  <button class="btn btn-primary" data-uuid="` + esc(vm.RecoverUUID) + `" data-source="` + esc(vm.SourceFolder) + `" onclick="createProfileSave(this)">` + esc(confirm) + `</button>
+  <button class="btn btn-primary" data-uuid="` + esc(vm.RecoverUUID) + `" onclick="createProfileSave(this)">` + esc(confirm) + `</button>
 </div>
 <script>var e=document.getElementById('np'); e.focus(); e.select();</script>`
 	return shell(body)
@@ -3628,12 +3804,12 @@ Add the two CSS rules to `shell`, beside `.rninput`:
 .errbox{background:#fde4e4;color:#a32d2d;font-size:12px;font-weight:700;padding:9px 12px;border-radius:11px;margin-bottom:11px}
 ```
 
-Add the JS bridge function to `shell`'s script block, beside `renameSave` (line 156):
+Add the JS bridge function to `shell`'s script block, beside `renameSave`:
 
 ```js
   function createProfileSave(btn){
     var v=document.getElementById('np').value.trim();
-    send('createProfile', JSON.stringify([v, btn.dataset.uuid||'', btn.dataset.source||'']));
+    send('createProfile', JSON.stringify([v, btn.dataset.uuid||'']));
   }
 ```
 
@@ -3658,11 +3834,17 @@ git commit -m "panel: one screen for naming a new or recovered account"
 - Test: `internal/panelui/render_test.go`
 
 **Interfaces:**
-- Consumes: CSS from Tasks 11 and 13.
+- Consumes: CSS from Tasks 11 and 13; `core.MergePlan` (Task 9).
 - Produces:
   - `type MergeCandidateVM struct { Folder, Name, Plan string; Convos int; Current bool }`
-  - `func RenderMerge(a, b MergeCandidateVM, status string, busy bool) string`
-  - the panel action `mergeConfirm` with arg `keepFolder|archiveFolder`
+  - `func RenderMerge(a, b MergeCandidateVM, plan core.MergePlan, status string, busy bool) string`
+  - the panel action `mergeConfirm` with arg `keepIdentity|archiveIdentity`
+
+**The screen renders a computed plan, not a sum.** `plan.Combined` is the union of the two
+buckets — `a.Convos + b.Convos` double-counts every conversation both profiles hold, which
+after a merge is one conversation, not two. And when `plan.Conflicts > 0` the screen has to
+say so before the user commits: those records keep the keeper's version and the other
+version survives only in the archive (spec §4.4, §5.2).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3671,36 +3853,73 @@ git commit -m "panel: one screen for naming a new or recovered account"
 func TestRenderMergePreselectsTheProfileInUse(t *testing.T) {
 	a := MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 99}
 	b := MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 42, Current: true}
-	html := RenderMerge(a, b, "", false)
+	html := RenderMerge(a, b, core.MergePlan{Combined: 141}, "", false)
 
 	// Keeping the one already in use means no re-sign-in, so it is the default.
-	iA := strings.Index(html, `data-folder="Claude"`)
-	iB := strings.Index(html, `data-folder="Claude_Work"`)
-	if iA < 0 || iB < 0 {
-		t.Fatalf("both candidates must be rendered:\n%s", html)
+	//
+	// Assert on the class and the folder together. Comparing their positions
+	// separately cannot fail: the class attribute precedes data-folder inside every
+	// card, so the index of "selected" is below the index of either folder whichever
+	// card carries it.
+	if !strings.Contains(html, `class="card selectable selected" data-folder="Claude_Work"`) {
+		t.Fatalf("the in-use profile must be the preselected one:\n%s", html)
 	}
-	selIdx := strings.Index(html, "card selectable selected")
-	if selIdx < 0 {
-		t.Fatalf("one card must be preselected:\n%s", html)
-	}
-	if selIdx > iB {
-		t.Fatalf("the in-use profile (Claude_Work) must be the preselected one:\n%s", html)
+	if !strings.Contains(html, `class="card selectable" data-folder="Claude"`) {
+		t.Fatalf("the other profile must not be preselected:\n%s", html)
 	}
 	if !strings.Contains(html, "Will be archived") {
 		t.Fatal("the other card must say what happens to it")
 	}
 }
 
-func TestRenderMergeShowsTheCombinedTotal(t *testing.T) {
+func TestRenderMergePreselectsTheFirstWhenNeitherIsInUse(t *testing.T) {
+	// Claude is quit by the time a merge runs, so "in use" can be unknown. The
+	// screen must never render with nothing chosen.
+	html := RenderMerge(
+		MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 1},
+		MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 1},
+		core.MergePlan{Combined: 2}, "", false)
+	if !strings.Contains(html, `class="card selectable selected" data-folder="Claude"`) {
+		t.Fatalf("fall back to the first card:\n%s", html)
+	}
+}
+
+func TestRenderMergeShowsThePlansCombinedTotalNotTheSum(t *testing.T) {
+	// Both profiles hold 99 and 42 conversations, 20 of them the same records, so
+	// the keeper ends up with 121 — not 141. The screen must show what the merge
+	// computed, or it promises conversations that do not exist.
 	html := RenderMerge(
 		MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 99, Current: true},
 		MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 42},
-		"", false)
-	if !strings.Contains(html, "141") {
-		t.Fatalf("want the union total 99+42:\n%s", html)
+		core.MergePlan{Combined: 121}, "", false)
+	if !strings.Contains(html, "121") {
+		t.Fatalf("want the plan's union total:\n%s", html)
+	}
+	if strings.Contains(html, "141") {
+		t.Fatalf("the sum of both sides double-counts shared records:\n%s", html)
 	}
 	if !strings.Contains(html, "archived, not deleted") {
 		t.Fatal("must say nothing is deleted")
+	}
+}
+
+func TestRenderMergeDisclosesConflicts(t *testing.T) {
+	html := RenderMerge(
+		MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 99, Current: true},
+		MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 42},
+		core.MergePlan{Combined: 121, Conflicts: 3}, "", false)
+	if !strings.Contains(html, "3 conversations exist in both") {
+		t.Fatalf("a conflict strands a version in the archive; say so first:\n%s", html)
+	}
+}
+
+func TestRenderMergeSaysNothingAboutConflictsWhenThereAreNone(t *testing.T) {
+	html := RenderMerge(
+		MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 99, Current: true},
+		MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 42},
+		core.MergePlan{Combined: 141}, "", false)
+	if strings.Contains(html, "exist in both") {
+		t.Fatalf("no conflicts, no warning:\n%s", html)
 	}
 }
 
@@ -3708,7 +3927,7 @@ func TestRenderMergeUsesDataAttributesNotInlineArgs(t *testing.T) {
 	html := RenderMerge(
 		MergeCandidateVM{Folder: "Claude", Name: "Claude", Current: true},
 		MergeCandidateVM{Folder: "Claude_Work", Name: "Work"},
-		"", false)
+		core.MergePlan{}, "", false)
 	if strings.Contains(html, "mergeConfirm('") {
 		t.Fatalf("no inline string args (v0.9.1 bug class):\n%s", html)
 	}
@@ -3718,15 +3937,23 @@ func TestRenderMergeUsesDataAttributesNotInlineArgs(t *testing.T) {
 }
 
 func TestRenderMergeBusyDisablesTheAction(t *testing.T) {
-	html := RenderMerge(
-		MergeCandidateVM{Folder: "Claude", Name: "Claude", Current: true},
-		MergeCandidateVM{Folder: "Claude_Work", Name: "Work"},
-		"Merging…", true)
-	if !strings.Contains(html, "Merging…") {
+	a := MergeCandidateVM{Folder: "Claude", Name: "Claude", Current: true}
+	b := MergeCandidateVM{Folder: "Claude_Work", Name: "Work"}
+
+	busy := RenderMerge(a, b, core.MergePlan{Combined: 1}, "Merging…", true)
+	if !strings.Contains(busy, "Merging…") {
 		t.Fatal("status must be shown")
 	}
-	if !strings.Contains(html, "disabled") {
-		t.Fatalf("a merge in flight must not be startable twice:\n%s", html)
+	// Assert on the button, not the word: shell()'s CSS contains ".sbtn:disabled",
+	// so strings.Contains(html, "disabled") is true on every page ever rendered and
+	// this test would pass with busy=false.
+	if !strings.Contains(busy, `<button class="btn btn-primary" disabled`) {
+		t.Fatalf("a merge in flight must not be startable twice:\n%s", busy)
+	}
+
+	idle := RenderMerge(a, b, core.MergePlan{Combined: 1}, "", false)
+	if strings.Contains(idle, `<button class="btn btn-primary" disabled`) {
+		t.Fatalf("the button must be live when no merge is running:\n%s", idle)
 	}
 }
 ```
@@ -3753,7 +3980,12 @@ type MergeCandidateVM struct {
 // the user does not have to sign in again; they can pick the other one when they
 // prefer its name. Conversations are combined either way, so the choice only
 // decides which name survives.
-func RenderMerge(a, b MergeCandidateVM, status string, busy bool) string {
+//
+// plan is what the merge will actually do, computed by core.MergePreview before
+// this screen is rendered. The total shown comes from there and not from adding the
+// two counts: a conversation both profiles hold is one conversation afterwards, not
+// two.
+func RenderMerge(a, b MergeCandidateVM, plan core.MergePlan, status string, busy bool) string {
 	esc := html.EscapeString
 	st := ""
 	if status != "" {
@@ -3792,12 +4024,21 @@ func RenderMerge(a, b MergeCandidateVM, status string, busy bool) string {
 		dis, oc = " disabled", ""
 	}
 
+	// Where both profiles hold a record and the keeper's copy is the newer one, the
+	// sync leaves the keeper's alone and the archive keeps the other. Say so before
+	// the user commits: after the merge that version is reachable only by opening the
+	// archive folder.
+	conflictNote := ""
+	if plan.Conflicts > 0 {
+		conflictNote = fmt.Sprintf(`<div class="hintw">%d conversations exist in both profiles and have changed since they were last in step. The newer version is kept. The other stays in the archived folder, which you can open from Settings.</div>`, plan.Conflicts)
+	}
+
 	body := `<div class="header">
   <button class="back" onclick="send('showList','')">‹</button>
   <div class="htext"><h1>Merge duplicates</h1><p>Both are the same account</p></div>
 </div>` + st + `
 <div class="cards">` + card(a) + card(b) + `</div>
-<div class="hint">All ` + fmt.Sprint(a.Convos+b.Convos) + ` conversations are combined into the account you keep. The other folder is archived, not deleted, so you can put it back yourself.</div>
+<div class="hint">All ` + fmt.Sprint(plan.Combined) + ` conversations are combined into the account you keep. The other folder is archived, not deleted, so you can put it back yourself.</div>` + conflictNote + `
 <div class="footer">
   <button class="btn btn-light" onclick="send('showList','')">Cancel</button>
   <button class="btn btn-primary"` + dis + ` ` + oc + `>Merge</button>
@@ -3828,10 +4069,18 @@ Add to `shell`'s script block:
 
 `toggleMergePick` picks exactly one, unlike `toggleCard`, which toggles freely for the Rescan multi-select. A merge with both or neither chosen has no meaning.
 
+`internal/panelui` already imports `core` (`RenderRescan` takes `[]core.ScannedAccount`), so
+taking a `core.MergePlan` adds no dependency.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/panelui/ -v`
-Expected: PASS, 4 new tests plus all existing.
+Expected: PASS, 7 new tests plus all existing.
+
+Then check the two negative tests are real gates, since both replace assertions that could
+never fail: force `busy` to `false` inside `RenderMerge` and confirm
+`TestRenderMergeBusyDisablesTheAction` fails; preselect `a.Folder` unconditionally and
+confirm `TestRenderMergePreselectsTheProfileInUse` fails. Put both back.
 
 - [ ] **Step 5: Commit**
 
