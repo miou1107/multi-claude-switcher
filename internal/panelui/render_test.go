@@ -402,3 +402,199 @@ func TestRenderListOneWarningForTheFirstGroupOnly(t *testing.T) {
 		t.Fatalf("every duplicate card is marked, got %d", got)
 	}
 }
+
+func TestRenderNewProfileAddVariant(t *testing.T) {
+	html := RenderNewProfile(NewProfileVM{})
+	if !strings.Contains(html, "Add another account") {
+		t.Fatalf("title:\n%s", html)
+	}
+	if !strings.Contains(html, `value=""`) {
+		t.Fatal("the add path starts with an empty name")
+	}
+	// The copy is "a <b>different account</b>", so the phrase survives the markup.
+	// Wrapping only the word — "a <b>different</b> account" — makes this assertion
+	// fail against its own implementation, which is how the first draft of this task
+	// shipped a test that could not pass.
+	if !strings.Contains(html, "different account") {
+		t.Fatal("the add path must warn against signing in as an existing account")
+	}
+	if strings.Contains(html, "conversations come back") {
+		t.Fatal("no recovery copy on the add path")
+	}
+}
+
+func TestRenderNewProfileRecoverVariant(t *testing.T) {
+	html := RenderNewProfile(NewProfileVM{
+		RecoverUUID:   "bbbbbbbb-0000-4000-8000-000000000002",
+		SuggestedName: "Recovered 2026-07-29",
+		Convos:        94,
+	})
+	if !strings.Contains(html, "Recover this account") {
+		t.Fatalf("title:\n%s", html)
+	}
+	if !strings.Contains(html, `value="Recovered 2026-07-29"`) {
+		t.Fatal("the recovery path pre-fills the name")
+	}
+	if !strings.Contains(html, "bbbbbbbb") {
+		t.Fatal("must say which account to sign in as")
+	}
+	if !strings.Contains(html, "94") {
+		t.Fatal("the conversation count helps the user recognise the account")
+	}
+	if strings.Contains(html, "different account") {
+		t.Fatal("the different-account warning belongs to the add path only")
+	}
+}
+
+func TestRenderNewProfileShowsAnError(t *testing.T) {
+	html := RenderNewProfile(NewProfileVM{Err: "use only letters, numbers, spaces, dashes and underscores"})
+	if !strings.Contains(html, "use only letters") {
+		t.Fatalf("a rejected name must say why:\n%s", html)
+	}
+}
+
+func TestRenderNewProfilePassesContextThroughDataAttributes(t *testing.T) {
+	html := RenderNewProfile(NewProfileVM{RecoverUUID: "u-1"})
+	// The v0.9.1 bug class: values must never be interpolated into inline JS string
+	// arguments.
+	if !strings.Contains(html, `data-uuid="u-1"`) {
+		t.Fatalf("context must travel as data attributes:\n%s", html)
+	}
+	if strings.Contains(html, "createProfileSave('") {
+		t.Fatalf("no inline string args:\n%s", html)
+	}
+}
+
+func TestRenderNewProfileEscapesTheSuggestedName(t *testing.T) {
+	html := RenderNewProfile(NewProfileVM{SuggestedName: `a"><script>x</script>`})
+	if strings.Contains(html, "<script>x</script>") {
+		t.Fatalf("suggested name must be escaped:\n%s", html)
+	}
+}
+
+func TestRenderMergePreselectsTheProfileInUse(t *testing.T) {
+	a := MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 99}
+	b := MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 42, Current: true}
+	html := RenderMerge(a, b, core.MergePlan{Combined: 141}, "", false)
+
+	// Keeping the one already in use means no re-sign-in, so it is the default.
+	//
+	// Assert on the class and the folder together. Comparing their positions
+	// separately cannot fail: the class attribute precedes data-folder inside every
+	// card, so the index of "selected" is below the index of either folder whichever
+	// card carries it.
+	if !strings.Contains(html, `class="card selectable selected" data-folder="Claude_Work"`) {
+		t.Fatalf("the in-use profile must be the preselected one:\n%s", html)
+	}
+	if !strings.Contains(html, `class="card selectable" data-folder="Claude"`) {
+		t.Fatalf("the other profile must not be preselected:\n%s", html)
+	}
+	if !strings.Contains(html, "Will be archived") {
+		t.Fatal("the other card must say what happens to it")
+	}
+}
+
+func TestRenderMergePreselectsTheFirstWhenNeitherIsInUse(t *testing.T) {
+	// Claude is quit by the time a merge runs, so "in use" can be unknown. The
+	// screen must never render with nothing chosen.
+	html := RenderMerge(
+		MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 1},
+		MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 1},
+		core.MergePlan{Combined: 2}, "", false)
+	if !strings.Contains(html, `class="card selectable selected" data-folder="Claude"`) {
+		t.Fatalf("fall back to the first card:\n%s", html)
+	}
+}
+
+func TestRenderMergeShowsThePlansCombinedTotalNotTheSum(t *testing.T) {
+	// Both profiles hold 99 and 42 conversations, 20 of them the same records, so
+	// the keeper ends up with 121 — not 141. The screen must show what the merge
+	// computed, or it promises conversations that do not exist.
+	html := RenderMerge(
+		MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 99, Current: true},
+		MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 42},
+		core.MergePlan{Combined: 121}, "", false)
+	if !strings.Contains(html, "121") {
+		t.Fatalf("want the plan's union total:\n%s", html)
+	}
+	if strings.Contains(html, "141") {
+		t.Fatalf("the sum of both sides double-counts shared records:\n%s", html)
+	}
+	if !strings.Contains(html, "archived, not deleted") {
+		t.Fatal("must say nothing is deleted")
+	}
+}
+
+func TestRenderMergeDisclosesConflicts(t *testing.T) {
+	html := RenderMerge(
+		MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 99, Current: true},
+		MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 42},
+		core.MergePlan{Combined: 121, Conflicts: 3}, "", false)
+	if !strings.Contains(html, "3 conversations exist in both") {
+		t.Fatalf("a conflict strands a version in the archive; say so first:\n%s", html)
+	}
+}
+
+func TestRenderMergeDisclosesUnreadableFiles(t *testing.T) {
+	// A file that could not be read is left where it is, so the keeper ends up with
+	// fewer than promised. Say so rather than quietly delivering a smaller number.
+	html := RenderMerge(
+		MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 99, Current: true},
+		MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 42},
+		core.MergePlan{Combined: 121, Unreadable: 2}, "", false)
+	if !strings.Contains(html, "2 files couldn't be read") {
+		t.Fatalf("unreadable files must be disclosed:\n%s", html)
+	}
+
+	none := RenderMerge(
+		MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 99, Current: true},
+		MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 42},
+		core.MergePlan{Combined: 121}, "", false)
+	if strings.Contains(none, "couldn't be read") {
+		t.Fatalf("no unreadable files, no note:\n%s", none)
+	}
+}
+
+func TestRenderMergeSaysNothingAboutConflictsWhenThereAreNone(t *testing.T) {
+	html := RenderMerge(
+		MergeCandidateVM{Folder: "Claude", Name: "Claude", Convos: 99, Current: true},
+		MergeCandidateVM{Folder: "Claude_Work", Name: "Work", Convos: 42},
+		core.MergePlan{Combined: 141}, "", false)
+	if strings.Contains(html, "exist in both") {
+		t.Fatalf("no conflicts, no warning:\n%s", html)
+	}
+}
+
+func TestRenderMergeUsesDataAttributesNotInlineArgs(t *testing.T) {
+	html := RenderMerge(
+		MergeCandidateVM{Folder: "Claude", Name: "Claude", Current: true},
+		MergeCandidateVM{Folder: "Claude_Work", Name: "Work"},
+		core.MergePlan{}, "", false)
+	if strings.Contains(html, "mergeConfirm('") {
+		t.Fatalf("no inline string args (v0.9.1 bug class):\n%s", html)
+	}
+	if !strings.Contains(html, "toggleMergePick(this)") {
+		t.Fatalf("cards must switch the pick through a handler:\n%s", html)
+	}
+}
+
+func TestRenderMergeBusyDisablesTheAction(t *testing.T) {
+	a := MergeCandidateVM{Folder: "Claude", Name: "Claude", Current: true}
+	b := MergeCandidateVM{Folder: "Claude_Work", Name: "Work"}
+
+	busy := RenderMerge(a, b, core.MergePlan{Combined: 1}, "Merging…", true)
+	if !strings.Contains(busy, "Merging…") {
+		t.Fatal("status must be shown")
+	}
+	// Assert on the button, not the word: shell()'s CSS contains ".sbtn:disabled",
+	// so strings.Contains(html, "disabled") is true on every page ever rendered and
+	// this test would pass with busy=false.
+	if !strings.Contains(busy, `<button class="btn btn-primary" disabled`) {
+		t.Fatalf("a merge in flight must not be startable twice:\n%s", busy)
+	}
+
+	idle := RenderMerge(a, b, core.MergePlan{Combined: 1}, "", false)
+	if strings.Contains(idle, `<button class="btn btn-primary" disabled`) {
+		t.Fatalf("the button must be live when no merge is running:\n%s", idle)
+	}
+}

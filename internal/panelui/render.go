@@ -138,6 +138,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .edit:hover{background:#f1eef9;opacity:1;color:#7c6cf0}
 .rninput{width:100%;font:inherit;font-size:15px;padding:13px 15px;border:2px solid #e0dcf3;border-radius:14px;background:#fff;color:#241f38;outline:none}
 .rninput:focus{border-color:#7c6cf0}
+.hint{font-size:12px;color:#6b6580;line-height:1.5;margin-top:11px}
+.hintw{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-top:10px}
+.errbox{background:#fde4e4;color:#a32d2d;font-size:12px;font-weight:700;padding:9px 12px;border-radius:11px;margin-bottom:11px}
 .modal-bg{position:fixed;inset:0;background:rgba(30,20,50,.32);display:none;align-items:center;justify-content:center;z-index:10;padding:20px}
 .modal-bg.on{display:flex}
 .modal{background:#fff;border-radius:16px;padding:20px 20px 16px;width:100%;max-width:340px;box-shadow:0 12px 40px rgba(30,20,50,.28)}
@@ -172,6 +175,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     send('confirmManaged', JSON.stringify(picked));
   }
   function renameSave(f){ var v=document.getElementById('rn').value.trim(); send('renameSave', JSON.stringify([f, v])); }
+  function createProfileSave(btn){
+    var v=document.getElementById('np').value.trim();
+    send('createProfile', JSON.stringify([v, btn.dataset.uuid||'']));
+  }
+  function toggleMergePick(el){
+    var cards=el.parentNode.querySelectorAll('.card.selectable');
+    for(var i=0;i<cards.length;i++){
+      var on=cards[i]===el;
+      cards[i].classList.toggle('selected',on);
+      var c=cards[i].querySelector('.chk'); if(c) c.checked=on;
+    }
+  }
+  function mergeConfirm(){
+    var sel=document.querySelector('.card.selectable.selected');
+    var all=document.querySelectorAll('.card.selectable');
+    if(!sel||all.length!==2) return;
+    var other=all[0]===sel?all[1]:all[0];
+    send('mergeConfirm', sel.dataset.folder+'|'+other.dataset.folder);
+  }
 
   // Every action that closes the user's Claude goes through askConfirm. Nothing
   // may call send('switch') or send('sync') directly: closing an app somebody is
@@ -508,6 +530,140 @@ func RenderRename(folder, current string) string {
   <button class="btn btn-primary" data-folder="` + esc(folder) + `" onclick="renameSave(this.dataset.folder)">Save</button>
 </div>
 <script>var e=document.getElementById('rn'); e.focus(); e.select();</script>`
+	return shell(body)
+}
+
+// NewProfileVM drives the name-the-profile screen. One screen serves both
+// entry points: RecoverUUID empty is the plain add path, set is a recovery of
+// that account. They run the same underlying operation and differ only in copy
+// and in whether a session bucket comes along, so sharing the view is what keeps
+// the two from drifting apart.
+type NewProfileVM struct {
+	RecoverUUID   string
+	SuggestedName string
+	Convos        int
+	Err           string
+}
+
+// RenderNewProfile is the in-panel screen for naming a new account profile.
+func RenderNewProfile(vm NewProfileVM) string {
+	esc := html.EscapeString
+	recovering := vm.RecoverUUID != ""
+
+	title, sub, confirm := "Add another account", "It gets its own profile", "Add"
+	if recovering {
+		title, sub, confirm = "Recover this account", "It gets its own profile", "Recover"
+	}
+
+	// "different account" stays one unbroken phrase inside the <b>, so a test can
+	// assert on it as the user reads it. ShortID is the account's first 8 characters,
+	// so the copy says "starting", not "ending".
+	second := `<div class="hintw">Sign in as a <b>different account</b>. Signing in as one you already have creates a duplicate, and MCS will ask you to merge.</div>`
+	if recovering {
+		second = fmt.Sprintf(`<div class="hintw">Sign in as the account starting <b>%s</b> (%d chats). Its conversations come back on their own.</div>`,
+			esc(ShortID(vm.RecoverUUID)), vm.Convos)
+	}
+
+	errBlock := ""
+	if vm.Err != "" {
+		errBlock = `<div class="errbox">` + esc(vm.Err) + `</div>`
+	}
+
+	body := `<div class="header">
+  <button class="back" onclick="send('showList','')">‹</button>
+  <div class="htext"><h1>` + esc(title) + `</h1><p>` + esc(sub) + `</p></div>
+</div>` + errBlock + `
+<input id="np" class="rninput" type="text" value="` + esc(vm.SuggestedName) + `" placeholder="Personal">
+<div class="hint">Claude closes, your current account is saved, and a clean Claude opens.</div>` + second + `
+<div class="footer">
+  <button class="btn btn-light" onclick="send('showList','')">Cancel</button>
+  <button class="btn btn-primary" data-uuid="` + esc(vm.RecoverUUID) + `" onclick="createProfileSave(this)">` + esc(confirm) + `</button>
+</div>
+<script>var e=document.getElementById('np'); e.focus(); e.select();</script>`
+	return shell(body)
+}
+
+// MergeCandidateVM is one side of a duplicate pair on the merge screen.
+type MergeCandidateVM struct {
+	Folder  string
+	Name    string
+	Plan    string
+	Convos  int
+	Current bool // the profile Claude is running on right now
+}
+
+// RenderMerge is the in-panel screen for resolving two profiles signed in to one
+// account. The profile in use is preselected to keep, because keeping it means
+// the user does not have to sign in again; they can pick the other one when they
+// prefer its name. Conversations are combined either way, so the choice only
+// decides which name survives.
+//
+// plan is what the merge will actually do, computed by core.MergePreview before
+// this screen is rendered. The total shown comes from there and not from adding the
+// two counts: a conversation both profiles hold is one conversation afterwards, not
+// two.
+func RenderMerge(a, b MergeCandidateVM, plan core.MergePlan, status string, busy bool) string {
+	esc := html.EscapeString
+	st := ""
+	if status != "" {
+		st = `<div class="status">` + esc(status) + `</div>`
+	}
+	// Keep the in-use profile by default. If neither is running, fall back to the
+	// first, so the screen is never rendered with nothing chosen.
+	keep := a.Folder
+	if b.Current && !a.Current {
+		keep = b.Folder
+	}
+
+	card := func(c MergeCandidateVM) string {
+		cls := "card selectable"
+		if c.Folder == keep {
+			cls += " selected"
+		}
+		sub := "Will be archived"
+		if c.Folder == keep {
+			sub = "Keep this one"
+			if c.Current {
+				sub = "In use now · keep this one"
+			}
+		}
+		return fmt.Sprintf(`
+      <div class="%s" data-folder="%s" onclick="toggleMergePick(this)">
+        <input type="checkbox" class="chk"%s>
+        <div class="body"><div class="row1"><span class="name">%s</span>%s</div>
+          <div class="meta">%d chats<span class="dot">·</span>%s</div></div></div>`,
+			cls, esc(c.Folder), map[bool]string{true: " checked", false: ""}[c.Folder == keep],
+			esc(c.Name), planPill(c.Plan), c.Convos, esc(sub))
+	}
+
+	dis, oc := "", `onclick="mergeConfirm()"`
+	if busy {
+		dis, oc = " disabled", ""
+	}
+
+	// Where both profiles hold a record and the keeper's copy is the newer one, the
+	// sync leaves the keeper's alone and the archive keeps the other. Say so before
+	// the user commits: after the merge that version is reachable only by opening the
+	// archive folder.
+	conflictNote := ""
+	if plan.Conflicts > 0 {
+		conflictNote = fmt.Sprintf(`<div class="hintw">%d conversations exist in both profiles and have changed since they were last in step. The newer version is kept. The other stays in the archived folder, which you can open from Settings.</div>`, plan.Conflicts)
+	}
+	// Say so rather than quietly delivering a smaller number than promised.
+	if plan.Unreadable > 0 {
+		conflictNote += fmt.Sprintf(`<div class="hintw">%d files couldn't be read and will be left where they are.</div>`, plan.Unreadable)
+	}
+
+	body := `<div class="header">
+  <button class="back" onclick="send('showList','')">‹</button>
+  <div class="htext"><h1>Merge duplicates</h1><p>Both are the same account</p></div>
+</div>` + st + `
+<div class="cards">` + card(a) + card(b) + `</div>
+<div class="hint">All ` + fmt.Sprint(plan.Combined) + ` conversations are combined into the account you keep. The other folder is archived, not deleted, so you can put it back yourself.</div>` + conflictNote + `
+<div class="footer">
+  <button class="btn btn-light" onclick="send('showList','')">Cancel</button>
+  <button class="btn btn-primary"` + dis + ` ` + oc + `>Merge</button>
+</div>`
 	return shell(body)
 }
 
