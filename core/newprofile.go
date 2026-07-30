@@ -74,41 +74,50 @@ func (c *ProfileCreator) Create(req CreateProfileRequest) (*CreatedProfile, erro
 		return nil, err
 	}
 
+	// discard undoes the directory this call created. The sources a recovery reads
+	// from are never written to, so throwing the new profile away loses nothing and
+	// leaves the name free for a retry.
+	//
+	// It matters most on the recovery path. A profile left behind holds a second
+	// copy of the recovered account's conversations, and the scanner adds up the
+	// buckets it finds, so the ghost the user was trying to clear would come back
+	// claiming twice the number of chats it has — and a retry would add a third.
+	//
+	// On the Store build the data directory does not exist at this point: the
+	// packaged app makes it on first launch. This is a no-op there and the parked
+	// state stays as it is, which is safe — state.json still names the profile, so
+	// it remains discoverable and only MCS's own registries are missing it.
+	discard := func() {
+		if err := os.RemoveAll(dataDir); err != nil {
+			log.Printf("could not clean up the half-made profile %q: %v", dataDir, err)
+		}
+	}
+
 	if req.RecoverUUID != "" {
 		sources := make([]platform.RecoverySource, 0, len(req.Sources))
 		for _, s := range req.Sources {
 			sources = append(sources, platform.RecoverySource{Folder: s.Folder, Path: s.Path, UUID: req.RecoverUUID})
 		}
 		if err := c.Plat.PrepareRecovery(dataDir, sources); err != nil {
-			// The sources were only ever read from, so removing what we just made
-			// loses nothing and leaves the name free for a retry.
-			if rmErr := os.RemoveAll(dataDir); rmErr != nil {
-				log.Printf("could not clean up the half-made profile %q: %v", dataDir, rmErr)
-			}
+			discard()
 			return nil, err
 		}
 	}
 
 	if err := AddPending(identity, req.RecoverUUID); err != nil {
+		discard()
 		return nil, fmt.Errorf("record the new profile: %w", err)
 	}
 	// Managed at once, so the account list shows it while the user is being told to
-	// go and sign in to it. LoadManaged returns nil on first run and that must not
-	// be treated as "configured empty".
-	managed := LoadManaged()
-	if managed != nil {
-		already := false
-		for _, m := range managed {
-			if m == identity {
-				already = true
-			}
+	// go and sign in to it. AddManaged rather than a read-append-write here: it
+	// refuses on a registry it could not parse, where doing this by hand would read
+	// the damaged file as "first run" and replace the user's whole account list with
+	// this one profile.
+	if err := AddManaged(identity); err != nil {
+		if rmErr := RemovePending(identity); rmErr != nil {
+			log.Printf("could not clear the pending entry for %q after a failed create: %v", identity, rmErr)
 		}
-		if !already {
-			if err := SetManaged(append(managed, identity)); err != nil {
-				return nil, fmt.Errorf("update the managed list: %w", err)
-			}
-		}
-	} else if err := SetManaged([]string{identity}); err != nil {
+		discard()
 		return nil, fmt.Errorf("update the managed list: %w", err)
 	}
 	// Show the name the user typed, whatever the platform chose to call the folder.

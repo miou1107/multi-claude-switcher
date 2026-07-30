@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -17,13 +18,16 @@ const (
 	// after. Mirrors platform/windows_msix.go's renameWithRetry, which cannot be
 	// reused here because that file is windows-only.
 	archiveRenameAttempts = 40
-	archiveRenameDelay    = 500 * time.Millisecond
 	// archiveCollisionLimit bounds the search for an unused archive name. It is far
 	// above any plausible number of archives of one profile in one second; reaching
 	// it means something is wrong with the archive root, and reporting that beats
 	// looping.
 	archiveCollisionLimit = 100
 )
+
+// archiveRenameDelay is a var so a test can exercise the retry loop without
+// spending twenty seconds in it.
+var archiveRenameDelay = 500 * time.Millisecond
 
 // renameProfile is os.Rename behind a var so tests can inject a failure and
 // exercise the retry policy, which is the part of this file most likely to be
@@ -33,19 +37,26 @@ var renameProfile = os.Rename
 // ArchiveProfile moves a profile out of the directory the scanner looks in, into
 // archiveRoot, and returns where it landed.
 //
+// identity is the profile's identity as FindProfiles reports it, and profilePath
+// is where it currently lives. Both are passed because neither can be derived
+// from the other: on the Windows Store build the active profile's directory is
+// the shared slot and is called "Claude" whatever the profile is named, so
+// filepath.Base of the path is not the identity and would name the archive after
+// the wrong profile — and, worse, address the user by it.
+//
 // This is the strongest action MCS takes on user data, and it is deliberately a
 // rename rather than a delete: everything stays on disk, in one piece, and the
 // user can move it back by hand. The point of moving it rather than merely
 // dropping it from managed.json is that a folder left in place reappears on the
 // next Rescan, so "one profile per account" would not hold.
-func ArchiveProfile(profilePath, archiveRoot string) (string, error) {
+func ArchiveProfile(identity, profilePath, archiveRoot string) (string, error) {
 	if fi, err := os.Stat(profilePath); err != nil || !fi.IsDir() {
 		return "", fmt.Errorf("nothing to archive at %s", profilePath)
 	}
 	if err := os.MkdirAll(archiveRoot, 0o755); err != nil {
 		return "", fmt.Errorf("create archive folder: %w", err)
 	}
-	base := filepath.Base(profilePath) + "-" + time.Now().Format("20060102-150405")
+	base := archiveFolderBase(identity) + "-" + time.Now().Format("20060102-150405")
 	dest, err := freeArchiveName(archiveRoot, base)
 	if err != nil {
 		return "", err
@@ -53,12 +64,36 @@ func ArchiveProfile(profilePath, archiveRoot string) (string, error) {
 	if err := renameProfileWithRetry(profilePath, dest); err != nil {
 		if !archiveRetryWorthwhile(profilePath, dest, err) {
 			return "", fmt.Errorf("couldn't archive %s — the archive folder %s is not on the same drive as your Claude data, and archiving moves the folder rather than copying it. (%w)",
-				DisplayName(filepath.Base(profilePath)), archiveRoot, err)
+				DisplayName(identity), archiveRoot, err)
 		}
 		return "", fmt.Errorf("couldn't archive %s — Claude may still be holding its files. Fully quit Claude and try again. (%w)",
-			DisplayName(filepath.Base(profilePath)), err)
+			DisplayName(identity), err)
 	}
 	return dest, nil
+}
+
+// archiveFolderBase turns an identity into something safe to use as a directory
+// name. Identities MCS creates are already restricted to letters, digits, spaces,
+// dashes and underscores, but the Store build reads its identity out of a
+// state.json a user can edit, so a separator arriving here would place the
+// archive somewhere other than the archive root.
+func archiveFolderBase(identity string) string {
+	var b strings.Builder
+	for _, r := range identity {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == ' ', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	name := strings.TrimSpace(b.String())
+	if name == "" {
+		return "profile"
+	}
+	return name
 }
 
 // freeArchiveName finds an unused name under archiveRoot. Two archives of one
@@ -88,8 +123,11 @@ func freeArchiveName(archiveRoot, base string) (string, error) {
 // the processes exit. A cross-volume rename is not.
 //
 // EXDEV covers the Unix case. Windows reports ERROR_NOT_SAME_DEVICE instead, which
-// is not EXDEV, so the volume names are compared as well — on Unix VolumeName is
-// always "", making that check a no-op there.
+// is not EXDEV, so the volume names are compared as well.
+//
+// On Unix filepath.VolumeName is always "", so that second check can only ever
+// return true there and no test running on macOS or Linux can distinguish it from
+// a bare `return true`. It is exercised by the Windows build alone.
 func archiveRetryWorthwhile(from, to string, err error) bool {
 	if errors.Is(err, syscall.EXDEV) {
 		return false

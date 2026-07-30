@@ -77,7 +77,7 @@ func msixAUMID() string {
 	return filepath.Base(pkg) + "!" + msixAppID // e.g. Claude_pzs8sxrjxfjjc!Claude
 }
 
-func msixSlotDir(roaming string) string      { return filepath.Join(roaming, msixSlotName) }
+func msixSlotDir(roaming string) string { return filepath.Join(roaming, msixSlotName) }
 
 // msixProfilePath returns where the profile called identity keeps its data: the
 // shared slot if it is the current profile, otherwise its parked directory.
@@ -122,6 +122,16 @@ func readMSIXStateIn(roaming string) msixState {
 		s.Current = msixDefaultName
 	}
 	return s
+}
+
+// msixStateRecorded reports whether MCS has ever written its slot state for this
+// install. It is distinct from reading the state: readMSIXStateIn substitutes the
+// default name when there is no file, so a caller that has to tell "MCS parked
+// the slot and this profile belongs in it" apart from "MCS has never run here"
+// cannot get that from the returned value.
+func msixStateRecorded(roaming string) bool {
+	_, err := os.Stat(msixStatePath(roaming))
+	return err == nil
 }
 
 func writeMSIXStateIn(roaming string, s msixState) error {

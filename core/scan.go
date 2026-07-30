@@ -181,9 +181,15 @@ func assembleAccounts(scans []dirScan) []ScannedAccount {
 		// scans arrives in filesystem order, so sort for a stable UI and stable
 		// tests.
 		sort.Slice(g.Sources, func(i, j int) bool { return g.Sources[i].Folder < g.Sources[j].Folder })
-		// Derived from the sources, not from the count: sources are what recovery
-		// actually needs, so a ghost with nowhere to copy from must never be
-		// offered as recoverable whatever its count says.
+		// Derived from the sources because they are what recovery actually consumes:
+		// the Recover button copies from g.Sources, so the flag that offers the
+		// button and the list that fulfils it cannot drift apart.
+		//
+		// This is equivalent to g.Convos > 0 for every input the loop above can
+		// produce — a bucket only becomes a source when its count is positive, and
+		// only a positive count adds to Convos — so no test can tell the two apart.
+		// The point is not a behavioural difference today; it is that a later change
+		// to what counts as a usable source updates this in one place.
 		g.Recoverable = len(g.Sources) > 0
 		if g.Recoverable {
 			g.Note = RecoverableGhostNote

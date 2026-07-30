@@ -52,6 +52,11 @@ type mergePlatform struct {
 	*mockPlatform
 	root, archiveRoot string
 	profiles          []*platform.ProfileInfo
+	// prepareArchive overrides the default resolution. The real method can MOVE
+	// both directories — the Store build swaps the keeper into the shared slot —
+	// and a fake that only ever returns two fixed paths under one root cannot
+	// reproduce anything that happens there, including it going wrong.
+	prepareArchive func(keepIdentity, archiveIdentity string) (string, string, error)
 }
 
 func newMergePlatform(t *testing.T, keep, archive, archiveRoot string) *mergePlatform {
@@ -69,6 +74,9 @@ func newMergePlatform(t *testing.T, keep, archive, archiveRoot string) *mergePla
 
 func (m *mergePlatform) FindProfiles() ([]*platform.ProfileInfo, error) { return m.profiles, nil }
 func (m *mergePlatform) PrepareArchive(keepIdentity, archiveIdentity string) (string, string, error) {
+	if m.prepareArchive != nil {
+		return m.prepareArchive(keepIdentity, archiveIdentity)
+	}
 	return filepath.Join(m.root, keepIdentity), filepath.Join(m.root, archiveIdentity), nil
 }
 func (m *mergePlatform) ArchiveDir() string { return m.archiveRoot }
@@ -106,9 +114,20 @@ func TestMergePreviewCountsTheUnionAndTheConflicts(t *testing.T) {
 
 func TestMergePreviewIdenticalCopiesAreNotConflicts(t *testing.T) {
 	keep, archive, _ := mergeFixture(t, "same-uuid", "same-uuid")
-	for _, dir := range []string{keep, archive} {
+	// The keeper's copy is deliberately the NEWER one. A conflict is reported when
+	// the keeper's copy wins and the other is therefore stranded, so leaving the
+	// archive side newer would make this pass for the wrong reason: the timestamp
+	// comparison would clear it whether or not the contents were ever compared.
+	// Timestamps are set explicitly rather than relying on write order, which on a
+	// coarse-grained filesystem produces two equal times.
+	old := time.Now().Add(-2 * time.Hour)
+	recent := time.Now().Add(-1 * time.Hour)
+	for dir, when := range map[string]time.Time{archive: old, keep: recent} {
 		p := filepath.Join(dir, "claude-code-sessions", "same-uuid", "both.json")
 		if err := os.WriteFile(p, []byte(`{"v":1}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, when, when); err != nil {
 			t.Fatal(err)
 		}
 	}

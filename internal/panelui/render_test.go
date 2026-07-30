@@ -70,6 +70,32 @@ func TestRenderRescanShowsProfileAwaitingSignIn(t *testing.T) {
 	}
 }
 
+// A profile MCS has just created is in the same position as one the user made by
+// hand: a real folder with no account in it yet. Rescan drew it as a ghost
+// instead — "Unrecognized account", no name, no tick box — because the ghost
+// branch claims anything without a live account. The user would have been told
+// their brand-new profile was unrecognised, and had no way to select it.
+func TestRenderRescanShowsAJustCreatedProfileAsSelectable(t *testing.T) {
+	accounts := []core.ScannedAccount{
+		{HomeFolder: "Claude", Complete: true, UUID: "aaa-bbb", Email: "me@example.com"},
+		{HomeFolder: "Claude_Work", Pending: true, Note: core.PendingSignInNote},
+	}
+	html := RenderRescan(accounts, ComputePreselect(accounts, nil))
+
+	if strings.Contains(html, "Unrecognized account") {
+		t.Fatal("a profile MCS just created must not be drawn as an unrecognised ghost")
+	}
+	if !strings.Contains(html, "Claude_Work") {
+		t.Fatal("it must be named, not anonymous")
+	}
+	if !strings.Contains(html, `data-folder="Claude_Work"`) {
+		t.Fatal("it must be tickable — selecting it is what puts it in the account list")
+	}
+	if !strings.Contains(html, core.PendingSignInNote) {
+		t.Fatal("it must say what the user still has to do")
+	}
+}
+
 func TestRenderSyncSkipsProfilesWithoutAnAccount(t *testing.T) {
 	profiles := []ProfileVM{
 		{Folder: "Claude", Name: "Claude", SignedIn: true},

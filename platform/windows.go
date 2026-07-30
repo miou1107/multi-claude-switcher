@@ -109,13 +109,18 @@ func (w *WindowsPlatform) msixFindProfilesIn(roaming string) ([]*ProfileInfo, er
 		p := w.inspectProfile(st.Current, slot)
 		p.Managed = true
 		profiles = append(profiles, p)
-	} else {
-		// No slot directory. That is a real, expected state: creating a profile
-		// parks the live slot and leaves the slot absent on purpose so the packaged
-		// app makes a clean one. state.json still names the current profile and the
-		// user has just been told to sign in to it, so it has to be listed. Before
-		// this, the account list silently dropped the current profile for that whole
-		// window.
+	} else if msixStateRecorded(roaming) {
+		// No slot directory, but MCS has recorded which profile belongs in it. That
+		// is a real, expected state: creating a profile parks the live slot and
+		// leaves the slot absent on purpose so the packaged app makes a clean one.
+		// state.json still names the current profile and the user has just been told
+		// to sign in to it, so it has to be listed. Before this, the account list
+		// silently dropped the current profile for that whole window.
+		//
+		// The state.json check is what keeps this honest. readMSIXStateIn falls back
+		// to "Claude" when it finds no file, so without it a machine where MCS has
+		// never run — no state, no slot — would be shown a profile called "Claude"
+		// that does not exist and never did, with a prompt to go and sign in to it.
 		profiles = append(profiles, &ProfileInfo{
 			Name: st.Current, Path: slot, Exists: false,
 			UUIDBuckets: map[string]int{}, Managed: true,

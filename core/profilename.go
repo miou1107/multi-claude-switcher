@@ -35,15 +35,15 @@ func ValidateProfileName(name string) (string, error) {
 	if strings.EqualFold(name, reservedProfileName) {
 		return "", fmt.Errorf("%q is taken by the default profile, pick another name", reservedProfileName)
 	}
-	if strings.HasPrefix(name, ".") {
-		return "", errors.New("a name can't start with a dot")
-	}
-	if strings.Contains(name, "..") {
-		return "", errors.New("a name can't contain ..")
-	}
 	// Allow letters, digits, space, dash, underscore. Everything else is either a
 	// path separator, a Windows-illegal filename character, or a control
 	// character, and the point of an allowlist is that none of them need naming.
+	//
+	// The dot is excluded deliberately and does the path-traversal work on its own:
+	// with no dot there is no "..", no leading dot, and no way to address a parent
+	// directory. Separate checks for those existed here and were unreachable —
+	// every input they would have caught was already rejected by this loop — so
+	// they described a defence the allowlist was actually providing.
 	for _, r := range name {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':

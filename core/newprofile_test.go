@@ -191,3 +191,52 @@ func TestCreateProfileRecoveryFailureLeavesNoState(t *testing.T) {
 		t.Fatalf("the half-made profile must be cleaned up, stat err = %v", err)
 	}
 }
+
+// A create that gets as far as copying a recovered account's conversations and
+// then fails to register the profile must throw the new profile away.
+//
+// Leaving it behind puts a second copy of that account's conversations on disk.
+// The scanner adds up the buckets it finds, so the ghost the user was trying to
+// clear reappears reporting twice the chats it has — and every retry adds
+// another copy.
+func TestCreateProfileDiscardsTheNewProfileWhenItCannotBeRegistered(t *testing.T) {
+	withStubbedManaged(t)
+	withStubbedNames(t)
+
+	// Point the pending registry at a path it cannot possibly create: a directory
+	// whose parent is a regular file.
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	origPending := pendingPath
+	pendingPath = func() string { return filepath.Join(blocker, "pending.json") }
+	t.Cleanup(func() { pendingPath = origPending })
+
+	root := t.TempDir()
+	created := filepath.Join(root, "Claude_Recovered")
+	// PrepareRecovery has already put the recovered conversations here.
+	bucket := filepath.Join(created, "claude-code-sessions", "ghost-uuid")
+	if err := os.MkdirAll(bucket, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bucket, "recovered.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := &mockPlatform{running: true, createdIdentity: "Claude_Recovered", createdPath: created}
+
+	_, err := NewProfileCreator(m).Create(CreateProfileRequest{
+		Name:        "Recovered",
+		RecoverUUID: "ghost-uuid",
+		Sources:     []GhostSource{{Folder: "Claude", Path: filepath.Join(root, "Claude"), Convos: 1}},
+	})
+	if err == nil {
+		t.Fatal("want an error when the profile cannot be registered")
+	}
+	if _, statErr := os.Stat(created); !os.IsNotExist(statErr) {
+		t.Fatalf("the unregistered profile was left on disk, so its conversations are now duplicated: %v", statErr)
+	}
+	if m.launched {
+		t.Error("a profile that could not be registered must not be opened")
+	}
+}

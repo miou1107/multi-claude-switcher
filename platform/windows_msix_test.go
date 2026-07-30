@@ -305,3 +305,19 @@ func TestMSIXFindProfilesListsTheSlotProfileWhenTheSlotIsAbsent(t *testing.T) {
 		t.Fatal("Store profiles are MCS-managed, so it must stay listed with no data")
 	}
 }
+
+// The other side of that rule. readMSIXStateIn returns Current="Claude" when there
+// is no state.json, so listing an absent slot unconditionally invents a profile on
+// any machine where MCS has not run yet — shown in the account list, marked as
+// awaiting a sign-in the user can never complete, for a folder that does not exist.
+func TestMSIXFindProfilesInventsNothingWhenMCSHasNeverRunHere(t *testing.T) {
+	roaming := t.TempDir() // no state.json, no slot directory
+	w := &WindowsPlatform{}
+	got, err := w.msixFindProfilesIn(roaming)
+	if err != nil {
+		t.Fatalf("msixFindProfilesIn: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("want no profiles before MCS has recorded any state, got %+v", got[0])
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/miou1107/multi-claude-switcher/platform"
@@ -198,14 +199,24 @@ func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, err
 	// possible. On the Store build this swaps the keeper into the slot when the
 	// other profile holds it, so both paths move and the ones returned here are the
 	// ones to use from this point on.
-	_, archivePath, err = plat.PrepareArchive(req.KeepIdentity, req.ArchiveIdentity)
+	newKeepPath, archivePath, err := plat.PrepareArchive(req.KeepIdentity, req.ArchiveIdentity)
 	if err != nil {
 		// Nothing has been given up: both profiles are in place and the keeper now
 		// holds the union, so a retry is safe and the warning is still showing.
 		return report, fmt.Errorf("could not make %s ready to archive: %w", archiveName, err)
 	}
+	// The two must have come back as different directories. On the Store build both
+	// profiles are addressed through one slot, and PrepareArchive earns the right to
+	// archive by swapping the keeper into it first; if that swap did not happen, the
+	// path about to be renamed away is the profile the user chose to KEEP, holding
+	// the conversations just merged into it. Refusing costs a retry. Not refusing
+	// destroys exactly what the merge was for.
+	if samePath(newKeepPath, archivePath) {
+		return report, fmt.Errorf("refusing to archive %s: it is still the same folder as %s. Your conversations are safe in %s — run Rescan and try again",
+			archiveName, keepName, keepName)
+	}
 
-	if _, err := ArchiveProfile(archivePath, plat.ArchiveDir()); err != nil {
+	if _, err := ArchiveProfile(req.ArchiveIdentity, archivePath, plat.ArchiveDir()); err != nil {
 		return report, err
 	}
 
@@ -217,13 +228,7 @@ func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, err
 	// leave the others describing a profile that no longer exists, which is worse
 	// than the failure being reported.
 	var registryErr error
-	var kept []string
-	for _, m := range LoadManaged() {
-		if m != req.ArchiveIdentity {
-			kept = append(kept, m)
-		}
-	}
-	if err := SetManaged(kept); err != nil {
+	if err := RemoveManaged(req.ArchiveIdentity); err != nil {
 		registryErr = fmt.Errorf("archived, but the managed list still lists it: %w", err)
 		log.Printf("merge: %v", registryErr)
 	}
@@ -239,6 +244,22 @@ func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, err
 		log.Printf("merge: could not clear the pending entry for %q: %v", req.ArchiveIdentity, err)
 	}
 	return report, registryErr
+}
+
+// samePath reports whether two paths name the same directory.
+//
+// Compared as cleaned strings rather than with os.SameFile because callers need
+// an answer about a path that may not exist yet, and case-insensitively on the
+// platforms whose filesystems are: on Windows and on a default macOS volume,
+// "Claude" and "claude" are one directory. A volume that really is
+// case-sensitive makes this too cautious rather than not cautious enough, which
+// is the right way round for a guard that only ever refuses.
+func samePath(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // profilePathsByIdentity maps every discovered profile's identity to its path.

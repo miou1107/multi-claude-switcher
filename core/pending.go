@@ -72,19 +72,7 @@ func savePendingLocked(entries []PendingProfile) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(pendingPath()), 0o755); err != nil {
-		return err
-	}
-	// Atomic write: a crash mid-write must not corrupt the registry.
-	tmp := pendingPath() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, pendingPath()); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	return writeRegistryFile(pendingPath(), data)
 }
 
 // AddPending records a folder as awaiting sign-in, replacing any existing entry

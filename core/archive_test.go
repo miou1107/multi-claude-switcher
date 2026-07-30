@@ -22,7 +22,7 @@ func TestArchiveProfileMovesItOutOfTheScanPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dest, err := ArchiveProfile(profile, archiveRoot)
+	dest, err := ArchiveProfile("Claude_Work", profile, archiveRoot)
 	if err != nil {
 		t.Fatalf("ArchiveProfile: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestArchiveProfileCollisionGetsACounter(t *testing.T) {
 	if err := os.MkdirAll(first, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	destA, err := ArchiveProfile(first, archiveRoot)
+	destA, err := ArchiveProfile("Claude_Work", first, archiveRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestArchiveProfileCollisionGetsACounter(t *testing.T) {
 	if err := os.MkdirAll(first, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	destB, err := ArchiveProfile(first, archiveRoot)
+	destB, err := ArchiveProfile("Claude_Work", first, archiveRoot)
 	if err != nil {
 		t.Fatalf("second archive must not fail on a name collision: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestArchiveProfileCollisionGetsACounter(t *testing.T) {
 
 func TestArchiveProfileMissingSourceIsAnError(t *testing.T) {
 	root := t.TempDir()
-	if _, err := ArchiveProfile(filepath.Join(root, "nope"), filepath.Join(root, "archive")); err == nil {
+	if _, err := ArchiveProfile("Claude_Gone", filepath.Join(root, "nope"), filepath.Join(root, "archive")); err == nil {
 		t.Fatal("want an error for a profile that is not there")
 	}
 }
@@ -98,7 +98,7 @@ func TestArchiveProfileGivesUpAtOnceWhenRetryingCannotHelp(t *testing.T) {
 	t.Cleanup(func() { renameProfile = orig })
 
 	start := time.Now()
-	_, err := ArchiveProfile(profile, filepath.Join(root, "archive"))
+	_, err := ArchiveProfile("Claude_Work", profile, filepath.Join(root, "archive"))
 	if err == nil {
 		t.Fatal("want an error")
 	}
@@ -110,5 +110,108 @@ func TestArchiveProfileGivesUpAtOnceWhenRetryingCannotHelp(t *testing.T) {
 	}
 	if _, statErr := os.Stat(profile); statErr != nil {
 		t.Fatalf("a failed archive must leave the profile in place: %v", statErr)
+	}
+}
+
+// On the Store build every profile's directory is the shared slot, literally
+// named "Claude". Naming the archive after the directory would file all of them
+// under one name, and — worse — the failure messages would tell the user their
+// profile "Claude" could not be archived when they asked to archive "Work".
+func TestArchiveProfileNamesTheArchiveAfterTheIdentityNotTheDirectory(t *testing.T) {
+	root := t.TempDir()
+	archiveRoot := filepath.Join(root, "archive")
+	// The Store build's shared slot: the directory is "Claude" for every profile.
+	slot := filepath.Join(root, "Claude")
+	if err := os.MkdirAll(slot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dest, err := ArchiveProfile("Work", slot, archiveRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(filepath.Base(dest), "Work-") {
+		t.Fatalf("archive should be named after the profile, got %q", filepath.Base(dest))
+	}
+}
+
+func TestArchiveProfileFailureNamesTheProfileNotItsDirectory(t *testing.T) {
+	root := t.TempDir()
+	slot := filepath.Join(root, "Claude")
+	if err := os.MkdirAll(slot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := renameProfile
+	renameProfile = func(from, to string) error {
+		return &os.LinkError{Op: "rename", Old: from, New: to, Err: syscall.EXDEV}
+	}
+	t.Cleanup(func() { renameProfile = orig })
+
+	_, err := ArchiveProfile("Work", slot, filepath.Join(root, "archive"))
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if !strings.Contains(err.Error(), "Work") {
+		t.Errorf("the message must name the profile the user asked about: %v", err)
+	}
+}
+
+// A state.json a user has edited by hand can carry an identity with a separator
+// in it, which would otherwise place the archive outside the archive root.
+func TestArchiveProfileKeepsAHostileIdentityInsideTheArchiveRoot(t *testing.T) {
+	root := t.TempDir()
+	archiveRoot := filepath.Join(root, "archive")
+	profile := filepath.Join(root, "Claude")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dest, err := ArchiveProfile("../../escaped", profile, archiveRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(archiveRoot, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		t.Fatalf("archive escaped its root: %q", dest)
+	}
+}
+
+// The retry exists because Windows can still be releasing Claude's file handles
+// when the rename is first attempted. Nothing observed it actually recover until
+// this test: every other test either succeeds first time or fails unretryably.
+func TestArchiveProfileSucceedsAfterATransientLock(t *testing.T) {
+	root := t.TempDir()
+	profile := filepath.Join(root, "Claude_Work")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origDelay := archiveRenameDelay
+	archiveRenameDelay = time.Millisecond
+	t.Cleanup(func() { archiveRenameDelay = origDelay })
+
+	orig := renameProfile
+	attempts := 0
+	renameProfile = func(from, to string) error {
+		attempts++
+		if attempts < 3 {
+			return &os.LinkError{Op: "rename", Old: from, New: to, Err: syscall.EBUSY}
+		}
+		return orig(from, to)
+	}
+	t.Cleanup(func() { renameProfile = orig })
+
+	dest, err := ArchiveProfile("Claude_Work", profile, filepath.Join(root, "archive"))
+	if err != nil {
+		t.Fatalf("a lock that clears must not fail the archive: %v", err)
+	}
+	if attempts != 3 {
+		t.Errorf("want 3 attempts, got %d", attempts)
+	}
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatalf("the profile should have landed in the archive: %v", err)
 	}
 }

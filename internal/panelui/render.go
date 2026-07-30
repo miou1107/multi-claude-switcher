@@ -329,10 +329,17 @@ func RenderRescan(accounts []core.ScannedAccount, preselected map[string]bool) s
 		if !a.LastUpdated.IsZero() {
 			date = a.LastUpdated.Format("2006-01-02")
 		}
-		if a.SignedOut {
+		if a.SignedOut || a.Pending {
 			// A profile folder with no account in it yet. Selectable on
 			// purpose: managing it is what puts it in the account list, which
 			// is how the user gets to switch to it and sign in.
+			//
+			// Pending rows — profiles MCS has just made and told the user to go
+			// and sign in to — belong here rather than with the ghosts below.
+			// They have no account UUID, so the ghost branch claimed them and
+			// drew them as "Unrecognized account": no name, no tick box, and a
+			// warning about a folder the user had asked for thirty seconds
+			// earlier.
 			sel, chk := "", ""
 			if preselected[a.HomeFolder] {
 				sel, chk = " selected", " checked"
