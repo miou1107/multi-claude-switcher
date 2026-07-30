@@ -443,3 +443,56 @@ func TestScanPendingRowSortsWithFoldersAwaitingSignIn(t *testing.T) {
 		t.Fatalf("row2 must be the recoverable ghost: %+v", got[2])
 	}
 }
+
+// The suppression above is deliberately global — the account being recovered is
+// hidden as a ghost wherever its buckets sit, not just inside the new profile —
+// because the copies left in the source profiles are the same conversations. Two
+// things keep that from becoming a way to lose an account.
+//
+// First, it is scoped to the account the pending profile was created for.
+func TestScanPendingRecoveryHidesOnlyTheAccountItIsRecovering(t *testing.T) {
+	dir := t.TempDir()
+	source := writeProfile(t, dir, "Claude", "live-uuid",
+		map[string]int{"live-uuid": 3, "orphan-uuid": 9, "other-orphan": 4})
+	target := writeProfile(t, dir, "Claude_Recovered", "", map[string]int{"orphan-uuid": 9})
+
+	got := ScanAccounts([]*platform.ProfileInfo{source, target},
+		[]PendingProfile{{Folder: "Claude_Recovered", ExpectUUID: "orphan-uuid"}})
+
+	found := false
+	for _, r := range got {
+		if !r.Complete && r.UUID == "other-orphan" {
+			found = true
+			if !r.Recoverable {
+				t.Errorf("the unrelated orphan should still be offered for recovery: %+v", r)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("recovering one account must not hide the others: %+v", got)
+	}
+}
+
+// Second, it lasts only as long as the profile does. A user who is told to sign
+// in, never does, and deletes the folder by hand would otherwise have that
+// account hidden from Rescan forever, with no way to get it back.
+func TestScanStopsHidingAGhostOnceThePendingProfileIsGone(t *testing.T) {
+	dir := t.TempDir()
+	source := writeProfile(t, dir, "Claude", "live-uuid",
+		map[string]int{"live-uuid": 3, "orphan-uuid": 9})
+
+	// The pending entry is still on file, but the profile it names is no longer
+	// anywhere in the scan.
+	got := ScanAccounts([]*platform.ProfileInfo{source},
+		[]PendingProfile{{Folder: "Claude_Recovered", ExpectUUID: "orphan-uuid"}})
+
+	for _, r := range got {
+		if !r.Complete && r.UUID == "orphan-uuid" {
+			if !r.Recoverable {
+				t.Fatalf("the ghost is back but not recoverable: %+v", r)
+			}
+			return
+		}
+	}
+	t.Fatalf("a pending entry for a profile that no longer exists must not keep hiding the account: %+v", got)
+}

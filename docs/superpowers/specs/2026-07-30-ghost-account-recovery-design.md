@@ -600,7 +600,21 @@ leaves MCS's view of the world ahead of the disk.
   row's count is their sum.
 - Ghost with an empty bucket is not `Recoverable` and keeps its existing note.
 - A pending folder with no live login produces a pending row, and its `expectUUID`
-  bucket is **not** also emitted as a ghost.
+  bucket is **not** also emitted as a ghost — **anywhere**. The suppression covers
+  every profile holding that UUID, not just the pending folder's own copy.
+
+  Recovery copies rather than moves, so the source profiles still hold the same
+  conversations while the user goes to sign in. Suppressing only the pending
+  folder's copy would leave the account showing as a recoverable ghost sourced
+  from those originals, next to the row telling the user it is already being
+  recovered — and recovering it again is how one account becomes two profiles.
+
+  Two rules keep that from turning into a way to lose an account:
+  - It is scoped to the `expectUUID` the pending entry names. Other orphans in the
+    same profiles stay visible and recoverable.
+  - It applies only while the pending folder is still in the scanned profile list.
+    A user who never signs in and deletes the folder by hand gets the ghost back
+    on the next Rescan, because the entry then names nothing that exists.
 - A pending folder that is empty (no config, no buckets, no login) still produces a
   pending row rather than being dropped. This is the add path immediately after
   creation, and it is the case the drop filter would silently swallow.
