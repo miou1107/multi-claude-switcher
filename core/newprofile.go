@@ -1,0 +1,128 @@
+package core
+
+import (
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/miou1107/multi-claude-switcher/platform"
+)
+
+// CreateProfileRequest describes a profile to create. RecoverUUID and Sources are
+// set together, and only on the recovery path: they name the orphaned account
+// whose conversations should end up in the new profile, and every profile
+// currently holding some of them.
+//
+// Sources carry their own paths, straight from the scan. Nothing here rebuilds a
+// path from a folder name: on the Store build the data root is not AppSupportDir()
+// and a parked profile is a level deeper still.
+type CreateProfileRequest struct {
+	Name        string
+	RecoverUUID string
+	Sources     []GhostSource
+}
+
+// CreatedProfile is what a create produced: the identity every MCS registry keys
+// on, and the directory the data lives in. They are separate because they differ
+// on the Store build, where the directory is the shared slot and always called
+// "Claude". Never derive one from the other.
+type CreatedProfile struct {
+	Identity string
+	DataDir  string
+}
+
+// ProfileCreator runs the create-a-profile sequence. It exists so the macOS and
+// Windows hosts share one ordering rather than each growing their own.
+type ProfileCreator struct {
+	Plat platform.Platform
+}
+
+func NewProfileCreator(p platform.Platform) *ProfileCreator {
+	return &ProfileCreator{Plat: p}
+}
+
+// Create validates the name, quits Claude, creates the profile, arranges for a
+// recovered account's conversations to follow, registers the profile as awaiting
+// sign-in, and opens Claude on it.
+//
+// The order matters: nothing is written to MCS's own state until the disk work has
+// succeeded, and nothing on disk is touched until the name is known to be good. A
+// recovery that cannot copy its conversations removes the profile it just made, so
+// a retry starts from a clean slate rather than colliding with a half-made folder.
+func (c *ProfileCreator) Create(req CreateProfileRequest) (*CreatedProfile, error) {
+	clean, err := ValidateProfileName(req.Name)
+	if err != nil {
+		return nil, err
+	}
+	if req.RecoverUUID != "" && len(req.Sources) == 0 {
+		return nil, fmt.Errorf("internal: a recovery needs the profiles holding the conversations")
+	}
+
+	// Claude holds its data dir open, and on the Store build the profile is created
+	// by moving that very directory.
+	if err := c.Plat.TerminateApp(); err != nil {
+		return nil, err
+	}
+
+	// Both come back from the platform. The identity is what FindProfiles will
+	// report and what every registry below keys on; the directory is where the data
+	// goes. On the Store build they differ, and filepath.Base of the directory is
+	// "Claude" for every profile — deriving the identity that way is the defect this
+	// signature exists to prevent.
+	identity, dataDir, err := c.Plat.CreateProfile(clean)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.RecoverUUID != "" {
+		sources := make([]platform.RecoverySource, 0, len(req.Sources))
+		for _, s := range req.Sources {
+			sources = append(sources, platform.RecoverySource{Path: s.Path, UUID: req.RecoverUUID})
+		}
+		if err := c.Plat.PrepareRecovery(dataDir, sources); err != nil {
+			// The sources were only ever read from, so removing what we just made
+			// loses nothing and leaves the name free for a retry.
+			if rmErr := os.RemoveAll(dataDir); rmErr != nil {
+				log.Printf("could not clean up the half-made profile %q: %v", dataDir, rmErr)
+			}
+			return nil, err
+		}
+	}
+
+	if err := AddPending(identity, req.RecoverUUID); err != nil {
+		return nil, fmt.Errorf("record the new profile: %w", err)
+	}
+	// Managed at once, so the account list shows it while the user is being told to
+	// go and sign in to it. LoadManaged returns nil on first run and that must not
+	// be treated as "configured empty".
+	managed := LoadManaged()
+	if managed != nil {
+		already := false
+		for _, m := range managed {
+			if m == identity {
+				already = true
+			}
+		}
+		if !already {
+			if err := SetManaged(append(managed, identity)); err != nil {
+				return nil, fmt.Errorf("update the managed list: %w", err)
+			}
+		}
+	} else if err := SetManaged([]string{identity}); err != nil {
+		return nil, fmt.Errorf("update the managed list: %w", err)
+	}
+	// Show the name the user typed, whatever the platform chose to call the folder.
+	// Without this the same profile reads as "Claude_Work" on one platform and
+	// "Work" on the other. A failure here is logged, not fatal: the profile exists,
+	// is registered and works, and undoing a successful creation over a cosmetic
+	// detail would be worse than the symptom.
+	if err := SetProfileName(identity, clean); err != nil {
+		log.Printf("could not record the display name for %q: %v", identity, err)
+	}
+
+	created := &CreatedProfile{Identity: identity, DataDir: dataDir}
+	if err := c.Plat.LaunchProfile(dataDir); err != nil {
+		return created, fmt.Errorf("the profile is ready but Claude didn't open: %w", err)
+	}
+	return created, nil
+}
