@@ -94,7 +94,7 @@ func TestRenderListFlagsProfileAwaitingSignIn(t *testing.T) {
 	html := RenderList([]ProfileVM{
 		{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true},
 		{Folder: "ClaudeWork", Name: "Work"},
-	})
+	}, false)
 	if !strings.Contains(html, "Not signed in yet. Switch here, then sign in.") {
 		t.Fatal("the card must say why it is different, or switching to it lands on an unexplained login screen")
 	}
@@ -105,7 +105,7 @@ func TestRenderListFlagsProfileAwaitingSignIn(t *testing.T) {
 
 func TestVersionShownFromVariableOnBothViews(t *testing.T) {
 	want := "v" + core.Version // the "v" is a literal prefix; the number is never hardcoded
-	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true}})
+	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true}}, false)
 	if !strings.Contains(list, want) {
 		t.Fatalf("account list must show %q sourced from core.Version", want)
 	}
@@ -141,7 +141,7 @@ func TestNoActionClosesClaudeWithoutAsking(t *testing.T) {
 		"list": RenderList([]ProfileVM{
 			{Folder: "Claude", Name: "Work", SignedIn: true, Current: true},
 			{Folder: "Claude_P", Name: "Personal", SignedIn: true},
-		}),
+		}, true),
 		"sync": RenderSync([]ProfileVM{
 			{Folder: "Claude", Name: "Work", SignedIn: true, Convos: 94},
 			{Folder: "Claude_P", Name: "Personal", SignedIn: true, Convos: 12},
@@ -178,7 +178,7 @@ func TestRenderSyncAsksBeforeClosingClaude(t *testing.T) {
 // TestConfirmDialogFocusesCancel: Enter on a dialog the user has not read must not
 // close their Claude, so the safe button holds the focus.
 func TestConfirmDialogFocusesCancel(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}})
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false)
 	if !strings.Contains(html, "getElementById('mcsModalCancel').focus()") {
 		t.Error("the confirmation must open with Cancel focused")
 	}
@@ -190,8 +190,40 @@ func TestConfirmDialogFocusesCancel(t *testing.T) {
 // TestConfirmDialogWarnsAboutUnsavedWork: the consequence the user cannot see for
 // themselves is that Claude is mid-work. Both dialogs carry the same line.
 func TestConfirmDialogWarnsAboutUnsavedWork(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}})
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false)
 	if !strings.Contains(html, `<div class="warn">Anything unsaved in Claude is interrupted.</div>`) {
 		t.Errorf("the dialog must say what closing Claude costs:\n%s", html)
+	}
+}
+
+// TestRenderListAddCardOnlyWhereItLeadsSomewhere: the card starts the
+// create-a-profile flow, which today exists only on the Windows Store build.
+// Showing it elsewhere would be a button that does nothing.
+func TestRenderListAddCardOnlyWhereItLeadsSomewhere(t *testing.T) {
+	profiles := []ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}
+
+	with := RenderList(profiles, true)
+	if !strings.Contains(with, `onclick="send('newProfile','')"`) {
+		t.Errorf("the add card must be offered where the flow exists:\n%s", with)
+	}
+	if !strings.Contains(with, "Add another account") {
+		t.Error("the card needs its label")
+	}
+
+	without := RenderList(profiles, false)
+	if strings.Contains(without, "Add another account") {
+		t.Error("no add card where nothing is behind it")
+	}
+}
+
+// TestRenderListAddCardShowsOnAnEmptyList: a user with nothing managed yet is
+// exactly who needs it, so the empty state must not swallow the card.
+func TestRenderListAddCardShowsOnAnEmptyList(t *testing.T) {
+	html := RenderList(nil, true)
+	if !strings.Contains(html, "Add another account") {
+		t.Errorf("an empty list still offers the way to add one:\n%s", html)
+	}
+	if !strings.Contains(html, "Run Rescan to add some") {
+		t.Error("the existing empty-state text must survive alongside it")
 	}
 }

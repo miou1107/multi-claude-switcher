@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+- **A way to add an account, on the Windows Store build.** The flow that saves your
+  current account, opens a clean Claude for you to sign into another one, and brings
+  that account's saved conversations across has existed since before 0.10.0 — but it
+  was wired only to the old tray menu, which 0.10.0 replaced with the panel. It has
+  been unreachable ever since. The account list now offers it again. This is also the
+  way back for an account signed out from inside Claude Desktop: sign into it here and
+  its conversations follow. macOS and the Windows standalone build do not have this
+  yet.
+
 ### Changed
 - **Closing Claude Desktop now always asks first.** Syncing closed Claude on a single
   click with no warning at all, while switching accounts had a confirmation the whole

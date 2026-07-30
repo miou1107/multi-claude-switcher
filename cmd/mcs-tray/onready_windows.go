@@ -271,6 +271,12 @@ func readPanelMessages(r io.ReadCloser) {
 		case "MCS_HIDDEN":
 			panelShown.Store(false)
 			panelHiddenAtNano.Store(time.Now().UnixNano())
+		case "MCS_NEW_PROFILE":
+			// The panel cannot run this itself: the flow shows native dialogs and
+			// ends by relaunching the tray, both of which belong to this process.
+			// The panel has already hidden itself, so the dialogs come up clean.
+			log.Println("Panel requested the add-an-account flow.")
+			go runNewProfileFlow()
 		case "MCS_QUIT":
 			log.Println("Panel requested Quit; shutting down tray.")
 			stopPanelProcess()

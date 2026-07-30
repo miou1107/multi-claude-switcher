@@ -93,6 +93,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .pill-team{background:#d6f5e3;color:#1a8a4f}
 .pill-personal{background:#eceaf3;color:#6b6580}
 .pill-plan{background:#ece8fb;color:#6a4fd0}
+.addcard{display:flex;align-items:center;justify-content:center;gap:7px;background:transparent;border:2px dashed #cdc8e0;border-radius:14px;padding:13px 14px;cursor:pointer;font:inherit;font-size:13px;font-weight:800;color:#6b6580;width:100%}
+.addcard:hover{border-color:#7c6cf0;color:#7c6cf0;background:#faf9ff}
 .note-bad{margin-top:5px;display:inline-block;font-size:10.5px;font-weight:700;background:#fde4e4;color:#c0392b;padding:2px 8px;border-radius:999px}
 .note-todo{margin-top:5px;display:inline-block;font-size:10.5px;font-weight:700;background:#e6eefc;color:#2b62c9;padding:2px 8px;border-radius:999px;white-space:normal}
 .empty{color:#8b8598;font-size:13px;text-align:center;padding:18px 8px}
@@ -212,7 +214,12 @@ func avatarHeader(title, subtitle string) string {
 
 // RenderList is the account-list view: click a card to switch, Rescan / Quit
 // in the footer.
-func RenderList(profiles []ProfileVM) string {
+// RenderList draws the account list.
+//
+// canAddAccount shows the card that starts the add-an-account flow. It is off
+// where there is nothing behind it: today only the Windows Store build can create
+// a profile, so offering the card elsewhere would be a button that does nothing.
+func RenderList(profiles []ProfileVM, canAddAccount bool) string {
 	esc := html.EscapeString
 	var cards strings.Builder
 	for _, p := range profiles {
@@ -240,6 +247,13 @@ func RenderList(profiles []ProfileVM) string {
 	}
 	if len(profiles) == 0 {
 		cards.WriteString(`<div class="empty">No managed accounts yet. Run Rescan to add some.</div>`)
+	}
+	if canAddAccount {
+		// In the list rather than the footer: the footer already holds Rescan and
+		// Settings, and a third labelled button does not fit in 400px without
+		// shrinking the other two to bare icons.
+		cards.WriteString(`
+      <button class="addcard" onclick="send('newProfile','')">＋&nbsp; Add another account</button>`)
 	}
 	body := avatarHeader("Multi-Claude Switcher", "Switch or manage your Claude accounts") +
 		`<div class="cards">` + cards.String() + `</div>

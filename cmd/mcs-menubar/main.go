@@ -393,7 +393,7 @@ func reloadPanel() {
 			Busy:       getBusy(),
 		})
 	default:
-		htmlStr = panelui.RenderList(buildProfiles())
+		htmlStr = panelui.RenderList(buildProfiles(), false)
 	}
 	c := C.CString(htmlStr)
 	defer C.free(unsafe.Pointer(c))

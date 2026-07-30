@@ -376,6 +376,16 @@ func dispatchAction(action, arg string) {
 		if hwnd := panelHWND.Load(); hwnd != 0 {
 			panelWV.Dispatch(func() { parkPanel(hwnd) })
 		}
+	case "newProfile":
+		// Hand this to the tray. It owns the flow — native dialogs, and a relaunch
+		// of itself at the end — and it has been unreachable since v0.10.0 replaced
+		// the tray menu with this panel. Hide first so the dialogs are not stacked
+		// under a popover that dismisses itself when they take the foreground.
+		if hwnd := panelHWND.Load(); hwnd != 0 {
+			panelWV.Dispatch(func() { parkPanel(hwnd) })
+		}
+		notifyTray("MCS_NEW_PROFILE")
+
 	case "quit":
 		if panelDeferQuitUntilIdle() {
 			go reloadPanel()
@@ -433,7 +443,7 @@ func reloadPanel() {
 			Busy:       panelGetBusy(),
 		})
 	default:
-		htmlStr = panelui.RenderList(panelBuildProfiles())
+		htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported())
 	}
 	panelWV.Dispatch(func() { panelWV.SetHtml(htmlStr) })
 }
