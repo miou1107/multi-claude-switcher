@@ -1,6 +1,20 @@
 package core
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrRunningProfileUnknown means Claude Desktop is running but MCS cannot tell
+// which profile it is on, so it refuses to close it: an app it cannot reopen
+// would leave the user stranded with Claude shut.
+//
+// It is a sentinel rather than a bare message because the panel has to recognise
+// it and say something a non-technical user can act on. This happens for a whole
+// class of users — anyone who opened Claude Desktop themselves rather than
+// through MCS, since profile detection works by matching the --user-data-dir
+// argument MCS passes.
+var ErrRunningProfileUnknown = errors.New("Claude Desktop is running but its profile could not be identified")
 
 // ManualAlign copies one profile's Code sessions into another WITHOUT changing
 // which account is active. It remembers the running profile, closes Claude
@@ -20,10 +34,10 @@ func (s *Switcher) ManualAlign(srcProfilePath, dstProfilePath string) (*SyncRepo
 	if running {
 		relaunch, err = s.Platform.DetectRunningProfile()
 		if err != nil {
-			return nil, fmt.Errorf("aborting align: Claude Desktop is running but its profile could not be identified (not closing it): %w", err)
+			return nil, fmt.Errorf("%w: %v", ErrRunningProfileUnknown, err)
 		}
 		if relaunch == "" {
-			return nil, fmt.Errorf("aborting align: Claude Desktop is running but its profile could not be identified (not closing it)")
+			return nil, ErrRunningProfileUnknown
 		}
 		if err := s.Platform.TerminateApp(); err != nil {
 			return nil, fmt.Errorf("failed to close Claude Desktop: %w", err)

@@ -135,7 +135,7 @@ func goPanelAction(caction, cfolder *C.char) {
 		if len(parts) != 2 {
 			return
 		}
-		setBusyStatus(true, "Syncing…")
+		setBusyStatus(true, "Closing Claude Desktop and syncing…")
 		reloadPanel()
 		go func() {
 			setBusyStatus(false, doSync(parts[0], parts[1]))
@@ -243,11 +243,25 @@ func doSync(fromFolder, toFolder string) string {
 	if from == "" || to == "" {
 		return "Sync failed: account not found."
 	}
-	rep, err := core.SyncSessions(from, to)
+	// ManualAlign, not SyncSessions: it closes Claude Desktop before writing and
+	// reopens the profile the user was on, and it snapshots the target first.
+	// Calling SyncSessions directly wrote into a profile Claude was still running
+	// on, which risks corrupting the session index it holds open, and skipped the
+	// backup the README promises for every write.
+	rep, err := switcher.ManualAlign(from, to)
 	if err != nil {
-		return "Sync failed: " + err.Error()
+		return core.SyncFailureMessage(err)
 	}
-	return "✓ Copied " + itoa(rep.CopiedCount) + " session(s) into " + core.DisplayName(toFolder) + "."
+	msg := core.SyncResultMessage(rep, core.DisplayName(toFolder))
+	if rep.ConflictCount > 0 {
+		// The panel is a transient popover and ManualAlign has just reopened
+		// Claude Desktop, which takes the foreground and dismisses it. So the
+		// status line this returns is usually gone before it is read. A clash is
+		// the one outcome the user has to know about, so it also goes somewhere
+		// that outlives the panel.
+		notify("Sync finished with clashes", msg)
+	}
+	return msg
 }
 
 func setView(v string) {

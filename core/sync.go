@@ -2,7 +2,9 @@ package core
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,14 +35,16 @@ type SyncReport struct {
 // never looks (silent failure) — and would drag along any foreign/orphaned
 // buckets, re-polluting the target. We copy ONLY the source account bucket.
 //
-// Conflict handling: to avoid silently destroying data, when the target already
-// holds a DIFFERENT version of a file, the source only wins if it is strictly
-// newer (mtime). If the target's copy is newer or same-age, the file is left
-// untouched and recorded as a conflict for the caller to resolve. (After
-// re-bucketing, two accounts could in principle hold different content at the
-// same bucket-relative path; that resolves through this same newer-wins/conflict
-// rule. In practice local_<UUID>.json names are session-scoped, so a genuine
-// collision is effectively impossible.)
+// Conflict handling: sync is purely ADDITIVE. A file the target does not have is
+// copied; a file the target already has is never replaced, whatever its contents
+// or timestamps. When the two sides hold different versions of the same file,
+// both are kept and the clash is recorded in the report for the caller to
+// surface.
+//
+// This used to overwrite when the source's mtime was newer. Do not reintroduce
+// that: on real data the newer file is the damaged one. See the conflict branch
+// in the walk below for the measurements, and
+// TestSyncNeverOverwritesDifferingContent for the regression test.
 func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 	// Sessions are stored per account, so both ends need one. A profile that
 	// has never been signed in to has no bucket to read from or write to, and
@@ -88,9 +92,19 @@ func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 
 		targetPath := filepath.Join(dstBucket, relPath)
 
-		dstInfo, statErr := os.Stat(targetPath)
-		if statErr != nil {
-			// File does not exist in target: copy it.
+		// Only existence matters. The target's mtime is deliberately not read;
+		// see the conflict branch below for why comparing it was harmful.
+		//
+		// Lstat, and only ErrNotExist counts as absent. copyFile truncates
+		// through os.Create, so treating every stat failure as "not there" would
+		// destroy the target's copy on a permission or I/O error — the one thing
+		// this function must never do. Lstat rather than Stat so a dangling
+		// symlink counts as present instead of being followed and written past.
+		if _, statErr := os.Lstat(targetPath); statErr != nil {
+			if !errors.Is(statErr, fs.ErrNotExist) {
+				return fmt.Errorf("inspect %s in the target: %w", relPath, statErr)
+			}
+			// Absent from the target: copy it.
 			if err := copyFile(path, targetPath); err != nil {
 				return fmt.Errorf("copy %s: %w", relPath, err)
 			}
@@ -109,18 +123,27 @@ func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 			return nil
 		}
 
-		// Content differs. Only overwrite when the source is strictly newer;
-		// otherwise the target holds equal-or-newer data we must not destroy.
-		if info.ModTime().After(dstInfo.ModTime()) {
-			if err := copyFile(path, targetPath); err != nil {
-				return fmt.Errorf("copy %s: %w", relPath, err)
-			}
-			report.CopiedCount++
-			report.CopiedFiles = append(report.CopiedFiles, relPath)
-		} else {
-			report.ConflictCount++
-			report.Conflicts = append(report.Conflicts, relPath)
-		}
+		// Content differs, so this file is never touched. Sync is purely
+		// additive: it brings across conversations the target does not have and
+		// never replaces one it does.
+		//
+		// This used to overwrite when the source's mtime was newer, on the
+		// assumption that a newer mtime meant a more recent edit. On real data it
+		// means the opposite. Measured on a user's machine (2026-07-30) for one
+		// account held by two profiles: of 26 differing files, 16 had the NEWER
+		// copy carrying "transcriptUnavailable" and missing its "cliSessionId"
+		// while the older copy was intact. Claude Desktop rewrites a session
+		// record when it can no longer find the transcript behind it, and that
+		// rewrite moves the mtime forward — so preferring the newer file
+		// systematically replaced good data with degraded data, and the only good
+		// copy was gone.
+		//
+		// There is no reliable way to tell which side is better from here: the
+		// judgement depends on Claude's own record format, which this tool does
+		// not own and which changes without notice. So we do not guess. The clash
+		// is reported and both copies survive.
+		report.ConflictCount++
+		report.Conflicts = append(report.Conflicts, relPath)
 		return nil
 	})
 
@@ -160,12 +183,20 @@ func filesEqual(a, b string) (bool, error) {
 // then target->source, leaving both accounts with A ∪ B. SyncSessions is
 // additive and skips identical files, so this is safe and idempotent. Both
 // profiles must be logged in (SyncSessions errors otherwise).
-func SyncBidirectional(profileA, profileB string) error {
-	if _, err := SyncSessions(profileA, profileB); err != nil {
-		return err
+//
+// It returns both legs' reports so the caller can surface clashes. Sync never
+// replaces a file the other side already has, so a conversation that differs on
+// both sides stays different on both sides. Dropping that on the floor is how a
+// user of Auto Sync would be told nothing at all about the sessions that did not
+// converge.
+func SyncBidirectional(profileA, profileB string) (aToB, bToA *SyncReport, err error) {
+	aToB, err = SyncSessions(profileA, profileB)
+	if err != nil {
+		return nil, nil, err
 	}
-	if _, err := SyncSessions(profileB, profileA); err != nil {
-		return err
+	bToA, err = SyncSessions(profileB, profileA)
+	if err != nil {
+		return aToB, nil, err
 	}
-	return nil
+	return aToB, bToA, nil
 }

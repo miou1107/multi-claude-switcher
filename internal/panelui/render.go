@@ -425,7 +425,7 @@ func RenderSync(profiles []ProfileVM, status string, busy bool) string {
 	}
 	body := `<div class="header">
   <button class="back" onclick="send('showSettings','')">‹</button>
-  <div class="htext"><h1>Sync sessions</h1><p>Copy Code sessions between accounts</p></div>
+  <div class="htext"><h1>Sync sessions</h1><p>Claude closes, then reopens where you were</p></div>
 </div>` + st + `
 <div class="cards">` + cards.String() + `</div>`
 	return shell(body)

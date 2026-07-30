@@ -2,6 +2,62 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Syncing no longer replaces a conversation with a damaged copy of itself.**
+  When both accounts held the same session, sync kept whichever file had the
+  newer modification time. On real data that rule picks the wrong one. Measured
+  on a user's machine for one account held by two profiles: of 26 differing
+  files, 16 had the newer copy carrying `transcriptUnavailable` and missing its
+  `cliSessionId`, while the older copy was intact. Claude Desktop rewrites a
+  session's record when it can no longer find the transcript behind it, and that
+  rewrite moves the timestamp forward, so "newer" reliably meant "damaged more
+  recently" and the good copy was the one being thrown away.
+
+  Sync is now purely additive: it copies conversations the other account does
+  not have and never replaces one it does. A conversation that differs on both
+  sides is reported as a clash and both copies are kept. There is no reliable way
+  to tell from the outside which version is better, so nothing guesses.
+
+- **The panel's Sync button no longer writes into a profile Claude is running
+  on, and no longer skips the backup.** It called the low-level sync directly,
+  bypassing the step that closes Claude Desktop first, snapshots the target, and
+  reopens the profile you were on. Writing into a live profile risks corrupting
+  the session index Claude holds open, and the missing snapshot contradicted the
+  README's promise that every write is preceded by one. The command-line `mcs
+  sync` was already doing both correctly; the panel is now on the same path.
+
+- **Sync could write outside the sessions folder, and could truncate a file it
+  meant to leave alone.** The existence check treated every `stat` failure as
+  "the target does not have this file", and the copy then truncated through
+  `os.Create`. A dangling symlink where the target's copy would live therefore
+  sent the data to wherever the link pointed, and a permission or I/O error
+  destroyed the target's copy. Only a genuine "not found" now counts as absent,
+  and the check no longer follows symlinks.
+
+- **Sync now tells you when conversations clashed.** The count was being
+  computed and then discarded, so a sync that copied nothing because every file
+  already existed in a different version reported only "Copied 0 session(s)".
+  Clashes are common now that nothing is overwritten, so they are reported in
+  the panel, in a notification that outlives the panel (which Claude reopening
+  otherwise dismisses before it can be read), and in the log for **Auto Sync on
+  switch**, which runs unattended and previously discarded both directions'
+  reports entirely.
+
+- **"Quit Claude Desktop first, then try Sync again."** Sync aborts rather than
+  closing a Claude Desktop it cannot identify the profile of, which happens to
+  anyone who opened Claude themselves instead of through the switcher. That
+  abort used to surface as a line of internal wording in a small popover.
+
+### Changed
+- **Sync says what it is about to do.** The Sync screen now reads "Claude
+  closes, then reopens where you were", and the progress line says "Closing
+  Claude Desktop and syncing…" instead of "Syncing…". Closing Claude was always
+  part of a correct sync and the panel never mentioned it.
+
+- **Both panels share one place that words a sync result** (`core/syncmessage.go`),
+  rather than each host formatting its own copy of the same sentence. The
+  wording also stopped saying "1 session(s)".
+
 ## [0.10.2] - 2026-07-29
 
 ### Changed

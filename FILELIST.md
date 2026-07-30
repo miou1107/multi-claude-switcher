@@ -97,8 +97,10 @@
 - `core/backup_test.go` — Unit tests for backup & restore manager.
 - `core/backup_perm_unix_test.go` — Test helper (non-Windows): make a dir reject new children via chmod, to exercise staging-failure paths.
 - `core/backup_perm_windows_test.go` — Test helper (Windows): make a dir reject new children via an icacls deny ACE, to exercise staging-failure paths.
-- `core/sync.go` — Session index synchronization module with conflict detection, plus `SyncBidirectional` (unions both profiles' sessions for auto sync).
-- `core/sync_test.go` — Unit tests for session sync (copy, conflict, identical, overwrite).
+- `core/sync.go` — Session synchronization: purely additive (copies what the target lacks, never replaces what it has), with clash detection, plus `SyncBidirectional` (unions both profiles' sessions for auto sync, returning both legs' reports).
+- `core/syncmessage.go` — Turns a sync report or error into the sentence shown to the user, shared by both panel hosts so their wording cannot drift.
+- `core/sync_test.go` — Unit tests for session sync (copy, clash, identical, re-bucketing, union), including the regressions that pin the additive rule: a differing file is never replaced even when the incoming copy is newer, and a stat failure never becomes a write.
+- `core/syncmessage_test.go` — Unit tests for the user-facing sync sentences (singular/plural, clash wording, which errors are translated).
 - `core/switch.go` — Safe Switch controller (Terminate -> Backup -> Sync -> Launch); session data only moves when the auto sync toggle is on (bidirectional align), otherwise a switch is a pure account change.
 - `core/switch_test.go` — Unit tests for Safe Switch (aborts on backup failure).
 - `core/settings.go` — User settings store (~/.multi-claude-switcher/settings.json): auto sync toggle + warning-dismissed flag.

@@ -120,9 +120,18 @@ both accounts' sessions in both directions, so the two converge over time. It
 warns you the first time, because the merge is not undone by switching the
 toggle back off.
 
-Either way, if both accounts edited the same session, the newer copy is kept and
-the clash is reported rather than quietly resolved. And every write is preceded
-by a timestamped snapshot. If that snapshot fails, the write does not happen.
+Either way, syncing only ever **adds**. A conversation the other account already
+has is never replaced, even if the incoming copy looks newer. When the two sides
+hold different versions of the same conversation, both are kept and the clash is
+reported to you rather than quietly resolved.
+
+That is deliberate. A session file's timestamp does not reliably tell you which
+copy is better: Claude Desktop rewrites a conversation's record when it can no
+longer find the transcript behind it, which makes the damaged copy the newer one.
+So neither copy is thrown away, and nothing here tries to guess.
+
+Every write is preceded by a timestamped snapshot. If that snapshot fails, the
+write does not happen.
 
 Only the Code tab syncs. Ordinary chat conversations live on Anthropic's servers,
 one set per account, and nothing local can move them.

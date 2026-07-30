@@ -57,8 +57,22 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 				return fmt.Errorf("aborting switch: failed to back up target profile (refusing to overwrite without a backup): %w", err)
 			}
 			log.Printf("[Safe Switch] Auto sync on: unioning sessions between both accounts...")
-			if err := SyncBidirectional(srcProfilePath, dstProfilePath); err != nil {
+			aToB, bToA, err := SyncBidirectional(srcProfilePath, dstProfilePath)
+			if err != nil {
 				return fmt.Errorf("failed to auto sync sessions: %w", err)
+			}
+			// Sync never replaces a session the other side already has, so a
+			// conversation that differs on both sides does not converge. Auto Sync
+			// runs unattended with no UI to report into, so the log is the only
+			// place a user can ever find out which ones stayed apart.
+			if n := aToB.ConflictCount + bToA.ConflictCount; n > 0 {
+				log.Printf("[Safe Switch] %d session(s) differ on both sides and were left as they are (both copies kept):", n)
+				for _, c := range aToB.Conflicts {
+					log.Printf("[Safe Switch]   %s -> %s: %s", srcProfilePath, dstProfilePath, c)
+				}
+				for _, c := range bToA.Conflicts {
+					log.Printf("[Safe Switch]   %s -> %s: %s", dstProfilePath, srcProfilePath, c)
+				}
 			}
 		}
 	} else {

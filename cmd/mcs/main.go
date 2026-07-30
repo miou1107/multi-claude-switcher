@@ -114,8 +114,11 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Back up the destination first: sync can overwrite target files.
-		// Abort on a genuine backup failure so we never overwrite unprotected.
+		// Back up the destination first. Sync is additive and never replaces a
+		// file the target already has, so this is not guarding against an
+		// overwrite; it is so a run that adds hundreds of conversations can be
+		// undone. Abort on a genuine backup failure rather than writing
+		// unprotected.
 		backupPath, berr := bm.BackupIfHasData(dst)
 		if berr != nil {
 			fmt.Printf("Aborting sync: failed to back up target (refusing to overwrite without a backup): %v\n", berr)
@@ -132,7 +135,7 @@ func main() {
 		}
 		fmt.Printf("Sync complete! Re-bucketed %s -> %s. Copied: %d, Skipped: %d, Conflicts: %d\n", report.SourceAccount, report.TargetAccount, report.CopiedCount, report.SkippedCount, report.ConflictCount)
 		if report.ConflictCount > 0 {
-			fmt.Printf("⚠️  %d file(s) left untouched because the target had newer content:\n", report.ConflictCount)
+			fmt.Printf("⚠️  %d file(s) left untouched: the target has a different version and sync never replaces one:\n", report.ConflictCount)
 			for _, c := range report.Conflicts {
 				fmt.Printf("   - %s\n", c)
 			}

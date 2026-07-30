@@ -291,7 +291,7 @@ func dispatchAction(action, arg string) {
 		if len(parts) != 2 {
 			return
 		}
-		panelSetBusy(true, "Syncing…")
+		panelSetBusy(true, "Closing Claude Desktop and syncing…")
 		reloadPanel()
 		go func() {
 			panelSetBusy(false, doSyncPanel(parts[0], parts[1]))
@@ -552,11 +552,28 @@ func doSyncPanel(fromFolder, toFolder string) string {
 	if from == "" || to == "" {
 		return "Sync failed: account not found."
 	}
-	rep, err := core.SyncSessions(from, to)
+	// ManualAlign, not SyncSessions: it closes Claude Desktop before writing and
+	// reopens the profile the user was on, and it snapshots the target first.
+	// Calling SyncSessions directly wrote into a profile Claude was still running
+	// on, which risks corrupting the session index it holds open, and skipped the
+	// backup the README promises for every write.
+	rep, err := panelSwitcher.ManualAlign(from, to)
 	if err != nil {
-		return "Sync failed: " + err.Error()
+		return core.SyncFailureMessage(err)
 	}
-	return fmt.Sprintf("✓ Copied %d session(s) into %s.", rep.CopiedCount, core.DisplayName(toFolder))
+	msg := core.SyncResultMessage(rep, core.DisplayName(toFolder))
+	if rep.ConflictCount > 0 {
+		// The panel parks itself on losing focus and clears its status as it goes
+		// (see parkPanel), and ManualAlign has just reopened Claude Desktop, which
+		// takes the foreground. So the status line this returns is usually gone
+		// before it is read. A clash is the one outcome the user has to know
+		// about, so it also goes somewhere that outlives the panel.
+		// notify, not notifyTray: notifyTray's protocol is a fixed set of literal
+		// keywords the tray switches on, so it cannot carry text. notify spawns its
+		// own toast and works from any process, panel included.
+		notify("Sync finished with clashes", msg)
+	}
+	return msg
 }
 
 func panelFolderPath(folder string) string {
