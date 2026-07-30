@@ -43,6 +43,16 @@ type ScannedAccount struct {
 	// really is a dead end.
 	Recoverable bool
 
+	// Pending marks a profile MCS created that is waiting to be signed in to.
+	// It is a separate flag from PendingUUID because an empty PendingUUID is
+	// meaningful on its own — "waiting for any account", the add path — as
+	// opposed to "not pending at all".
+	Pending bool
+
+	// PendingUUID names the account this profile was created to receive, on the
+	// recovery path. Empty on the add path. Only meaningful when Pending is true.
+	PendingUUID string
+
 	// Sources lists every profile holding part of this ghost's conversations, in
 	// folder order. Recovery copies from all of them: an orphan's conversations
 	// really can be split across two profiles, and taking only the largest share
@@ -72,19 +82,25 @@ const SignedOutNote = "Not signed in yet. Select it here, then switch to it and 
 // intact, and what is missing is a profile that claims the account.
 const RecoverableGhostNote = "Its conversations are still here. Recover to sign back in."
 
+// PendingSignInNote is the note on a profile MCS has just created. The user has
+// been sent to sign in to it, so it has to stay listed until they do.
+const PendingSignInNote = "Sign in to finish setting this up."
+
 type bucketStat struct {
 	Count       int
 	LastUpdated time.Time
 }
 
 type dirScan struct {
-	Folder    string
-	Path      string // the dir this was read from; recovery copies out of it
-	LiveUUID  string // config.json lastKnownAccountUuid ("" if logged out)
-	HasConfig bool   // config.json exists, i.e. this really is a profile folder
-	Identity  AccountIdentity
-	Account   AccountType
-	Buckets   map[string]bucketStat // accountUUID -> stats (from claude-code-sessions/)
+	Folder      string
+	Path        string // the dir this was read from; recovery copies out of it
+	Pending     bool   // named in the pending-sign-in registry
+	PendingUUID string // account this profile was created to receive ("" = any)
+	LiveUUID    string // config.json lastKnownAccountUuid ("" if logged out)
+	HasConfig   bool   // config.json exists, i.e. this really is a profile folder
+	Identity    AccountIdentity
+	Account     AccountType
+	Buckets     map[string]bucketStat // accountUUID -> stats (from claude-code-sessions/)
 }
 
 // deriveNote returns the review note for a row: incomplete rows are invalid data;
@@ -129,10 +145,19 @@ func assembleAccounts(scans []dirScan) []ScannedAccount {
 			Note:        deriveNote(true, s.Account),
 		})
 	}
+	// A recovery in flight has already copied its orphan's bucket into the new
+	// profile. Reporting it as a ghost as well would show the same conversations
+	// twice: once as the thing being recovered, once as the problem.
+	pendingExpect := map[string]bool{}
+	for _, s := range scans {
+		if s.Pending && s.PendingUUID != "" {
+			pendingExpect[s.PendingUUID] = true
+		}
+	}
 	ghost := map[string]*ScannedAccount{}
 	for _, s := range scans {
 		for uuid, b := range s.Buckets {
-			if uuid == s.LiveUUID || live[uuid] {
+			if uuid == s.LiveUUID || live[uuid] || pendingExpect[uuid] {
 				continue // own live bucket, or stale dup of an account live elsewhere
 			}
 			g := ghost[uuid]
@@ -169,7 +194,7 @@ func assembleAccounts(scans []dirScan) []ScannedAccount {
 	// Profile folders waiting for their one-time sign-in. No account, no
 	// sessions, but a real folder the user can be pointed at.
 	for _, s := range scans {
-		if s.LiveUUID != "" || len(s.Buckets) > 0 || !s.HasConfig {
+		if s.LiveUUID != "" || len(s.Buckets) > 0 || !s.HasConfig || s.Pending {
 			continue
 		}
 		out = append(out, ScannedAccount{
@@ -179,6 +204,19 @@ func assembleAccounts(scans []dirScan) []ScannedAccount {
 			Note:       SignedOutNote,
 		})
 	}
+	// Profiles MCS just created, still waiting for their one-time sign-in.
+	for _, s := range scans {
+		if !s.Pending || s.LiveUUID != "" {
+			continue
+		}
+		out = append(out, ScannedAccount{
+			HomeFolder:  s.Folder,
+			Pending:     true,
+			PendingUUID: s.PendingUUID,
+			Account:     AccountUnknown,
+			Note:        PendingSignInNote,
+		})
+	}
 	for _, g := range ghost {
 		out = append(out, *g)
 	}
@@ -186,7 +224,7 @@ func assembleAccounts(scans []dirScan) []ScannedAccount {
 		if ri, rj := rowRank(out[i]), rowRank(out[j]); ri != rj {
 			return ri < rj
 		}
-		if out[i].Complete || out[i].SignedOut {
+		if out[i].Complete || out[i].SignedOut || out[i].Pending {
 			return out[i].HomeFolder < out[j].HomeFolder
 		}
 		return out[i].UUID < out[j].UUID
@@ -202,7 +240,7 @@ func rowRank(a ScannedAccount) int {
 	switch {
 	case a.Complete:
 		return 0
-	case a.SignedOut:
+	case a.SignedOut, a.Pending:
 		return 1
 	case a.Recoverable:
 		return 2
@@ -265,13 +303,25 @@ func countAndNewest(dir string) (int, time.Time) {
 }
 
 // ScanAccounts scans the given profile dirs and returns the deduped review rows.
-// Dirs that are not Claude Desktop profiles at all (no config.json, no login,
-// no session bucket) are dropped.
-func ScanAccounts(profiles []*platform.ProfileInfo) []ScannedAccount {
+//
+// Dirs that are not Claude Desktop profiles at all (no config.json, no login, no
+// session bucket) are dropped — except dirs named in pending, which MCS created
+// itself and which look exactly like that until Claude has run in them. Dropping
+// those would make the profile the user was just told to sign in to disappear from
+// the panel before they could.
+func ScanAccounts(profiles []*platform.ProfileInfo, pending []PendingProfile) []ScannedAccount {
+	byFolder := map[string]PendingProfile{}
+	for _, p := range pending {
+		byFolder[p.Folder] = p
+	}
 	var scans []dirScan
 	for _, p := range profiles {
 		ds := gatherDir(p)
-		if ds.LiveUUID == "" && len(ds.Buckets) == 0 && !ds.HasConfig {
+		if pp, ok := byFolder[p.Name]; ok {
+			ds.Pending = true
+			ds.PendingUUID = pp.ExpectUUID
+		}
+		if ds.LiveUUID == "" && len(ds.Buckets) == 0 && !ds.HasConfig && !ds.Pending {
 			continue
 		}
 		scans = append(scans, ds)

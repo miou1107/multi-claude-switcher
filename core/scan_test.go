@@ -174,7 +174,7 @@ func TestScanAccountsListsProfileAwaitingSignIn(t *testing.T) {
 	waiting := writeSignedOutProfile(t, root, "ClaudeWork")
 	cli := writeNonProfileDir(t, root, "Claude Code")
 
-	got := ScanAccounts([]*platform.ProfileInfo{live, waiting, cli})
+	got := ScanAccounts([]*platform.ProfileInfo{live, waiting, cli}, nil)
 	if len(got) != 2 {
 		t.Fatalf("want 2 rows (one signed in, one awaiting sign-in), got %d: %+v", len(got), got)
 	}
@@ -197,7 +197,7 @@ func TestScanAccounts(t *testing.T) {
 	p2 := writeProfile(t, root, "Claude_Profile2", "22222222", map[string]int{"22222222": 4})
 	junk := writeProfile(t, root, "Claude-3p", "", nil) // no login, no buckets → skipped
 
-	got := ScanAccounts([]*platform.ProfileInfo{p1, p2, junk})
+	got := ScanAccounts([]*platform.ProfileInfo{p1, p2, junk}, nil)
 	if len(got) != 3 {
 		t.Fatalf("want 3 (2 complete + 1 ghost), got %d: %+v", len(got), got)
 	}
@@ -327,5 +327,119 @@ func TestRecoverableGhostSortsAboveDeadGhost(t *testing.T) {
 	}
 	if got[2].UUID != "aaa" || got[2].Recoverable {
 		t.Fatalf("dead ghost must come last: %+v", got)
+	}
+}
+
+func TestScanKeepsPendingProfileThatIsStillEmpty(t *testing.T) {
+	// The add path, one moment after creating the folder: no config.json, no
+	// buckets, no login. Without the pending exception ScanAccounts drops it,
+	// and the profile the user was just told to sign in to vanishes.
+	dir := t.TempDir()
+	live := writeProfile(t, dir, "Claude", "live-uuid", map[string]int{"live-uuid": 3})
+	fresh := filepath.Join(dir, "Claude_Personal")
+	if err := os.MkdirAll(fresh, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	empty := &platform.ProfileInfo{Name: "Claude_Personal", Path: fresh, Exists: true, UUIDBuckets: map[string]int{}}
+
+	got := ScanAccounts([]*platform.ProfileInfo{live, empty},
+		[]PendingProfile{{Folder: "Claude_Personal"}})
+
+	var row ScannedAccount
+	found := false
+	for _, r := range got {
+		if r.HomeFolder == "Claude_Personal" {
+			row, found = r, true
+		}
+	}
+	if !found {
+		t.Fatalf("pending profile was dropped: %+v", got)
+	}
+	if !row.Pending || row.Complete || row.Note != PendingSignInNote {
+		t.Fatalf("row: %+v", row)
+	}
+	if row.PendingUUID != "" {
+		t.Fatalf("add path expects any account, got %q", row.PendingUUID)
+	}
+}
+
+func TestScanPendingRecoverySuppressesTheGhost(t *testing.T) {
+	// Mid-recovery: the orphan's bucket has been copied into a new profile that
+	// nobody has signed in to yet. The account must appear once, as the thing
+	// being recovered, not also as the problem.
+	dir := t.TempDir()
+	source := writeProfile(t, dir, "Claude", "live-uuid",
+		map[string]int{"live-uuid": 3, "orphan-uuid": 9})
+	target := writeProfile(t, dir, "Claude_Recovered", "", map[string]int{"orphan-uuid": 9})
+
+	got := ScanAccounts([]*platform.ProfileInfo{source, target},
+		[]PendingProfile{{Folder: "Claude_Recovered", ExpectUUID: "orphan-uuid"}})
+
+	for _, r := range got {
+		if !r.Complete && r.UUID == "orphan-uuid" {
+			t.Fatalf("orphan-uuid must not also appear as a ghost: %+v", got)
+		}
+	}
+	var row ScannedAccount
+	for _, r := range got {
+		if r.HomeFolder == "Claude_Recovered" {
+			row = r
+		}
+	}
+	if !row.Pending || row.PendingUUID != "orphan-uuid" {
+		t.Fatalf("pending recovery row: %+v", row)
+	}
+}
+
+func TestScanKeepsPendingProfileWithNoDirectoryYet(t *testing.T) {
+	// The Store build between creating a profile and the packaged app's first
+	// launch: msixParkForNewIn renamed the slot away on purpose, so the profile
+	// state.json names has no directory at all. msixFindProfiles reports it with
+	// Exists false. It must still produce a pending row — this is the one platform
+	// the whole feature exists for.
+	dir := t.TempDir()
+	live := writeProfile(t, dir, "Claude_Parked", "live-uuid", map[string]int{"live-uuid": 3})
+	slot := &platform.ProfileInfo{
+		Name: "Work", Path: filepath.Join(dir, "Claude"), Exists: false,
+		UUIDBuckets: map[string]int{}, Managed: true,
+	}
+
+	got := ScanAccounts([]*platform.ProfileInfo{live, slot},
+		[]PendingProfile{{Folder: "Work"}})
+
+	for _, r := range got {
+		if r.HomeFolder == "Work" {
+			if !r.Pending || r.Note != PendingSignInNote {
+				t.Fatalf("row: %+v", r)
+			}
+			return
+		}
+	}
+	t.Fatalf("the just-created Store profile was dropped: %+v", got)
+}
+
+func TestScanPendingRowSortsWithFoldersAwaitingSignIn(t *testing.T) {
+	dir := t.TempDir()
+	live := writeProfile(t, dir, "Claude", "live-uuid", map[string]int{"live-uuid": 1, "orphan": 4})
+	fresh := filepath.Join(dir, "Claude_New")
+	if err := os.MkdirAll(fresh, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pendingInfo := &platform.ProfileInfo{Name: "Claude_New", Path: fresh, Exists: true, UUIDBuckets: map[string]int{}}
+
+	got := ScanAccounts([]*platform.ProfileInfo{live, pendingInfo},
+		[]PendingProfile{{Folder: "Claude_New"}})
+
+	if len(got) != 3 {
+		t.Fatalf("want complete + pending + ghost, got %+v", got)
+	}
+	if !got[0].Complete {
+		t.Fatalf("row0 must be the complete account: %+v", got[0])
+	}
+	if !got[1].Pending {
+		t.Fatalf("row1 must be the pending profile: %+v", got[1])
+	}
+	if got[2].Complete || got[2].Pending || !got[2].Recoverable {
+		t.Fatalf("row2 must be the recoverable ghost: %+v", got[2])
 	}
 }

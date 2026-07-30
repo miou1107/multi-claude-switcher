@@ -375,7 +375,7 @@ func reloadPanel() {
 	var htmlStr string
 	switch view {
 	case "rescan":
-		accounts := core.ScanAccounts(mustFindProfiles())
+		accounts := core.ScanAccounts(mustFindProfiles(), core.LoadPending())
 		htmlStr = panelui.RenderRescan(accounts, panelui.ComputePreselect(accounts, core.LoadManaged()))
 	case "sync":
 		htmlStr = panelui.RenderSync(buildProfiles(), getStatus(), getBusy())

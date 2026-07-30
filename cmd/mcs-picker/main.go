@@ -33,7 +33,7 @@ func main() {
 		emit(result{OK: false})
 		return
 	}
-	accounts := core.ScanAccounts(profiles)
+	accounts := core.ScanAccounts(profiles, core.LoadPending())
 	preselected := computePreselect(accounts, core.LoadManaged())
 
 	// runPicker is platform-specific: a native webview window on macOS, a no-op
