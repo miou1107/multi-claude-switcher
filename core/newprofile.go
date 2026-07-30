@@ -108,12 +108,13 @@ func (c *ProfileCreator) Create(req CreateProfileRequest) (*CreatedProfile, erro
 		discard()
 		return nil, fmt.Errorf("record the new profile: %w", err)
 	}
-	// Managed at once, so the account list shows it while the user is being told to
-	// go and sign in to it. AddManaged rather than a read-append-write here: it
-	// refuses on a registry it could not parse, where doing this by hand would read
-	// the damaged file as "first run" and replace the user's whole account list with
-	// this one profile.
-	if err := AddManaged(identity); err != nil {
+	// Add to the managed list only when the user has already curated one. The panel
+	// shows this profile at once through the pending registry above, so it does not
+	// need a managed entry to be visible. Writing one on a first-run (unset) list
+	// would turn it into a one-element list and hide every account not in it — the
+	// user's existing accounts would disappear the moment they added a second. On a
+	// curated list it is added so it survives once the pending entry is pruned.
+	if err := AddManagedIfCurated(identity); err != nil {
 		if rmErr := RemovePending(identity); rmErr != nil {
 			log.Printf("could not clear the pending entry for %q after a failed create: %v", identity, rmErr)
 		}

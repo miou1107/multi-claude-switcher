@@ -111,6 +111,34 @@ func AddManaged(identity string) error {
 	return saveManagedLocked(append(current, identity))
 }
 
+// AddManagedIfCurated adds identity to the managed list, but only when the list has
+// already been curated. On a never-configured (first-run) list it does nothing.
+//
+// This is what a freshly created profile uses. Turning a nil (first-run) list into a
+// one-element list would flip the panel from "show every usable account" to "show
+// only what is listed", so the user's existing accounts would vanish the moment they
+// added a second one. The new profile stays visible through the pending registry
+// until it is signed in, and through being signed in after, so it needs no managed
+// entry on a first-run list. On a curated list it is added, so it survives past the
+// point the pending entry is pruned.
+func AddManagedIfCurated(identity string) error {
+	managedMu.Lock()
+	defer managedMu.Unlock()
+	current, err := loadManagedLocked()
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return nil // first run — leave the list unset
+	}
+	for _, m := range current {
+		if m == identity {
+			return nil
+		}
+	}
+	return saveManagedLocked(append(current, identity))
+}
+
 // RemoveManaged drops one identity from the managed list, leaving everything
 // else alone. Removing one that is not there changes nothing and writes nothing.
 func RemoveManaged(identity string) error {

@@ -704,7 +704,17 @@ func panelMustFindProfiles() []*platform.ProfileInfo {
 func panelBuildProfiles() []panelui.ProfileVM {
 	running, _ := panelPlat.DetectRunningProfile()
 	// Shared with the macOS host on purpose: see panelui.BuildProfiles.
-	return panelui.BuildProfiles(panelMustFindProfiles(), core.LoadManaged(), running, panelCachedPlan)
+	return panelui.BuildProfiles(panelMustFindProfiles(), core.LoadManaged(), panelPendingFolders(), running, panelCachedPlan)
+}
+
+// panelPendingFolders is the folder names of profiles awaiting their one-time
+// sign-in, so the list shows a freshly created profile even before it has an account.
+func panelPendingFolders() []string {
+	var out []string
+	for _, e := range core.LoadPending() {
+		out = append(out, e.Folder)
+	}
+	return out
 }
 
 // notifyTrayMigrationQueued tells the tray process to (re)start its post-sign-in

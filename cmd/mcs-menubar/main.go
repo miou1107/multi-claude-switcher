@@ -596,7 +596,17 @@ func buildProfiles() []panelui.ProfileVM {
 	// Shared with the Windows host on purpose: this used to be a copy in each, and
 	// the copies drifted — SignedIn was set in one and not the other, which left the
 	// sync screen unable to offer any pair at all on macOS.
-	return panelui.BuildProfiles(mustFindProfiles(), core.LoadManaged(), running, cachedPlan)
+	return panelui.BuildProfiles(mustFindProfiles(), core.LoadManaged(), pendingFolders(), running, cachedPlan)
+}
+
+// pendingFolders is the folder names of profiles awaiting their one-time sign-in,
+// so the list shows a freshly created profile even before it has an account.
+func pendingFolders() []string {
+	var out []string
+	for _, e := range core.LoadPending() {
+		out = append(out, e.Folder)
+	}
+	return out
 }
 
 // newProfileSupported reports whether "Add another account" applies on this host.

@@ -41,13 +41,71 @@ func TestCreateProfileAddPath(t *testing.T) {
 	if len(pending) != 1 || pending[0].Folder != "Claude_Personal" || pending[0].ExpectUUID != "" {
 		t.Fatalf("pending = %+v", pending)
 	}
-	if managed := LoadManaged(); len(managed) != 1 || managed[0] != "Claude_Personal" {
-		t.Fatalf("managed = %v, want the new folder listed so it shows up at once", managed)
+	// It shows up at once through the pending registry, not by curating the managed
+	// list — see TestCreateProfileFirstRunLeavesTheManagedListUnset for why.
+	if managed := LoadManaged(); managed != nil {
+		t.Fatalf("managed = %v, want it left unset on a first-run create", managed)
 	}
 	// The name the user typed becomes the display name, so both platforms show it
 	// even though only one of them puts it in the folder name.
 	if n := LoadProfileNames()["Claude_Personal"]; n != "Personal" {
 		t.Fatalf("display name = %q, want %q", n, "Personal")
+	}
+}
+
+// TestCreateProfileFirstRunLeavesTheManagedListUnset is the regression test for a
+// create that hid every other account. On a never-configured (first-run) system the
+// managed list is nil, and the panel falls back to showing everything usable. Adding
+// the new profile to the list turned that nil into a one-element list, which flipped
+// the panel to "show only what is listed" — so the user's existing, signed-in
+// accounts vanished the moment they added a second one. The new profile stays visible
+// through the pending registry instead, so the list must be left unset here.
+func TestCreateProfileFirstRunLeavesTheManagedListUnset(t *testing.T) {
+	withStubbedManaged(t) // first run: managed.json absent
+	withStubbedPending(t)
+	withStubbedNames(t)
+	root := t.TempDir()
+	created := filepath.Join(root, "Claude_Personal")
+	if err := os.MkdirAll(created, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &mockPlatform{running: true, createdIdentity: "Claude_Personal", createdPath: created}
+
+	if _, err := NewProfileCreator(m).Create(CreateProfileRequest{Name: "Personal"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if managed := LoadManaged(); managed != nil {
+		t.Fatalf("a first-run create must not curate the list; got %v, which hides every account not in it", managed)
+	}
+	// It is still shown, through the pending registry.
+	if p := LoadPending(); len(p) != 1 || p[0].Folder != "Claude_Personal" {
+		t.Fatalf("the new profile must be registered pending so it shows without a managed entry: %+v", p)
+	}
+}
+
+// TestCreateProfileAddsToAnAlreadyCuratedList: once the user has curated a list,
+// the new profile joins it (so it survives past sign-in) without disturbing what is
+// already there.
+func TestCreateProfileAddsToAnAlreadyCuratedList(t *testing.T) {
+	withStubbedManaged(t)
+	withStubbedPending(t)
+	withStubbedNames(t)
+	if err := SetManaged([]string{"Claude"}); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	created := filepath.Join(root, "Claude_Personal")
+	if err := os.MkdirAll(created, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &mockPlatform{createdIdentity: "Claude_Personal", createdPath: created}
+
+	if _, err := NewProfileCreator(m).Create(CreateProfileRequest{Name: "Personal"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	mg := LoadManaged()
+	if len(mg) != 2 || mg[0] != "Claude" || mg[1] != "Claude_Personal" {
+		t.Fatalf("managed = %v, want the existing entry kept and the new one appended", mg)
 	}
 }
 
@@ -61,6 +119,12 @@ func TestCreateProfileKeysRegistriesOnTheIdentityNotThePath(t *testing.T) {
 	withStubbedManaged(t)
 	withStubbedPending(t)
 	withStubbedNames(t)
+	// Curate the list first, so the managed write actually happens (a first-run list
+	// is deliberately left unset — see TestCreateProfileFirstRunLeavesTheManagedListUnset)
+	// and this test can still check it is keyed on the identity, not the directory.
+	if err := SetManaged([]string{"Other"}); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	slot := filepath.Join(root, "Claude")
 	if err := os.MkdirAll(slot, 0o755); err != nil {
@@ -78,8 +142,8 @@ func TestCreateProfileKeysRegistriesOnTheIdentityNotThePath(t *testing.T) {
 	if p := LoadPending(); len(p) != 1 || p[0].Folder != "Work" {
 		t.Fatalf("pending = %+v, want it keyed on the identity", p)
 	}
-	if mg := LoadManaged(); len(mg) != 1 || mg[0] != "Work" {
-		t.Fatalf("managed = %v, want it keyed on the identity", mg)
+	if mg := LoadManaged(); len(mg) != 2 || mg[1] != "Work" {
+		t.Fatalf("managed = %v, want the identity appended, not the directory basename", mg)
 	}
 	if n := LoadProfileNames()["Work"]; n != "Work" {
 		t.Fatalf("names.json = %q, want it keyed on the identity", n)

@@ -19,15 +19,23 @@ import (
 //   - managed is the user's curated folder list. A nil slice means "never
 //     configured" (first run) and is not the same as an empty one, which means the
 //     user chose nothing.
+//   - pending is the folder names of profiles MCS has just created and is waiting
+//     for the user to sign in to. They are shown regardless of the managed list, so
+//     a freshly created profile is never invisible in the panel it was made from —
+//     which matters on macOS, where such a profile carries no `Managed` flag.
 //   - runningPath is the data directory Claude Desktop is running on, or "".
 //   - plan looks up a profile's subscription label by path. It is a function because
 //     each host caches it differently and the read is expensive.
-func BuildProfiles(profiles []*platform.ProfileInfo, managed []string, runningPath string, plan func(path string) string) []ProfileVM {
+func BuildProfiles(profiles []*platform.ProfileInfo, managed []string, pending []string, runningPath string, plan func(path string) string) []ProfileVM {
+	pendingSet := map[string]bool{}
+	for _, f := range pending {
+		pendingSet[f] = true
+	}
 	var out []ProfileVM
 	for _, p := range profiles {
 		uuid, uuidErr := platform.GetProfileAccountUUID(p.Path)
 		signedIn := uuidErr == nil
-		if !includeProfile(managed, p.Name, signedIn, p.Managed) {
+		if !includeProfile(managed, p.Name, signedIn, p.Managed, pendingSet[p.Name]) {
 			continue
 		}
 		out = append(out, ProfileVM{
@@ -57,7 +65,13 @@ func BuildProfiles(profiles []*platform.ProfileInfo, managed []string, runningPa
 // first run there is no list yet, so fall back to what is usable: anything signed in,
 // plus anything MCS created itself, which has no account until the user signs in and
 // would otherwise be invisible in the very panel it was created from.
-func includeProfile(managed []string, folder string, signedIn, mcsCreated bool) bool {
+func includeProfile(managed []string, folder string, signedIn, mcsCreated, pending bool) bool {
+	if pending {
+		// Just created and awaiting its one-time sign-in. It must show whether the
+		// list is first-run or curated-but-not-yet-listing-it, or it is invisible in
+		// the very panel it was created from.
+		return true
+	}
 	if managed != nil {
 		for _, m := range managed {
 			if m == folder {

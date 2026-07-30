@@ -34,7 +34,7 @@ func TestBuildProfilesMarksSignedIn(t *testing.T) {
 
 	got := BuildProfiles(
 		[]*platform.ProfileInfo{profile("Claude", in), profile("Claude_Fresh", out)},
-		[]string{"Claude", "Claude_Fresh"}, "", noPlan)
+		[]string{"Claude", "Claude_Fresh"}, nil, "", noPlan)
 
 	if len(got) != 2 {
 		t.Fatalf("want both managed profiles, got %+v", got)
@@ -56,7 +56,7 @@ func TestBuildProfilesMarksTheRunningProfile(t *testing.T) {
 
 	got := BuildProfiles(
 		[]*platform.ProfileInfo{profile("Claude", a), profile("Claude_Work", b)},
-		[]string{"Claude", "Claude_Work"}, b, noPlan)
+		[]string{"Claude", "Claude_Work"}, nil, b, noPlan)
 
 	if got[0].Current {
 		t.Errorf("Claude is not the running profile: %+v", got[0])
@@ -82,7 +82,7 @@ func TestBuildProfilesCarriesTheAccountUUID(t *testing.T) {
 
 	got := BuildProfiles(
 		[]*platform.ProfileInfo{profile("Claude", in), profile("Claude_Fresh", fresh)},
-		[]string{"Claude", "Claude_Fresh"}, "", noPlan)
+		[]string{"Claude", "Claude_Fresh"}, nil, "", noPlan)
 
 	if len(got) != 2 {
 		t.Fatalf("want both managed profiles, got %+v", got)
@@ -107,7 +107,7 @@ func TestBuildProfilesHonoursTheManagedList(t *testing.T) {
 
 	got := BuildProfiles(
 		[]*platform.ProfileInfo{profile("Claude", kept), profile("Claude_Other", other)},
-		[]string{"Claude"}, "", noPlan)
+		[]string{"Claude"}, nil, "", noPlan)
 
 	if len(got) != 1 || got[0].Folder != "Claude" {
 		t.Fatalf("only the managed folder should appear, got %+v", got)
@@ -125,7 +125,7 @@ func TestBuildProfilesFirstRunFallsBackToWhatIsUsable(t *testing.T) {
 
 	got := BuildProfiles(
 		[]*platform.ProfileInfo{profile("Claude", live), profile("ClaudeBar", stray)},
-		nil, "", noPlan)
+		nil, nil, "", noPlan)
 
 	if len(got) != 1 || got[0].Folder != "Claude" {
 		t.Fatalf("first run shows what is usable, got %+v", got)
@@ -141,12 +141,58 @@ func TestBuildProfilesFirstRunKeepsAnMCSCreatedProfile(t *testing.T) {
 	p := profile("Claude_New", fresh)
 	p.Managed = true
 
-	got := BuildProfiles([]*platform.ProfileInfo{p}, nil, "", noPlan)
+	got := BuildProfiles([]*platform.ProfileInfo{p}, nil, nil, "", noPlan)
 	if len(got) != 1 {
 		t.Fatalf("an MCS-created profile stays listed before sign-in, got %+v", got)
 	}
 	if got[0].SignedIn {
 		t.Errorf("it has no account yet: %+v", got[0])
+	}
+}
+
+// TestBuildProfilesShowsAPendingProfileWithoutCurating is the regression test for a
+// created account vanishing the rest. On macOS a freshly created profile carries no
+// Managed flag and has no account yet, so the first-run fallback would drop it — which
+// is why an earlier version added it to the managed list, turning the list from nil
+// into one element and hiding every account not in it. The pending registry shows it
+// instead, so the existing signed-in account stays visible alongside it.
+func TestBuildProfilesShowsAPendingProfileWithoutCurating(t *testing.T) {
+	root := t.TempDir()
+	existing := filepath.Join(root, "Claude")
+	fresh := filepath.Join(root, "Claude_Personal")
+	writeAccount(t, existing, "uuid-a")
+	writeConfigWithoutAccount(t, fresh)
+	freshP := profile("Claude_Personal", fresh) // no Managed flag, as on macOS
+
+	got := BuildProfiles(
+		[]*platform.ProfileInfo{profile("Claude", existing), freshP},
+		nil,                        // first run: never curated
+		[]string{"Claude_Personal"}, // but this one is pending sign-in
+		"", noPlan)
+
+	if len(got) != 2 {
+		t.Fatalf("both the existing account and the pending profile must show, got %+v", got)
+	}
+	var sawExisting, sawFresh bool
+	for _, p := range got {
+		switch p.Folder {
+		case "Claude":
+			sawExisting = true
+			if !p.SignedIn {
+				t.Error("the existing account is signed in")
+			}
+		case "Claude_Personal":
+			sawFresh = true
+			if p.SignedIn {
+				t.Error("the freshly created profile has no account yet")
+			}
+		}
+	}
+	if !sawExisting {
+		t.Error("adding a profile must not hide the account the user already had")
+	}
+	if !sawFresh {
+		t.Error("the freshly created profile must be visible in the panel it was made from")
 	}
 }
 
@@ -156,7 +202,7 @@ func TestBuildProfilesUsesTheDisplayNameAndPlan(t *testing.T) {
 	writeAccount(t, p, "uuid-a")
 
 	got := BuildProfiles([]*platform.ProfileInfo{profile("Claude_Work", p)},
-		[]string{"Claude_Work"}, "", func(path string) string {
+		[]string{"Claude_Work"}, nil, "", func(path string) string {
 			if path != p {
 				t.Errorf("plan lookup got %q, want the profile's path", path)
 			}
