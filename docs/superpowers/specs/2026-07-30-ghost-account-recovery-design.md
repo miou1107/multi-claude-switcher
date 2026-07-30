@@ -93,10 +93,6 @@ type ScannedAccount struct {
     // conversations, i.e. where a recovery copies from. Ghost rows only.
     SourceFolder string
 
-    // Duplicate marks a complete row whose account UUID is also the live login of
-    // another profile. Every member of the group is marked.
-    Duplicate bool
-
     // Pending marks a profile MCS just created that is waiting to be signed in to.
     // It is a separate flag from PendingUUID because an empty PendingUUID is
     // meaningful on its own: "waiting for any account" (the add path) as opposed to
@@ -168,12 +164,21 @@ out of a directory whose format it does not own, and matches where `managed.json
 
 ### 3.4 Duplicate detection
 
-In `assembleAccounts`, after complete rows are built, group them by `UUID`. Every
-member of a group larger than one gets `Duplicate = true`. A helper serves the UI:
+Duplicates are detected **in the renderer, not the scanner.** The warning lives on the
+account list, which `RenderList` draws from `[]ProfileVM` built by each host's
+`buildProfiles` from `FindProfiles`. That function already reads every profile's account
+UUID and currently discards it (`cmd/mcs-menubar/main.go:330`), so the account list
+holds everything the check needs. `ProfileVM` gains `UUID string`, and `RenderList`
+groups by it.
 
-```go
-func DuplicateGroups(rows []ScannedAccount) [][]ScannedAccount
-```
+Routing this through `ScanAccounts` instead would mean scanning on every panel open
+purely to learn something the host already knows, and `ScanAccounts` reads Local Storage
+for each signed-in profile, which is the expensive step the panel is deliberately built
+to render around (`cmd/mcs-menubar/main.go:83`). `ScannedAccount` therefore gains no
+duplicate field.
+
+Profiles with no account signed in have an empty UUID and must not group with each
+other: two profiles both awaiting sign-in are not two profiles sharing an account.
 
 Duplicates cannot arise from in-app account switching, which produces ghosts inside a
 single directory. They arise when two directories are signed in to the same account,
