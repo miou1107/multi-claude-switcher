@@ -1419,8 +1419,20 @@ git commit -m "platform: hoist the directory-copy helper out of the windows-only
 - Produces, on `Platform`:
   - `CreateProfile(clean string) (identity string, dataDir string, err error)`
   - `PrepareRecovery(newProfilePath string, sources []RecoverySource) error`
+  - `PrepareArchive(keepPath, archivePath string) (keep string, archive string, err error)`
   - `ArchiveDir() string`
 - Produces, in `platform`: `type RecoverySource struct { Path string; UUID string }`
+
+**`PrepareArchive` exists because of a hazard specific to the Store build.** There, the
+active profile lives in the shared slot and `state.json` names it. Renaming the slot away
+would leave `state.json` pointing at a directory that does not exist — a profile
+permanently waiting to be signed in to, which the next switch would then try to park. So
+only a *parked* profile may be archived, and when the user chooses to keep the parked one
+instead of the active one, the two have to be swapped first. `msixSwapToIn` does exactly
+that and is already shipped and tested.
+
+The swap moves both directories, so **both paths change** and the method returns them. On
+macOS and Windows standalone it is a no-op that hands back what it was given.
 
 **`CreateProfile` returns the identity, and callers must not compute it.** This is the
 defect that made the first draft of this plan inert on the Store build (spec §3.5). There,
@@ -1639,6 +1651,23 @@ Add to the `Platform` interface in `platform/platform.go`, with the doc comments
 	// CreateProfile and does nothing here.
 	PrepareRecovery(newProfilePath string, sources []RecoverySource) error
 
+	// PrepareArchive takes the two profiles by IDENTITY, puts them into a state
+	// where the second can be archived by a plain rename, and returns where each
+	// one's data sits afterwards.
+	//
+	// It takes identities rather than paths because resolving an identity to a path
+	// is a platform concern, and because a Store-build swap moves both directories —
+	// so any path the caller was holding is stale by the time this returns.
+	//
+	// It exists for the Store build, where the active profile occupies a shared slot
+	// that state.json names. Renaming that slot away would leave state.json pointing
+	// at nothing, so only a parked profile may be archived; when the caller wants to
+	// keep the parked one, the two are swapped first. Elsewhere it only resolves the
+	// paths.
+	//
+	// Caller must have terminated Claude first.
+	PrepareArchive(keepIdentity, archiveIdentity string) (keepPath string, archivePath string, err error)
+
 	// ArchiveDir returns the root that archived profiles are parked under. It is
 	// chosen per platform so archiving is a same-volume rename and the result
 	// sits outside FindProfiles' scan path, which is what stops an archived
@@ -1691,6 +1720,18 @@ func (d *DarwinPlatform) CreateProfile(clean string) (string, string, error) {
 
 func (d *DarwinPlatform) PrepareRecovery(newProfilePath string, sources []RecoverySource) error {
 	return prepareRecoveryByCopy(newProfilePath, sources)
+}
+
+// PrepareArchive has nothing to prepare here: every profile is its own directory,
+// so any of them can be renamed away without disturbing the others. It still
+// resolves the two identities, so that resolution happens in exactly one place per
+// platform.
+func (d *DarwinPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (string, string, error) {
+	appSup := d.AppSupportDir()
+	if appSup == "" {
+		return "", "", fmt.Errorf("could not determine user home directory")
+	}
+	return filepath.Join(appSup, keepIdentity), filepath.Join(appSup, archiveIdentity), nil
 }
 
 func (d *DarwinPlatform) ArchiveDir() string {
@@ -1749,6 +1790,51 @@ func (w *WindowsPlatform) PrepareRecovery(newProfilePath string, sources []Recov
 		return nil
 	}
 	return prepareRecoveryByCopy(newProfilePath, sources)
+}
+
+func (w *WindowsPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (string, string, error) {
+	if !w.isMSIX() {
+		return w.standaloneProfilePath(keepIdentity), w.standaloneProfilePath(archiveIdentity), nil
+	}
+	roaming := msixRoamingDir()
+	if roaming == "" {
+		return "", "", fmt.Errorf("Store Claude Desktop data directory not found")
+	}
+	if strings.EqualFold(readMSIXStateIn(roaming).Current, archiveIdentity) {
+		// The profile to archive is the slot occupant. Renaming the slot away would
+		// leave state.json naming a directory that does not exist, so swap the
+		// keeper in first: the keeper becomes the active profile — where the user
+		// wants to end up anyway — and the other lands in .mcs-profiles, ready to
+		// be renamed out. msixSwapToIn rolls its own parking back on failure.
+		if err := msixSwapToIn(roaming, keepIdentity); err != nil {
+			return "", "", err
+		}
+	}
+	// Resolve after any swap: state.json has moved, and so have both directories.
+	return msixProfilePath(roaming, keepIdentity), msixProfilePath(roaming, archiveIdentity), nil
+}
+
+func (w *WindowsPlatform) standaloneProfilePath(identity string) string {
+	return filepath.Join(w.AppSupportDir(), identity)
+}
+```
+
+And in `platform/windows_msix.go`, the identity-to-path resolver the Store build has been
+missing. Every place that needs a Store profile's directory should go through it rather
+than joining a path by hand:
+
+```go
+// msixProfilePath returns where the profile called identity keeps its data: the
+// shared slot if it is the current profile, otherwise its parked directory.
+//
+// This is the only correct way to get a Store profile's path, and the inverse does
+// not exist: filepath.Base of the slot is always "Claude", whatever the profile is
+// called. See the identity rules in the ghost-account-recovery design spec.
+func msixProfilePath(roaming, identity string) string {
+	if strings.EqualFold(readMSIXStateIn(roaming).Current, identity) {
+		return msixSlotDir(roaming)
+	}
+	return filepath.Join(msixContainerDir(roaming), identity)
 }
 
 func (w *WindowsPlatform) ArchiveDir() string {
@@ -1814,6 +1900,9 @@ func (p *unsupportedPlatform) CreateProfile(clean string) (string, string, error
 func (p *unsupportedPlatform) PrepareRecovery(newProfilePath string, sources []RecoverySource) error {
 	return notSupported()
 }
+func (p *unsupportedPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (string, string, error) {
+	return "", "", notSupported()
+}
 func (p *unsupportedPlatform) ArchiveDir() string { return "" }
 ```
 
@@ -1830,6 +1919,9 @@ against it cannot catch the bug this task exists to fix.
 	createdPath     string // and the directory, which need not share its name
 	preparedSources []platform.RecoverySource
 	archiveRoot     string
+	// prepareArchive lets a test decide what PrepareArchive hands back, which is
+	// how the Store build's swap (both paths moving) gets represented.
+	prepareArchive func(keep, archive string) (string, string, error)
 
 func (m *mockPlatform) CreateProfile(clean string) (string, string, error) {
 	m.createdName = clean
@@ -1838,6 +1930,12 @@ func (m *mockPlatform) CreateProfile(clean string) (string, string, error) {
 func (m *mockPlatform) PrepareRecovery(newProfilePath string, sources []platform.RecoverySource) error {
 	m.preparedSources = sources
 	return nil
+}
+func (m *mockPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (string, string, error) {
+	if m.prepareArchive != nil {
+		return m.prepareArchive(keepIdentity, archiveIdentity)
+	}
+	return keepIdentity, archiveIdentity, nil
 }
 func (m *mockPlatform) ArchiveDir() string { return m.archiveRoot }
 ```
@@ -1951,6 +2049,17 @@ git commit -m "platform: profile creation returns an identity, not just a path"
 - Consumes: nothing from earlier tasks.
 - Produces: `func ArchiveProfile(profilePath, archiveRoot string) (string, error)`
 
+Two hazards to get right, both of which a first draft of this task got wrong.
+
+**Retry only what is worth retrying.** The rename is retried for 20 seconds because
+Windows can still be releasing Claude's file handles after it exits. But a rename across
+volumes will never succeed, and retrying it spends 20 seconds and then reports "Claude may
+still be holding its files", which sends the user to Task Manager over a path problem. Fail
+that case immediately, with a message that says what is actually wrong.
+
+**A bounded loop, and no loop that only exits on one specific error.** The collision loop
+must terminate on any `Stat` outcome it did not expect, not spin.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```go
@@ -2034,7 +2143,46 @@ func TestArchiveProfileMissingSourceIsAnError(t *testing.T) {
 		t.Fatal("want an error for a profile that is not there")
 	}
 }
+
+func TestArchiveProfileGivesUpAtOnceWhenRetryingCannotHelp(t *testing.T) {
+	// A rename that fails for a reason no amount of waiting fixes must not spend
+	// 20 seconds and then blame Claude for holding files.
+	root := t.TempDir()
+	profile := filepath.Join(root, "Claude_Work")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archiveRoot := filepath.Join(root, "archive")
+
+	orig := renameProfile
+	renameProfile = func(from, to string) error {
+		return &os.LinkError{Op: "rename", Old: from, New: to, Err: syscall.EXDEV}
+	}
+	t.Cleanup(func() { renameProfile = orig })
+
+	start := time.Now()
+	_, err := ArchiveProfile(profile, archiveRoot)
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("gave up after %v — an unretryable failure must not be retried", elapsed)
+	}
+	if strings.Contains(err.Error(), "holding its files") {
+		t.Fatalf("message blames Claude for a path problem: %v", err)
+	}
+	if _, statErr := os.Stat(profile); statErr != nil {
+		t.Fatalf("a failed archive must leave the profile in place: %v", statErr)
+	}
+}
 ```
+
+Imports for this file: `"os"`, `"path/filepath"`, `"strings"`, `"syscall"`, `"testing"`,
+`"time"`.
+
+`renameProfile` is a package-level `var` holding `os.Rename` so this test can inject a
+failure. Without a seam there is no way to exercise the retry policy at all, and the policy
+is the part most likely to be wrong.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -2048,10 +2196,12 @@ Expected: FAIL — `undefined: ArchiveProfile`.
 package core
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -2063,7 +2213,17 @@ import (
 const (
 	archiveRenameAttempts = 40
 	archiveRenameDelay    = 500 * time.Millisecond
+	// archiveCollisionLimit bounds the search for an unused archive name. It is
+	// far above any plausible number of archives of one profile in one second;
+	// reaching it means something is wrong with the archive root, and giving up
+	// with an error beats looping.
+	archiveCollisionLimit = 100
 )
+
+// renameProfile is os.Rename behind a var so tests can inject a failure and
+// exercise the retry policy, which is the part of this file most likely to be
+// wrong and the part a real filesystem will not reproduce on demand.
+var renameProfile = os.Rename
 
 // ArchiveProfile moves a profile out of the directory the scanner looks in, into
 // archiveRoot, and returns where it landed.
@@ -2081,30 +2241,70 @@ func ArchiveProfile(profilePath, archiveRoot string) (string, error) {
 		return "", fmt.Errorf("create archive folder: %w", err)
 	}
 	base := filepath.Base(profilePath) + "-" + time.Now().Format("20060102-150405")
-	dest := filepath.Join(archiveRoot, base)
-	// Two archives of the same profile name within one second would collide, and
-	// a collision must never overwrite an existing archive.
-	for i := 2; ; i++ {
-		if _, err := os.Stat(dest); os.IsNotExist(err) {
-			break
-		}
-		dest = filepath.Join(archiveRoot, fmt.Sprintf("%s-%d", base, i))
+	dest, err := freeArchiveName(archiveRoot, base)
+	if err != nil {
+		return "", err
 	}
 	if err := renameProfileWithRetry(profilePath, dest); err != nil {
+		if !archiveRetryWorthwhile(profilePath, dest, err) {
+			return "", fmt.Errorf("couldn't archive %s — the archive folder %s is not on the same drive as your Claude data, and archiving moves the folder rather than copying it. (%w)",
+				DisplayName(filepath.Base(profilePath)), archiveRoot, err)
+		}
 		return "", fmt.Errorf("couldn't archive %s — Claude may still be holding its files. Fully quit Claude and try again. (%w)",
 			DisplayName(filepath.Base(profilePath)), err)
 	}
 	return dest, nil
 }
 
+// freeArchiveName finds an unused name under archiveRoot. Two archives of one
+// profile within the same second would otherwise collide, and a collision must
+// never overwrite an existing archive.
+func freeArchiveName(archiveRoot, base string) (string, error) {
+	for i := 1; i <= archiveCollisionLimit; i++ {
+		dest := filepath.Join(archiveRoot, base)
+		if i > 1 {
+			dest = filepath.Join(archiveRoot, fmt.Sprintf("%s-%d", base, i))
+		}
+		_, err := os.Lstat(dest)
+		if errors.Is(err, os.ErrNotExist) {
+			return dest, nil
+		}
+		if err != nil {
+			// Something other than "not there" — an unreadable archive root, say.
+			// Reporting it beats looping on a condition that will not change.
+			return "", fmt.Errorf("check archive destination %s: %w", dest, err)
+		}
+	}
+	return "", fmt.Errorf("too many archives named %q already — clear out %s", base, archiveRoot)
+}
+
+// archiveRetryWorthwhile reports whether err is the kind of failure that waiting
+// fixes. A locked directory is: Windows releases Claude's handles a moment after
+// the processes exit. A cross-volume rename is not, and retrying it for 20 seconds
+// before blaming Claude sends the user to Task Manager over a path problem.
+//
+// EXDEV covers the Unix case. Windows reports ERROR_NOT_SAME_DEVICE instead, which
+// is not EXDEV, so the volume names are compared as well — on Unix VolumeName is
+// always "", making that check a no-op there.
+func archiveRetryWorthwhile(from, to string, err error) bool {
+	if errors.Is(err, syscall.EXDEV) {
+		return false
+	}
+	return filepath.VolumeName(from) == filepath.VolumeName(to)
+}
+
 func renameProfileWithRetry(from, to string) error {
 	var err error
 	for i := 0; i < archiveRenameAttempts; i++ {
-		if err = os.Rename(from, to); err == nil {
+		if err = renameProfile(from, to); err == nil {
 			if i > 0 {
 				log.Printf("archive rename %q -> %q succeeded after %d retries", filepath.Base(from), filepath.Base(to), i)
 			}
 			return nil
+		}
+		if !archiveRetryWorthwhile(from, to, err) {
+			log.Printf("archive rename %q -> %q failed unretryably: %v", filepath.Base(from), filepath.Base(to), err)
+			return err
 		}
 		time.Sleep(archiveRenameDelay)
 	}
@@ -2113,12 +2313,13 @@ func renameProfileWithRetry(from, to string) error {
 }
 ```
 
-`TestArchiveProfileMissingSourceIsAnError` returns before any retry, so it is fast. The collision test archives twice within the same second, so it exercises the counter without waiting.
+`TestArchiveProfileMissingSourceIsAnError` returns before any retry, so it is fast. The collision test archives twice within the same second, so it exercises the counter without waiting. The unretryable test injects its failure, so it does not wait either — no test in this file sleeps.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./core/ -run TestArchiveProfile -v`
-Expected: PASS, 3 tests.
+Expected: PASS, 4 tests, in well under a second. If the run takes 20 seconds, the retry
+policy is still being applied to a failure it cannot fix.
 
 - [ ] **Step 5: Commit**
 
@@ -2136,10 +2337,33 @@ git commit -m "core: archive a profile by moving it out of the scan path"
 - Test: `core/merge_test.go`
 
 **Interfaces:**
-- Consumes: `ArchiveProfile` (Task 8), `SyncSessions` + `SyncReport` (`core/sync.go:44`), `SetManaged`/`LoadManaged` (`core/managed.go`).
-- Produces: `func MergeDuplicates(keepPath, archivePath, archiveRoot string) (*SyncReport, error)`
+- Consumes: `ArchiveProfile` (Task 8), `SyncSessions` + `SyncReport` (`core/sync.go`), `SetManaged`/`LoadManaged` (`core/managed.go`), `SetProfileName` (`core/names.go`), `NewBackupManager` (`core/backup.go`), `Platform.PrepareArchive`/`ArchiveDir` (Task 7).
+- Produces:
+  - `type MergeRequest struct { KeepIdentity, ArchiveIdentity, BackupRoot string }`
+  - `type MergePlan struct { Combined, Conflicts int; ArchiveTo string }`
+  - `func MergePreview(keepPath, archivePath, uuid string) (*MergePlan, error)`
+  - `func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, error)`
 
 `SyncSessions` re-buckets from the source account's UUID to the target's. Both ends of a merge are the same account, so the rename is a no-op and the copy lands exactly where Claude will read it.
+
+Four things this task must get right, three of which an earlier draft did not.
+
+1. **Take identities, not paths.** `PrepareArchive` can move both directories on the Store
+   build, so any path the caller held is stale afterwards. Identities survive; paths do
+   not (spec §3.5). The old draft also derived the managed-list key with
+   `filepath.Base(archivePath)`, which is `Claude` for a Store build's active profile.
+2. **Back up the keeper, explicitly.** `SyncSessions` snapshots nothing — the backup has
+   always been the caller's job (`core/switch.go`, `core/align.go`, and the CLI each do
+   their own). The earlier draft asserted the opposite, then called `bm.BackupIfHasData`
+   where no `bm` existed.
+3. **Compute the outcome before promising it.** The merge screen shows a combined total,
+   and that total is the size of the **union** of the two buckets, not the sum. It also has
+   to disclose conflicts: where the keeper already holds a newer version of a record,
+   `SyncSessions` leaves it alone, and archiving then moves the other version out of the UI's
+   reach. That is not rare — two profiles on one account diverge in both directions.
+   `MergePreview` produces both numbers from one walk (spec §5.2).
+4. **Clean up `names.json` too.** An archived profile's display name is dead weight, and if
+   the user later creates a profile with the same identity it would inherit a stale name.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2181,14 +2405,88 @@ func mergeFixture(t *testing.T, keepUUID, archiveUUID string) (keep, archive, ar
 	return keep, archive, archiveRoot
 }
 
+// mergePlatform resolves the two identities back to the fixture's paths, standing
+// in for the platform without pretending to be a whole OS.
+type mergePlatform struct {
+	*mockPlatform
+	root, archiveRoot string
+}
+
+func (m *mergePlatform) PrepareArchive(keepIdentity, archiveIdentity string) (string, string, error) {
+	return filepath.Join(m.root, keepIdentity), filepath.Join(m.root, archiveIdentity), nil
+}
+func (m *mergePlatform) ArchiveDir() string { return m.archiveRoot }
+
+func TestMergePreviewCountsTheUnionAndTheConflicts(t *testing.T) {
+	keep, archive, _ := mergeFixture(t, "same-uuid", "same-uuid")
+	// A third record both hold, with the keeper's copy newer and different. Sync
+	// leaves the keeper's alone and reports a conflict, so the other copy ends up
+	// only in the archive — the user has to be told before committing.
+	shared := "both.json"
+	kp := filepath.Join(keep, "claude-code-sessions", "same-uuid", shared)
+	ap := filepath.Join(archive, "claude-code-sessions", "same-uuid", shared)
+	if err := os.WriteFile(ap, []byte(`{"v":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(kp, []byte(`{"v":2}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(ap, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := MergePreview(keep, archive, "same-uuid")
+	if err != nil {
+		t.Fatalf("MergePreview: %v", err)
+	}
+	// only_in_keep, only_in_archive, both → 3, not the sum of 2 + 2.
+	if plan.Combined != 3 {
+		t.Fatalf("Combined = %d, want the union size 3", plan.Combined)
+	}
+	if plan.Conflicts != 1 {
+		t.Fatalf("Conflicts = %d, want 1", plan.Conflicts)
+	}
+}
+
+func TestMergePreviewIdenticalCopiesAreNotConflicts(t *testing.T) {
+	keep, archive, _ := mergeFixture(t, "same-uuid", "same-uuid")
+	for _, dir := range []string{keep, archive} {
+		p := filepath.Join(dir, "claude-code-sessions", "same-uuid", "both.json")
+		if err := os.WriteFile(p, []byte(`{"v":1}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := MergePreview(keep, archive, "same-uuid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Conflicts != 0 {
+		t.Fatalf("two identical copies are not a conflict, got %d", plan.Conflicts)
+	}
+	if plan.Combined != 3 {
+		t.Fatalf("Combined = %d, want 3", plan.Combined)
+	}
+}
+
 func TestMergeDuplicatesUnionsThenArchives(t *testing.T) {
 	withStubbedManaged(t)
+	withStubbedNames(t)
 	if err := SetManaged([]string{"Claude_Keep", "Claude_Archive"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := SetProfileName("Claude_Archive", "Old Work"); err != nil {
+		t.Fatal(err)
+	}
 	keep, archive, archiveRoot := mergeFixture(t, "same-uuid", "same-uuid")
+	plat := &mergePlatform{mockPlatform: &mockPlatform{}, root: filepath.Dir(keep), archiveRoot: archiveRoot}
 
-	report, err := MergeDuplicates(keep, archive, archiveRoot)
+	backupRoot := filepath.Join(t.TempDir(), "backups")
+
+	report, err := MergeDuplicates(plat, MergeRequest{
+		KeepIdentity: "Claude_Keep", ArchiveIdentity: "Claude_Archive",
+		BackupRoot: backupRoot,
+	})
 	if err != nil {
 		t.Fatalf("MergeDuplicates: %v", err)
 	}
@@ -2215,23 +2513,45 @@ func TestMergeDuplicatesUnionsThenArchives(t *testing.T) {
 	if len(LoadManaged()) != 1 || LoadManaged()[0] != "Claude_Keep" {
 		t.Fatalf("managed = %v, want just the keeper", LoadManaged())
 	}
+	// The archived profile's display name goes with it, or a later profile reusing
+	// the identity would inherit a name the user never chose for it.
+	if n := LoadProfileNames()["Claude_Archive"]; n != "" {
+		t.Fatalf("display name for the archived profile survived: %q", n)
+	}
+	// A backup of the keeper was taken before anything was copied into it.
+	backups, err := NewBackupManager(backupRoot).ListBackups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) == 0 {
+		t.Fatal("the keeper must be snapshotted before it is written to")
+	}
 }
 
 func TestMergeDuplicatesRefusesDifferentAccounts(t *testing.T) {
 	withStubbedManaged(t)
+	withStubbedNames(t)
 	keep, archive, archiveRoot := mergeFixture(t, "uuid-a", "uuid-b")
+	plat := &mergePlatform{mockPlatform: &mockPlatform{}, root: filepath.Dir(keep), archiveRoot: archiveRoot}
 
-	if _, err := MergeDuplicates(keep, archive, archiveRoot); err == nil {
+	if _, err := MergeDuplicates(plat, MergeRequest{
+		KeepIdentity: "Claude_Keep", ArchiveIdentity: "Claude_Archive",
+		BackupRoot: filepath.Join(t.TempDir(), "backups"),
+	}); err == nil {
 		t.Fatal("merging two different accounts must be refused")
 	}
 	// Nothing may have moved.
 	if _, err := os.Stat(archive); err != nil {
 		t.Fatalf("the other profile must be left alone: %v", err)
 	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("the keeper must be left alone: %v", err)
+	}
 }
 
 func TestMergeDuplicatesLeavesManagedAloneWhenArchiveFails(t *testing.T) {
 	withStubbedManaged(t)
+	withStubbedNames(t)
 	if err := SetManaged([]string{"Claude_Keep", "Claude_Archive"}); err != nil {
 		t.Fatal(err)
 	}
@@ -2241,9 +2561,15 @@ func TestMergeDuplicatesLeavesManagedAloneWhenArchiveFails(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	badRoot := filepath.Join(blocker, "archive")
+	plat := &mergePlatform{
+		mockPlatform: &mockPlatform{}, root: filepath.Dir(keep),
+		archiveRoot: filepath.Join(blocker, "archive"),
+	}
 
-	if _, err := MergeDuplicates(keep, archive, badRoot); err == nil {
+	if _, err := MergeDuplicates(plat, MergeRequest{
+		KeepIdentity: "Claude_Keep", ArchiveIdentity: "Claude_Archive",
+		BackupRoot: filepath.Join(t.TempDir(), "backups"),
+	}); err == nil {
 		t.Fatal("want an error when the archive root cannot be created")
 	}
 	if _, err := os.Stat(archive); err != nil {
@@ -2257,7 +2583,12 @@ func TestMergeDuplicatesLeavesManagedAloneWhenArchiveFails(t *testing.T) {
 }
 ```
 
-`withStubbedManaged` does not exist yet. `core/managed_test.go:11` stubs `managedPath` inline. Extract it into a helper in `core/managed_test.go` so both files can use it:
+Imports for this file: `"os"`, `"path/filepath"`, `"testing"`, `"time"`.
+
+Three test seams are needed, none of which exists yet.
+
+`withStubbedManaged` — `core/managed_test.go` stubs `managedPath` inline in each test
+(`grep -n "managedPath = " core/managed_test.go`). Extract it so both files can use it:
 
 ```go
 // core/managed_test.go — replace the inline stubbing in TestManaged* with this
@@ -2270,12 +2601,36 @@ func withStubbedManaged(t *testing.T) {
 }
 ```
 
-Read `core/managed_test.go` first and rework its existing tests to call the helper, keeping their assertions unchanged.
+Read `core/managed_test.go` first and rework its existing tests to call the helper, keeping
+their assertions unchanged.
+
+`withStubbedNames` — `namesPath` in `core/names.go` is a plain `func`, not a `var`, so it
+cannot be redirected. Change it to a `var` matching `managedPath`'s shape. `core/names.go`
+has no test file today, so put the helper in `core/merge_test.go`, the only user:
+
+```go
+// core/merge_test.go
+func withStubbedNames(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	orig := namesPath
+	namesPath = func() string { return filepath.Join(dir, "names.json") }
+	t.Cleanup(func() { namesPath = orig })
+}
+```
+
+`MergeRequest.BackupRoot` — merge backs up the keeper, and a test must not write into the
+real `~/.multi-claude-switcher/backups`. There is no `withStubbedBackupRoot` helper because
+`core/backup_test.go` already solved this by passing an explicit root to
+`NewBackupManager`, rather than redirecting `$HOME` — which would not work on Windows
+anyway, where `os.UserHomeDir` reads `USERPROFILE`. `BackupRoot` is empty in production,
+which `NewBackupManager` already reads as "use the default root", and the tests above set it
+to a temp dir.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `go test ./core/ -run TestMergeDuplicates -v`
-Expected: FAIL — `undefined: MergeDuplicates`.
+Run: `go test ./core/ -run 'TestMerge' -v`
+Expected: FAIL — `undefined: MergePreview`, `undefined: MergeDuplicates`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -2290,69 +2645,193 @@ import (
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
 
+// MergeRequest names the two profiles to merge, by identity. Paths are deliberately
+// absent: PrepareArchive can move both directories, so a path chosen by the caller
+// may be stale by the time the merge acts on it.
+type MergeRequest struct {
+	KeepIdentity    string
+	ArchiveIdentity string
+	// BackupRoot overrides where the keeper's pre-merge snapshot goes. Empty means
+	// the default root, which is what production uses.
+	BackupRoot string
+}
+
+// MergePlan is what a merge will actually do, computed before the user commits.
+type MergePlan struct {
+	// Combined is how many conversations the keeper will hold afterwards: the size
+	// of the UNION of the two buckets, not the sum of their counts. A record both
+	// profiles hold is one conversation, not two.
+	Combined int
+	// Conflicts counts records both profiles hold with different content where the
+	// keeper's copy is the newer one. SyncSessions leaves those alone, and the merge
+	// then moves the other copy out of the UI's reach, so the user has to be told
+	// before committing.
+	Conflicts int
+	// ArchiveTo is where the profile being given up will be parked.
+	ArchiveTo string
+}
+
+// MergePreview computes what a merge would do without doing any of it. The merge
+// screen renders this, so the number it promises is the number the user gets.
+func MergePreview(keepPath, archivePath, uuid string) (*MergePlan, error) {
+	keepBucket := filepath.Join(platform.GetProfileSessionsDir(keepPath), uuid)
+	archiveBucket := filepath.Join(platform.GetProfileSessionsDir(archivePath), uuid)
+
+	keepFiles, err := sessionFilesByRelPath(keepBucket)
+	if err != nil {
+		return nil, err
+	}
+	archiveFiles, err := sessionFilesByRelPath(archiveBucket)
+	if err != nil {
+		return nil, err
+	}
+
+	plan := &MergePlan{Combined: len(keepFiles)}
+	for rel, archivePathAbs := range archiveFiles {
+		keepPathAbs, both := keepFiles[rel]
+		if !both {
+			plan.Combined++ // only the other side has it, so it will be copied in
+			continue
+		}
+		same, err := filesEqual(archivePathAbs, keepPathAbs)
+		if err != nil {
+			return nil, fmt.Errorf("compare %s: %w", rel, err)
+		}
+		if same {
+			continue
+		}
+		// Different content. SyncSessions keeps whichever is newer, so this is only
+		// a conflict — a version the merge will strand in the archive — when the
+		// keeper's copy is the one that wins.
+		ai, err1 := os.Stat(archivePathAbs)
+		ki, err2 := os.Stat(keepPathAbs)
+		if err1 != nil || err2 != nil {
+			return nil, fmt.Errorf("compare timestamps for %s", rel)
+		}
+		if !ai.ModTime().After(ki.ModTime()) {
+			plan.Conflicts++
+		}
+	}
+	return plan, nil
+}
+
+// sessionFilesByRelPath maps each .json session file under bucket to its full path,
+// keyed by path relative to bucket. An absent bucket is empty, not an error: a
+// profile that has never used Code has no bucket, and that is a valid side of a
+// merge.
+func sessionFilesByRelPath(bucket string) (map[string]string, error) {
+	out := map[string]string{}
+	if _, err := os.Stat(bucket); errors.Is(err, os.ErrNotExist) {
+		return out, nil
+	}
+	err := filepath.Walk(bucket, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(info.Name(), ".json") {
+			return nil
+		}
+		rel, err := filepath.Rel(bucket, path)
+		if err != nil {
+			return err
+		}
+		out[rel] = path
+		return nil
+	})
+	return out, err
+}
+
 // MergeDuplicates resolves two profiles signed in to the same account: the
-// conversations from archivePath are copied into keepPath, then archivePath is
-// moved out of the scan path and dropped from the managed list.
+// conversations from the profile being given up are copied into the keeper, then
+// that profile is moved out of the scan path and dropped from MCS's registries.
 //
 // Only one direction is copied. The profile being archived is never written to,
-// which makes the archive an untouched record of what was there — a better
-// safety property than a two-way merge, and faster.
+// which makes the archive an untouched record of what was there — a better safety
+// property than a two-way merge, and faster.
 //
-// Caller must have terminated Claude first. Order is verify, copy, move, then
-// update state, so a failure anywhere leaves MCS's view of the world no further
-// ahead than the disk: both profiles stay listed and the duplicate warning stays
-// up, which is exactly the state the user can retry from.
-func MergeDuplicates(keepPath, archivePath, archiveRoot string) (*SyncReport, error) {
+// Caller must have terminated Claude first. Order is verify, snapshot, copy, move,
+// then update state, so a failure anywhere leaves MCS's view of the world no
+// further ahead than the disk: both profiles stay listed and the duplicate warning
+// stays up, which is exactly the state the user can retry from.
+func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, error) {
+	keepName := DisplayName(req.KeepIdentity)
+	archiveName := DisplayName(req.ArchiveIdentity)
+
+	// Resolve identities to paths, and on the Store build swap the keeper into the
+	// slot if it is the other profile that currently holds it. Both paths can move
+	// here, which is why nothing upstream is allowed to pass paths in.
+	keepPath, archivePath, err := plat.PrepareArchive(req.KeepIdentity, req.ArchiveIdentity)
+	if err != nil {
+		return nil, err
+	}
+
 	keepUUID, err := platform.GetProfileAccountUUID(keepPath)
 	if err != nil {
-		return nil, fmt.Errorf("%s has no account signed in, so there is nothing to merge into",
-			DisplayName(filepath.Base(keepPath)))
+		return nil, fmt.Errorf("%s has no account signed in, so there is nothing to merge into", keepName)
 	}
 	archiveUUID, err := platform.GetProfileAccountUUID(archivePath)
 	if err != nil {
-		return nil, fmt.Errorf("%s has no account signed in, so there is nothing to merge",
-			DisplayName(filepath.Base(archivePath)))
+		return nil, fmt.Errorf("%s has no account signed in, so there is nothing to merge", archiveName)
 	}
 	if keepUUID != archiveUUID {
 		// A stale panel could ask to merge rows that have changed underneath it.
 		// Merging two genuinely different accounts would mix their histories.
-		return nil, fmt.Errorf("%s and %s are different accounts, so they can't be merged",
-			DisplayName(filepath.Base(keepPath)), DisplayName(filepath.Base(archivePath)))
+		return nil, fmt.Errorf("%s and %s are different accounts, so they can't be merged", keepName, archiveName)
 	}
 
 	// SyncSessions does NOT snapshot anything — the backup has always been the
-	// caller's job. Take it here, and abort rather than copy unprotected.
-	if _, err := bm.BackupIfHasData(keepPath); err != nil {
-		return nil, fmt.Errorf("aborting merge: could not back up %s first: %w",
-			DisplayName(filepath.Base(keepPath)), err)
+	// caller's job (core/switch.go, core/align.go, and the CLI each take their
+	// own). Take it here, and abort rather than copy unprotected.
+	if _, err := NewBackupManager(req.BackupRoot).BackupIfHasData(keepPath); err != nil {
+		return nil, fmt.Errorf("aborting merge: could not back up %s first: %w", keepName, err)
 	}
 	report, err := SyncSessions(archivePath, keepPath)
 	if err != nil {
 		return nil, fmt.Errorf("combine conversations: %w", err)
 	}
 
-	if _, err := ArchiveProfile(archivePath, archiveRoot); err != nil {
+	if _, err := ArchiveProfile(archivePath, plat.ArchiveDir()); err != nil {
 		return report, err
 	}
 
-	folder := filepath.Base(archivePath)
+	// Registries last, and only now that the folder really is gone from the scan
+	// path. Unmanaging a folder still in place would hide it while leaving it to
+	// reappear on the next Rescan.
 	var kept []string
 	for _, m := range LoadManaged() {
-		if m != folder {
+		if m != req.ArchiveIdentity {
 			kept = append(kept, m)
 		}
 	}
 	if err := SetManaged(kept); err != nil {
 		return report, fmt.Errorf("update the managed list: %w", err)
 	}
+	// The display name goes with the profile. Left behind, it would be inherited by
+	// any later profile that happened to reuse the identity.
+	if err := SetProfileName(req.ArchiveIdentity, ""); err != nil {
+		log.Printf("merge: could not clear the display name for %q: %v", req.ArchiveIdentity, err)
+	}
 	return report, nil
 }
 ```
 
+Imports for `core/merge.go`: `"errors"`, `"fmt"`, `"log"`, `"os"`, `"path/filepath"`,
+`"strings"`, and the `platform` package.
+
+`filesEqual` is already in `core/sync.go` and unexported, so `MergePreview` reuses it
+rather than defining a second notion of "the same record". That matters: a preview that
+compared files differently from the sync would promise a number the sync does not deliver.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `go test ./core/ -run 'TestMergeDuplicates|TestManaged' -v`
-Expected: PASS, 3 merge tests plus the reworked managed tests.
+Run: `go test ./core/ -run 'TestMerge|TestManaged' -v`
+Expected: PASS, 5 merge tests plus the reworked managed tests.
+
+Then confirm the preview and the sync agree, which is the property the merge screen's
+promise rests on: in `TestMergePreviewCountsTheUnionAndTheConflicts`, run the merge after
+the preview and check that `report.ConflictCount == plan.Conflicts` and that the keeper ends
+up holding `plan.Combined` files. If they disagree, the preview is computing something the
+sync does not do, and the number shown to the user is fiction.
 
 Run: `go test ./core/... -v 2>&1 | tail -5`
 Expected: all core tests pass.
