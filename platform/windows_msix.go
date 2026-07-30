@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -286,59 +285,11 @@ func msixAttemptMigrationIn(roaming string) (copied int, done bool) {
 	fromBucket := filepath.Join(GetProfileSessionsDir(filepath.Join(msixContainerDir(roaming), from)), uuid)
 	if fi, e := os.Stat(fromBucket); e == nil && fi.IsDir() {
 		dstBucket := filepath.Join(GetProfileSessionsDir(msixSlotDir(roaming)), uuid)
-		copied, _ = copyDirMerge(fromBucket, dstBucket)
+		copied, _ = CopyDirMerge(fromBucket, dstBucket)
 	}
 	st.PendingMigrateFrom = ""
 	_ = writeMSIXStateIn(roaming, st)
 	return copied, true
-}
-
-// copyDirMerge recursively copies files from src into dst (creating dst), skipping
-// any file that already exists in dst, and returns the number of files copied.
-func copyDirMerge(src, dst string) (int, error) {
-	copied := 0
-	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, rerr := filepath.Rel(src, path)
-		if rerr != nil {
-			return rerr
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		if _, e := os.Stat(target); e == nil {
-			return nil // don't clobber anything already there
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		if err := copyFile(path, target); err != nil {
-			return err
-		}
-		copied++
-		return nil
-	})
-	return copied, err
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	_, cerr := io.Copy(out, in)
-	if closeErr := out.Close(); cerr == nil {
-		cerr = closeErr
-	}
-	return cerr
 }
 
 // msixLaunch reopens the packaged Claude Desktop via its AppUserModelID. explorer
