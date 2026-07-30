@@ -93,7 +93,7 @@
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
 - `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller). Also the second half of the Windows auto-updater: the `[Run]` entry has no `skipifsilent`, so a `/VERYSILENT` upgrade relaunches the app.
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon), ad-hoc signs it (`codesign --sign -`, no Apple Developer account needed), and zips it via ditto.
-- `core/backup.go` — Profile backup & snapshot restoration module (atomic restore).
+- `core/backup.go` — Profile backup & snapshot restoration module. Copies are staged and swapped so an interrupted one leaves the destination untouched; the automatic safety backup reuses the newest snapshot when the profile has not changed, while an explicit backup always takes a fresh one.
 - `core/backup_test.go` — Unit tests for backup & restore manager.
 - `core/backup_perm_unix_test.go` — Test helper (non-Windows): make a dir reject new children via chmod, to exercise staging-failure paths.
 - `core/backup_perm_windows_test.go` — Test helper (Windows): make a dir reject new children via an icacls deny ACE, to exercise staging-failure paths.
@@ -101,7 +101,7 @@
 - `core/syncmessage.go` — Turns a sync report or error into the sentence shown to the user, shared by both panel hosts so their wording cannot drift.
 - `core/sync_test.go` — Unit tests for session sync (copy, clash, identical, re-bucketing, union), including the regressions that a stat failure never becomes a write, a dangling symlink neither escapes the sessions directory nor aborts the run, and two-way sync reports only genuinely unsettled files.
 - `core/syncmessage_test.go` — Unit tests for the user-facing sync sentences (singular/plural, clash wording, which errors are translated).
-- `core/switch.go` — Safe Switch controller (Terminate -> Backup -> Sync -> Launch); session data only moves when the auto sync toggle is on (bidirectional align), otherwise a switch is a pure account change.
+- `core/switch.go` — Safe Switch controller (Terminate -> Backup -> Sync -> Launch); session data only moves when the auto sync toggle is on (bidirectional align), otherwise a switch is a pure account change. Also tracks the relaunch owed to the user while Claude is closed, so quitting mid-operation still reopens it.
 - `core/switch_test.go` — Unit tests for Safe Switch (aborts on backup failure).
 - `core/settings.go` — User settings store (~/.multi-claude-switcher/settings.json): auto sync toggle + warning-dismissed flag.
 - `core/settings_test.go` — Unit tests for settings round-trip, defaults, and no-clobber.

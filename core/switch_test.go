@@ -16,6 +16,9 @@ type mockPlatform struct {
 	launchedPath string
 	terminated   bool
 	detected     string // DetectRunningProfile result
+	// onTerminate runs at the moment Claude is closed, so a test can inspect state
+	// in the window where Claude is shut and MCS has not yet reopened it.
+	onTerminate func()
 }
 
 func (m *mockPlatform) AppSupportDir() string                          { return "" }
@@ -24,6 +27,9 @@ func (m *mockPlatform) IsAppRunning() (bool, []string, error)          { return 
 func (m *mockPlatform) TerminateApp() error {
 	m.terminated = true
 	m.running = false
+	if m.onTerminate != nil {
+		m.onTerminate()
+	}
 	return nil
 }
 func (m *mockPlatform) DetectRunningProfile() (string, error) { return m.detected, nil }
@@ -224,5 +230,81 @@ func TestSafeSwitchProceedsWhenTargetIsEmpty(t *testing.T) {
 	}
 	if !mp.launched {
 		t.Error("expected target profile to be launched")
+	}
+}
+
+// TestManualAlignExposesTheRelaunchItOwesWhileClaudeIsClosed is the regression
+// test for clicking Quit during a sync.
+//
+// ManualAlign closes Claude Desktop, does its work, and reopens it. Between those
+// two moments Claude is shut and only MCS knows which profile to reopen. If MCS
+// exits in that window — the panel's Quit handler calls TerminateApp on itself and
+// does not check whether an operation is in flight — the goroutine doing the work
+// dies and Claude is never reopened. The user is left with no Claude and no MCS,
+// and nothing on screen said why.
+//
+// So the owed relaunch has to be visible from outside for as long as it is owed.
+func TestManualAlignExposesTheRelaunchItOwesWhileClaudeIsClosed(t *testing.T) {
+	withStubbedSettings(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "Src")
+	dst := filepath.Join(dir, "Dst")
+	writeAccountConfig(t, src, "uuid1")
+	writeAccountConfig(t, dst, "uuid2")
+
+	mp := &mockPlatform{running: true, detected: src}
+	s := NewSwitcher(mp, NewBackupManager(filepath.Join(dir, "backups")))
+
+	var owedMidFlight string
+	mp.onTerminate = func() {
+		// Exactly the moment Claude is closed. This is the window Quit lands in.
+		owedMidFlight = s.PendingRelaunch()
+	}
+
+	if _, err := s.ManualAlign(src, dst); err != nil {
+		t.Fatalf("ManualAlign: %v", err)
+	}
+	if owedMidFlight != src {
+		t.Fatalf("owed relaunch while closed = %q, want %q", owedMidFlight, src)
+	}
+	if got := s.PendingRelaunch(); got != "" {
+		t.Fatalf("nothing is owed once Claude has been reopened, got %q", got)
+	}
+}
+
+// TestClaimPendingRelaunchHandsItOutOnlyOnce stops MCS and its own operation from
+// both reopening Claude, which would leave the user with two windows.
+func TestClaimPendingRelaunchHandsItOutOnlyOnce(t *testing.T) {
+	s := NewSwitcher(&mockPlatform{}, NewBackupManager(t.TempDir()))
+	s.notePendingRelaunch("/some/profile")
+
+	if got := s.ClaimPendingRelaunch(); got != "/some/profile" {
+		t.Fatalf("first claim = %q", got)
+	}
+	if got := s.ClaimPendingRelaunch(); got != "" {
+		t.Fatalf("second claim = %q, want it already taken", got)
+	}
+}
+
+// TestManualAlignOwesNothingWhenClaudeWasNotRunning: with nothing closed there is
+// nothing to reopen, and a Quit in that window must not launch Claude at all.
+func TestManualAlignOwesNothingWhenClaudeWasNotRunning(t *testing.T) {
+	withStubbedSettings(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "Src")
+	dst := filepath.Join(dir, "Dst")
+	writeAccountConfig(t, src, "uuid1")
+	writeAccountConfig(t, dst, "uuid2")
+
+	mp := &mockPlatform{running: false}
+	s := NewSwitcher(mp, NewBackupManager(filepath.Join(dir, "backups")))
+	if _, err := s.ManualAlign(src, dst); err != nil {
+		t.Fatalf("ManualAlign: %v", err)
+	}
+	if got := s.PendingRelaunch(); got != "" {
+		t.Fatalf("owed = %q, want nothing", got)
+	}
+	if mp.launched {
+		t.Fatal("Claude was not running, so it must not be launched")
 	}
 }

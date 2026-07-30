@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/miou1107/multi-claude-switcher/core"
@@ -47,14 +48,75 @@ var (
 	statusMu  sync.Mutex
 	statusMsg string // transient feedback shown in the Settings view
 	busy      bool   // a maintenance action (e.g. backup) is in progress
+	// quitWhenIdle records that Quit was pressed while an operation was running.
+	// The operation reopens Claude on its way out, and the quit happens after.
+	quitWhenIdle bool
 )
 
 func setBusyStatus(b bool, s string) {
 	statusMu.Lock()
 	busy = b
-	statusMsg = s
+	// Once a quit is pending, the status belongs to the quit. Otherwise a later
+	// progress update would replace "Finishing up, then quitting…" and the user
+	// would think their click was ignored.
+	if !quitWhenIdle || !b {
+		statusMsg = s
+	}
+	leaving := !b && quitWhenIdle
 	statusMu.Unlock()
+	if leaving {
+		// Quit was asked for while an operation held Claude closed. It has now
+		// finished and reopened Claude through its own path, so this is the moment
+		// it is safe to go.
+		log.Printf("deferred quit: the operation finished, exiting now")
+		C.TerminateApp()
+	}
 }
+
+// deferQuitUntilIdle records that the user asked to quit while an operation was
+// running, and returns whether the quit was deferred.
+//
+// Quitting mid-operation is the problem this avoids twice over. The operation has
+// Claude closed and is the only thing that knows how to reopen it, so exiting kills
+// the goroutine and leaves the user with neither app. But reopening Claude from here
+// and then exiting is not safe either: the operation may still be copying into the
+// profile Claude would then have open, which is exactly the corruption MCS closes
+// Claude to avoid. So neither — wait for it to finish, then quit.
+//
+// The wait is bounded, because an operation that never completes must not turn Quit
+// into a dead button.
+func deferQuitUntilIdle() bool {
+	statusMu.Lock()
+	if !busy {
+		statusMu.Unlock()
+		return false
+	}
+	already := quitWhenIdle
+	quitWhenIdle = true
+	statusMsg = "Finishing up, then quitting…"
+	statusMu.Unlock()
+	if already {
+		return true // a second click; the timer from the first is still running
+	}
+	go func() {
+		time.Sleep(quitDeferTimeout)
+		statusMu.Lock()
+		stillBusy := busy && quitWhenIdle
+		statusMu.Unlock()
+		if !stillBusy {
+			return
+		}
+		log.Printf("deferred quit: operation still running after %s, leaving anyway", quitDeferTimeout)
+		reopenClaudeIfWeOweIt()
+		C.TerminateApp()
+	}()
+	return true
+}
+
+// quitDeferTimeout bounds how long Quit waits for an operation to finish. A sync of
+// a large profile is seconds; anything approaching this is stuck, and the user's
+// request to leave wins.
+const quitDeferTimeout = 30 * time.Second
 
 func getBusy() bool {
 	statusMu.Lock()
@@ -207,7 +269,30 @@ func goPanelAction(caction, cfolder *C.char) {
 	case "hidePanel":
 		C.ClosePopover()
 	case "quit":
+		if deferQuitUntilIdle() {
+			go reloadPanel()
+			return
+		}
+		reopenClaudeIfWeOweIt()
 		C.TerminateApp()
+	}
+}
+
+// reopenClaudeIfWeOweIt puts Claude Desktop back before MCS goes away.
+//
+// A switch or a sync closes Claude, does its work, and reopens it. Quitting in
+// that window kills the goroutine doing the work, so nothing ever reopens Claude
+// and the user is left with neither app. Claiming the debt rather than reading it
+// means the operation, if it survives long enough to finish, will not open a
+// second window.
+func reopenClaudeIfWeOweIt() {
+	owed := switcher.ClaimPendingRelaunch()
+	if owed == "" {
+		return
+	}
+	log.Printf("quit while Claude was closed for an operation; reopening %s first", owed)
+	if err := plat.LaunchProfile(owed); err != nil {
+		log.Printf("could not reopen Claude Desktop on the way out: %v", err)
 	}
 }
 
@@ -217,7 +302,13 @@ func doBackupAll() int {
 	bm := core.NewBackupManager("")
 	n := 0
 	for _, p := range mustFindProfiles() {
-		if path, err := bm.BackupIfHasData(p.Path); err == nil && path != "" {
+		if !core.ProfileHasSessions(p.Path) {
+			continue
+		}
+		// CreateBackup, not BackupIfHasData: the user pressed a button that says it
+		// backs things up, so it has to actually take a snapshot rather than reuse
+		// yesterday's and report a number that means nothing.
+		if _, err := bm.CreateBackup(p.Path); err == nil {
 			n++
 		}
 	}

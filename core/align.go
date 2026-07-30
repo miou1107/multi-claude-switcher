@@ -39,7 +39,12 @@ func (s *Switcher) ManualAlign(srcProfilePath, dstProfilePath string) (*SyncRepo
 		if relaunch == "" {
 			return nil, ErrRunningProfileUnknown
 		}
+		// Record the debt BEFORE closing, so it exists for the whole window in
+		// which Claude is shut. A quit handler reads it to put Claude back if MCS
+		// is told to exit mid-operation (Switcher.PendingRelaunch).
+		s.notePendingRelaunch(relaunch)
 		if err := s.Platform.TerminateApp(); err != nil {
+			s.ClaimPendingRelaunch() // nothing was closed, so nothing is owed
 			return nil, fmt.Errorf("failed to close Claude Desktop: %w", err)
 		}
 	}
@@ -47,10 +52,12 @@ func (s *Switcher) ManualAlign(srcProfilePath, dstProfilePath string) (*SyncRepo
 	// From here Claude Desktop is closed. On ANY outcome we must reopen the
 	// profile the user was on (if any), or they are stranded with it shut.
 	report, alignErr := s.alignAfterClose(srcProfilePath, dstProfilePath)
-	if relaunch != "" {
-		if lerr := s.Platform.LaunchProfile(relaunch); lerr != nil && alignErr == nil {
+	// Claim rather than read: if a quit handler got here first it has already
+	// reopened Claude, and launching again would give the user two windows.
+	if owed := s.ClaimPendingRelaunch(); owed != "" {
+		if lerr := s.Platform.LaunchProfile(owed); lerr != nil && alignErr == nil {
 			// The align itself succeeded; only reopening failed.
-			return report, fmt.Errorf("sync done but could not reopen Claude Desktop (%s): %w", relaunch, lerr)
+			return report, fmt.Errorf("sync done but could not reopen Claude Desktop (%s): %w", owed, lerr)
 		}
 	}
 	return report, alignErr

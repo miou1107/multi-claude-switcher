@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
@@ -10,6 +11,13 @@ import (
 type Switcher struct {
 	Platform      platform.Platform
 	BackupManager *BackupManager
+
+	// relaunchMu guards owedRelaunch.
+	relaunchMu sync.Mutex
+	// owedRelaunch is the profile Claude Desktop must be reopened on. It is set
+	// for exactly as long as MCS has Claude closed on the user's behalf and has
+	// not yet reopened it. See PendingRelaunch.
+	owedRelaunch string
 }
 
 func NewSwitcher(p platform.Platform, bm *BackupManager) *Switcher {
@@ -20,6 +28,41 @@ func NewSwitcher(p platform.Platform, bm *BackupManager) *Switcher {
 		Platform:      p,
 		BackupManager: bm,
 	}
+}
+
+// notePendingRelaunch records that Claude Desktop is about to be closed and must
+// be reopened on profilePath. Called before terminating, so the debt exists for
+// the whole window in which Claude is shut.
+func (s *Switcher) notePendingRelaunch(profilePath string) {
+	s.relaunchMu.Lock()
+	s.owedRelaunch = profilePath
+	s.relaunchMu.Unlock()
+}
+
+// PendingRelaunch reports the profile Claude Desktop still owes being reopened on,
+// or "" when nothing is owed.
+//
+// This exists because MCS can be told to quit while it has Claude closed. A switch
+// or a sync shuts Claude, does its work, and reopens it; if MCS exits in between,
+// the goroutine doing the work dies with it and Claude is never reopened. The user
+// is left with no Claude and no MCS. A host's quit handler reads this so it can put
+// Claude back before going away.
+func (s *Switcher) PendingRelaunch() string {
+	s.relaunchMu.Lock()
+	defer s.relaunchMu.Unlock()
+	return s.owedRelaunch
+}
+
+// ClaimPendingRelaunch returns the owed profile and clears it in one step, so the
+// relaunch happens exactly once. Both MCS's own operation and a quit handler race
+// for it; whichever arrives first reopens Claude and the other finds nothing to do,
+// rather than the user ending up with two windows.
+func (s *Switcher) ClaimPendingRelaunch() string {
+	s.relaunchMu.Lock()
+	defer s.relaunchMu.Unlock()
+	p := s.owedRelaunch
+	s.owedRelaunch = ""
+	return p
 }
 
 // SafeSwitch closes the running app, optionally aligns sessions, then launches
@@ -37,7 +80,12 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 	}
 	if running {
 		log.Printf("[Safe Switch] Terminating %d running Claude process(es)...", len(procs))
+		// The target is what a switch owes the user, whether or not the align
+		// below succeeds. Recorded before closing so a quit mid-switch can honour
+		// it (see PendingRelaunch).
+		s.notePendingRelaunch(dstProfilePath)
 		if err := s.Platform.TerminateApp(); err != nil {
+			s.ClaimPendingRelaunch() // nothing was closed, so nothing is owed
 			return fmt.Errorf("failed to terminate Claude process: %w", err)
 		}
 	}
@@ -48,8 +96,13 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 	// out of this function, mirroring ManualAlign (see align.go).
 	alignErr := s.autoAlign(srcProfilePath, dstProfilePath)
 
-	// Step 3: launch the target profile.
+	// Step 3: launch the target profile. Claim first: a quit handler racing this
+	// may already have reopened it, and launching twice gives the user two windows.
 	log.Printf("[Safe Switch] Launching Claude Desktop profile: %s...", dstProfilePath)
+	if owed := s.ClaimPendingRelaunch(); owed == "" && running {
+		log.Printf("[Safe Switch] Claude was already reopened elsewhere; not launching again.")
+		return alignErr
+	}
 	if err := s.Platform.LaunchProfile(dstProfilePath); err != nil {
 		if alignErr != nil {
 			return fmt.Errorf("%w (and Claude Desktop could not be reopened: %v)", alignErr, err)

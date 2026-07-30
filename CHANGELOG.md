@@ -3,6 +3,47 @@
 ## [Unreleased]
 
 ### Fixed
+- **An interrupted copy no longer damages a conversation.** Copies were written
+  straight into the destination, which truncates it immediately, so a process that
+  died partway left a truncated file behind. That was worse than a failed copy: a
+  truncated file's timestamp is the moment it was written, making it newer than its
+  source, and sync keeps whichever copy is newer. The next sync therefore treated
+  the truncated file as the current version of that conversation and kept it. Copies
+  are now staged and swapped into place, so an interruption leaves the destination
+  exactly as it was.
+
+- **Quitting during a switch or a sync no longer leaves you with no Claude.** Both
+  close Claude Desktop, do their work, and reopen it. Quitting in that window killed
+  the work in progress, so nothing ever reopened Claude and you were left with
+  neither app running. Quit now waits for the operation to finish — it reads
+  "Finishing up, then quitting…" — and leaves once Claude is back. It gives up
+  waiting after 30 seconds and reopens Claude itself, so Quit is never a dead button.
+
+- **Syncing no longer widens the permissions on your conversations.** Claude Desktop
+  writes session files so only you can read them (`0600`). Staging a copy through a
+  new file gave it the default instead, which on most machines means group- and
+  world-readable, and every synced conversation came out that way. Copies now carry
+  the source's permissions.
+
+- **A backup taken in the same second as the previous one is no longer blended into
+  it.** Snapshot folders are named to the second, and a second snapshot merged into
+  the existing folder rather than replacing it, leaving conversations that had been
+  deleted in between still sitting alongside the newer ones. The result matched no
+  state the profile was ever in. Colliding names now get a counter.
+
+### Changed
+- **The automatic safety backup reuses the last snapshot when nothing has changed.**
+  A backup is taken before every switch, sync and restore, and the panel takes one on
+  every Sync click. Each was a full copy of the profile's conversations, so a heavily
+  used machine accumulated dozens of near-identical snapshots (one reached 1.6 GB
+  across 65 of them). MCS now compares the profile against the newest snapshot and
+  reuses it when they match. The comparison covers every file in the tree, not just
+  the conversations: Claude records a deleted conversation by writing a marker file
+  beside them, so ignoring those would have let a deletion slip past unnoticed.
+  Nothing is deleted to save space, and **Back up all accounts** still always takes a
+  fresh snapshot, because you asked it to.
+
+### Fixed
 - **Sync could write outside the sessions folder, and could truncate a file it
   meant to leave alone.** The check for "does the target already have this file"
   treated every `stat` failure as "no", and the copy then truncated through
