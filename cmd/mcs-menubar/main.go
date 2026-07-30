@@ -19,6 +19,7 @@ import "C"
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -39,8 +40,15 @@ var (
 	switcher *core.Switcher
 
 	mu           sync.Mutex
-	currentView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename"
+	currentView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge"
 	renameFolder string   // the folder being renamed in the "rename" view
+
+	// newProfileVM carries the pending name screen's context between the action
+	// that opened it and the render that draws it, including the validation error
+	// from a rejected attempt.
+	newProfileVM panelui.NewProfileVM
+	// mergeFolders is the pair being resolved in the "merge" view.
+	mergeFolders [2]string
 
 	planMu    sync.Mutex
 	planCache = map[string]string{} // profile path -> plan label (leveldb read is heavy; cache it)
@@ -146,7 +154,15 @@ func goPanelWillOpen() {
 	// Render asynchronously so the popover appears instantly; the account-type
 	// scan (a leveldb copy per profile) must not block the click on the main
 	// thread. The webview keeps its previous content until the refresh lands.
-	go reloadPanel()
+	go func() {
+		// A profile that has since been signed in to is no longer pending, and the
+		// panel is the only place that notices.
+		profiles := mustFindProfiles()
+		for _, f := range core.StalePending(core.LoadPending(), profiles) {
+			_ = core.RemovePending(f)
+		}
+		reloadPanel()
+	}()
 }
 
 // cachedPlan returns a profile's subscription label (e.g. "Max 20×", "Team"),
@@ -181,6 +197,8 @@ func goPanelAction(caction, cfolder *C.char) {
 		go reloadPanel()
 	case "showList":
 		setView("list")
+		setStatus("") // a deliberate return to the list starts clean; the paths that
+		// want a message set it and render the list themselves without this action
 		go reloadPanel()
 	case "showSettings":
 		setView("settings")
@@ -253,6 +271,115 @@ func goPanelAction(caction, cfolder *C.char) {
 		}
 		setView("list")
 		go reloadPanel()
+	case "newProfile":
+		// The add card: open the name screen on the plain add path (no account to
+		// recover). Same screen as recovery, empty of context.
+		mu.Lock()
+		newProfileVM = panelui.NewProfileVM{}
+		mu.Unlock()
+		setView("newprofile")
+		go reloadPanel()
+	case "showRecover":
+		// arg is the account UUID. The source profiles are looked up from a fresh
+		// scan when the recovery runs: a ghost can have several, and their paths are
+		// only valid for the scan that produced them.
+		if arg == "" {
+			return
+		}
+		row, ok := ghostRow(arg)
+		if !ok || !row.Recoverable {
+			setStatus("That account is no longer recoverable — run Rescan")
+			setView("list")
+			go reloadPanel()
+			return
+		}
+		mu.Lock()
+		newProfileVM = panelui.NewProfileVM{
+			RecoverUUID:   arg,
+			SuggestedName: recoverySuggestedName(row),
+			Convos:        row.Convos,
+		}
+		mu.Unlock()
+		setView("newprofile")
+		go reloadPanel()
+	case "createProfile":
+		var a []string
+		if json.Unmarshal([]byte(arg), &a) != nil || len(a) != 2 {
+			return
+		}
+		if getBusy() {
+			return
+		}
+		setBusyStatus(true, "Setting up…")
+		reloadPanel()
+		go func() {
+			req := core.CreateProfileRequest{Name: a[0], RecoverUUID: a[1]}
+			if req.RecoverUUID != "" {
+				// Re-scan now rather than trusting anything the webview sent back: the
+				// sources' paths must come from the scan current at the moment of copy.
+				row, ok := ghostRow(req.RecoverUUID)
+				if !ok || !row.Recoverable {
+					setBusyStatus(false, "That account is no longer recoverable — run Rescan")
+					setView("list")
+					reloadPanel()
+					return
+				}
+				req.Sources = row.Sources
+			}
+			_, err := core.NewProfileCreator(plat).Create(req)
+			setBusyStatus(false, "")
+			if err != nil {
+				// Back to the same screen with the reason, and with the name the user
+				// typed still in the field so they do not have to retype it.
+				mu.Lock()
+				newProfileVM.SuggestedName = a[0]
+				newProfileVM.Err = err.Error()
+				mu.Unlock()
+				setView("newprofile")
+			} else {
+				setView("list")
+			}
+			reloadPanel()
+		}()
+	case "showMerge":
+		parts := strings.SplitN(arg, "|", 2)
+		if len(parts) != 2 {
+			return
+		}
+		mu.Lock()
+		mergeFolders = [2]string{parts[0], parts[1]}
+		mu.Unlock()
+		setStatus("")
+		setView("merge")
+		go reloadPanel()
+	case "mergeConfirm":
+		// arg is "<keepIdentity>|<archiveIdentity>". Identities, not paths: the merge
+		// resolves them itself.
+		parts := strings.SplitN(arg, "|", 2)
+		if len(parts) != 2 || getBusy() {
+			return
+		}
+		keep, archive := parts[0], parts[1]
+		setBusyStatus(true, "Merging…")
+		reloadPanel()
+		go func() {
+			if err := plat.TerminateApp(); err != nil {
+				setBusyStatus(false, err.Error())
+				reloadPanel()
+				return
+			}
+			_, err := core.MergeDuplicates(plat, core.MergeRequest{
+				KeepIdentity: keep, ArchiveIdentity: archive,
+			})
+			if err != nil {
+				setBusyStatus(false, err.Error())
+				reloadPanel()
+				return
+			}
+			setBusyStatus(false, "Merged.")
+			setView("list")
+			reloadPanel()
+		}()
 	case "openLog":
 		home, _ := os.UserHomeDir()
 		_ = exec.Command("open", filepath.Join(home, ".multi-claude-switcher", "logs")).Start()
@@ -384,6 +511,33 @@ func reloadPanel() {
 		f := renameFolder
 		mu.Unlock()
 		htmlStr = panelui.RenderRename(f, core.DisplayName(f))
+	case "newprofile":
+		mu.Lock()
+		vm := newProfileVM
+		mu.Unlock()
+		htmlStr = panelui.RenderNewProfile(vm)
+	case "merge":
+		mu.Lock()
+		pair := mergeFolders
+		mu.Unlock()
+		a, b := mergeCandidate(pair[0]), mergeCandidate(pair[1])
+		// Preselect whichever is in use, so compute the plan for that direction.
+		// Swapping the keeper changes nothing shown: the union and the conflict
+		// count are symmetric except for which side wins a conflict.
+		keep, archive := pair[0], pair[1]
+		if b.Current && !a.Current {
+			keep, archive = pair[1], pair[0]
+		}
+		plan, planErr := mergePlanFor(keep, archive)
+		if planErr != nil {
+			// Fall back to the list with the reason rather than showing a merge whose
+			// outcome is unknown.
+			setStatus(planErr.Error())
+			setView("list")
+			htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())
+			break
+		}
+		htmlStr = panelui.RenderMerge(a, b, plan, getStatus(), getBusy())
 	case "settings":
 		htmlStr = panelui.RenderSettings(panelui.SettingsVM{
 			AutoSync:   core.AutoSyncOnSwitch(),
@@ -393,7 +547,7 @@ func reloadPanel() {
 			Busy:       getBusy(),
 		})
 	default:
-		htmlStr = panelui.RenderList(buildProfiles(), false)
+		htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())
 	}
 	c := C.CString(htmlStr)
 	defer C.free(unsafe.Pointer(c))
@@ -437,6 +591,94 @@ func buildProfiles() []panelui.ProfileVM {
 	// the copies drifted — SignedIn was set in one and not the other, which left the
 	// sync screen unable to offer any pair at all on macOS.
 	return panelui.BuildProfiles(mustFindProfiles(), core.LoadManaged(), running, cachedPlan)
+}
+
+// newProfileSupported reports whether "Add another account" applies on this host.
+// It always does on macOS: a profile is a sibling data directory MCS creates and
+// Claude Desktop populates on first launch, the same model as the Windows Store
+// build. (The Windows standalone build, whose profiles the user picks by hand,
+// returns false for exactly this reason.)
+func newProfileSupported() bool { return true }
+
+// profilePathFor resolves a profile identity to its real path by looking it up
+// among the discovered profiles, and returns "" when there is no such profile.
+//
+// A lookup, never filepath.Join onto the data root: a guessed path is worse than
+// an honest failure, because it reads as a profile that is simply empty.
+func profilePathFor(identity string) string {
+	for _, p := range mustFindProfiles() {
+		if p.Name == identity {
+			return p.Path
+		}
+	}
+	return ""
+}
+
+// mergeCandidate builds one side of the merge screen: the display name, plan, how
+// many conversations it holds for its own account, and whether Claude is running
+// on it.
+func mergeCandidate(identity string) panelui.MergeCandidateVM {
+	path := profilePathFor(identity)
+	running, _ := plat.DetectRunningProfile()
+	vm := panelui.MergeCandidateVM{
+		Folder:  identity,
+		Name:    core.DisplayName(identity),
+		Plan:    cachedPlan(path),
+		Current: path != "" && path == running,
+	}
+	if path == "" {
+		return vm
+	}
+	if uuid, err := platform.GetProfileAccountUUID(path); err == nil {
+		for _, p := range mustFindProfiles() {
+			if p.Name == identity {
+				vm.Convos = p.UUIDBuckets[uuid]
+			}
+		}
+	}
+	return vm
+}
+
+// mergePlanFor computes what the merge would do, so the screen shows the total the
+// user will actually get rather than the sum of two counts. A failure here means
+// the merge screen must not be shown at all: offering a merge whose outcome could
+// not be computed is worse than reporting the problem.
+func mergePlanFor(keepIdentity, archiveIdentity string) (core.MergePlan, error) {
+	keepPath, archivePath := profilePathFor(keepIdentity), profilePathFor(archiveIdentity)
+	if keepPath == "" || archivePath == "" {
+		return core.MergePlan{}, fmt.Errorf("one of those profiles is no longer there — run Rescan")
+	}
+	uuid, err := platform.GetProfileAccountUUID(keepPath)
+	if err != nil {
+		return core.MergePlan{}, fmt.Errorf("%s has no account signed in", core.DisplayName(keepIdentity))
+	}
+	plan, err := core.MergePreview(keepPath, archivePath, uuid)
+	if err != nil {
+		return core.MergePlan{}, err
+	}
+	return *plan, nil
+}
+
+// ghostRow re-scans and returns the current row for an orphaned account. Every
+// recovery step goes through this rather than trusting values round-tripped
+// through the webview: the row carries the source profiles' paths, and a path is
+// only valid for the scan that produced it.
+func ghostRow(uuid string) (core.ScannedAccount, bool) {
+	for _, a := range core.ScanAccounts(mustFindProfiles(), core.LoadPending()) {
+		if a.UUID == uuid && !a.Complete {
+			return a, true
+		}
+	}
+	return core.ScannedAccount{}, false
+}
+
+// recoverySuggestedName proposes a name for a recovered account, dated by when it
+// was last used so the user can tell two recoveries apart.
+func recoverySuggestedName(row core.ScannedAccount) string {
+	if !row.LastUpdated.IsZero() {
+		return "Recovered " + row.LastUpdated.Format("2006-01-02")
+	}
+	return "Recovered"
 }
 
 func sourceProfilePath(targetPath string, profiles []*platform.ProfileInfo) string {

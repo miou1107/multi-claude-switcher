@@ -3,23 +3,24 @@
 ## [Unreleased]
 
 ### Added
-- **A way to add an account, on the Windows Store build.** The flow that saves your
-  current account, opens a clean Claude for you to sign into another one, and brings
-  that account's saved conversations across has existed since before 0.10.0 — but it
-  was wired only to the old tray menu, which 0.10.0 replaced with the panel. It has
-  been unreachable ever since. The account list now offers it again. This is also the
-  way back for an account signed out from inside Claude Desktop: sign into it here and
-  its conversations follow. macOS and the Windows standalone build do not have this
-  yet.
+- **A way to add an account, from the panel, on macOS and the Windows Store build.**
+  The flow that saves your current account, opens a clean Claude for you to sign into
+  another one, and brings that account's saved conversations across is now offered
+  right on the account list, through an in-panel screen that names the new profile.
+  Both hosts use the same screen, so they behave identically. (The Windows standalone
+  build, whose profiles you pick by hand rather than MCS creating them, does not have
+  this.)
 - **Rescan offers to recover an account signed out from inside Claude Desktop.** Such
   an account used to show up only as an "Unrecognized account" you could not act on,
   even though all of its conversations were still on disk. It now appears as "Signed
   out in Claude Desktop" with a Recover button that gives it a profile again and signs
   you back in. A genuinely broken account still shows read-only, as before.
-- **The account list warns when two profiles hold the same account.** Both cards are
-  marked "Duplicate" and a banner offers to merge them into one, so a state that only
-  ever causes confusion is surfaced rather than left for you to discover. One group is
-  offered at a time — each merge needs Claude closed.
+- **The account list warns when two profiles hold the same account, and merges them.**
+  Both cards are marked "Duplicate" and a banner opens a merge screen that keeps the
+  profile you are using, combines the conversations, and archives the other folder
+  (nothing is deleted). A state that only ever causes confusion is surfaced rather than
+  left for you to discover. One pair is offered at a time — each merge needs Claude
+  closed.
 
 ### Changed
 - **Closing Claude Desktop now always asks first.** Syncing closed Claude on a single

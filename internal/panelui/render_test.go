@@ -126,7 +126,7 @@ func TestRenderListFlagsProfileAwaitingSignIn(t *testing.T) {
 	html := RenderList([]ProfileVM{
 		{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true},
 		{Folder: "ClaudeWork", Name: "Work"},
-	}, false)
+	}, false, "")
 	if !strings.Contains(html, "Not signed in yet. Switch here, then sign in.") {
 		t.Fatal("the card must say why it is different, or switching to it lands on an unexplained login screen")
 	}
@@ -135,9 +135,22 @@ func TestRenderListFlagsProfileAwaitingSignIn(t *testing.T) {
 	}
 }
 
+func TestRenderListShowsAStatusMessage(t *testing.T) {
+	// A merge that could not be computed, a recovery that came too late, or a merge
+	// that succeeded all end back on the list. Without a banner the list re-renders
+	// unchanged and the click reads as having done nothing.
+	profiles := []ProfileVM{{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true}}
+	if got := RenderList(profiles, true, "Merged."); !strings.Contains(got, `<div class="status">Merged.</div>`) {
+		t.Fatalf("a status message must be shown on the list:\n%s", got)
+	}
+	if got := RenderList(profiles, true, ""); strings.Contains(got, `<div class="status">`) {
+		t.Fatalf("no message, no banner:\n%s", got)
+	}
+}
+
 func TestVersionShownFromVariableOnBothViews(t *testing.T) {
 	want := "v" + core.Version // the "v" is a literal prefix; the number is never hardcoded
-	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true}}, false)
+	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true}}, false, "")
 	if !strings.Contains(list, want) {
 		t.Fatalf("account list must show %q sourced from core.Version", want)
 	}
@@ -235,7 +248,7 @@ func TestNoActionClosesClaudeWithoutAsking(t *testing.T) {
 		"list": RenderList([]ProfileVM{
 			{Folder: "Claude", Name: "Work", SignedIn: true, Current: true},
 			{Folder: "Claude_P", Name: "Personal", SignedIn: true},
-		}, true),
+		}, true, ""),
 		"sync": RenderSync([]ProfileVM{
 			{Folder: "Claude", Name: "Work", SignedIn: true, Convos: 94},
 			{Folder: "Claude_P", Name: "Personal", SignedIn: true, Convos: 12},
@@ -272,7 +285,7 @@ func TestRenderSyncAsksBeforeClosingClaude(t *testing.T) {
 // TestConfirmDialogFocusesCancel: Enter on a dialog the user has not read must not
 // close their Claude, so the safe button holds the focus.
 func TestConfirmDialogFocusesCancel(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false)
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
 	if !strings.Contains(html, "getElementById('mcsModalCancel').focus()") {
 		t.Error("the confirmation must open with Cancel focused")
 	}
@@ -284,7 +297,7 @@ func TestConfirmDialogFocusesCancel(t *testing.T) {
 // TestConfirmDialogWarnsAboutUnsavedWork: the consequence the user cannot see for
 // themselves is that Claude is mid-work. Both dialogs carry the same line.
 func TestConfirmDialogWarnsAboutUnsavedWork(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false)
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
 	if !strings.Contains(html, `<div class="warn">Anything unsaved in Claude is interrupted.</div>`) {
 		t.Errorf("the dialog must say what closing Claude costs:\n%s", html)
 	}
@@ -296,7 +309,7 @@ func TestConfirmDialogWarnsAboutUnsavedWork(t *testing.T) {
 func TestRenderListAddCardOnlyWhereItLeadsSomewhere(t *testing.T) {
 	profiles := []ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}
 
-	with := RenderList(profiles, true)
+	with := RenderList(profiles, true, "")
 	if !strings.Contains(with, `onclick="send('newProfile','')"`) {
 		t.Errorf("the add card must be offered where the flow exists:\n%s", with)
 	}
@@ -304,7 +317,7 @@ func TestRenderListAddCardOnlyWhereItLeadsSomewhere(t *testing.T) {
 		t.Error("the card needs its label")
 	}
 
-	without := RenderList(profiles, false)
+	without := RenderList(profiles, false, "")
 	if strings.Contains(without, "Add another account") {
 		t.Error("no add card where nothing is behind it")
 	}
@@ -313,7 +326,7 @@ func TestRenderListAddCardOnlyWhereItLeadsSomewhere(t *testing.T) {
 // TestRenderListAddCardShowsOnAnEmptyList: a user with nothing managed yet is
 // exactly who needs it, so the empty state must not swallow the card.
 func TestRenderListAddCardShowsOnAnEmptyList(t *testing.T) {
-	html := RenderList(nil, true)
+	html := RenderList(nil, true, "")
 	if !strings.Contains(html, "Add another account") {
 		t.Errorf("an empty list still offers the way to add one:\n%s", html)
 	}
@@ -327,7 +340,7 @@ func TestRenderListWarnsAboutDuplicates(t *testing.T) {
 		{Folder: "Claude", Name: "Claude", UUID: "same", SignedIn: true},
 		{Folder: "Claude_Work", Name: "Work", UUID: "same", SignedIn: true},
 		{Folder: "Claude_Solo", Name: "Solo", UUID: "solo", SignedIn: true},
-	}, false)
+	}, false, "")
 	if !strings.Contains(html, "the same account") {
 		t.Fatalf("want a duplicate warning:\n%s", html)
 	}
@@ -352,7 +365,7 @@ func TestRenderListDuplicateWarningDisambiguatesEqualNames(t *testing.T) {
 	html := RenderList([]ProfileVM{
 		{Folder: "Claude", Name: "Claude", UUID: "same", SignedIn: true},
 		{Folder: "Claude_Work", Name: "Claude", UUID: "same", SignedIn: true},
-	}, false)
+	}, false, "")
 	if !strings.Contains(html, "Claude and Claude_Work are the same account") {
 		t.Fatalf("equal names must be disambiguated by folder:\n%s", html)
 	}
@@ -362,7 +375,7 @@ func TestRenderListNoWarningWhenAccountsAreUnique(t *testing.T) {
 	html := RenderList([]ProfileVM{
 		{Folder: "Claude", Name: "Claude", UUID: "a", SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", UUID: "b", SignedIn: true},
-	}, false)
+	}, false, "")
 	if strings.Contains(html, "the same account") {
 		t.Fatal("no duplicates, no warning")
 	}
@@ -377,7 +390,7 @@ func TestRenderListDuplicateWarningIgnoresProfilesWithNoAccount(t *testing.T) {
 	html := RenderList([]ProfileVM{
 		{Folder: "Claude_A", Name: "A", UUID: "", SignedIn: false},
 		{Folder: "Claude_B", Name: "B", UUID: "", SignedIn: false},
-	}, false)
+	}, false, "")
 	if strings.Contains(html, "the same account") {
 		t.Fatalf("empty UUIDs must not group:\n%s", html)
 	}
@@ -389,7 +402,7 @@ func TestRenderListOneWarningForTheFirstGroupOnly(t *testing.T) {
 		{Folder: "Claude_B", Name: "B", UUID: "x", SignedIn: true},
 		{Folder: "Claude_C", Name: "C", UUID: "y", SignedIn: true},
 		{Folder: "Claude_D", Name: "D", UUID: "y", SignedIn: true},
-	}, false)
+	}, false, "")
 	if strings.Count(html, "the same account") != 1 {
 		t.Fatalf("one group at a time, got %d warnings:\n%s", strings.Count(html, "the same account"), html)
 	}

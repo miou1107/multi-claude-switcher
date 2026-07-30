@@ -45,8 +45,15 @@ var (
 	panelSwitcher *core.Switcher
 
 	panelMu    sync.Mutex
-	panelView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename"
+	panelView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge"
 	panelStale string   // profile folder being renamed
+
+	// panelNewProfileVM carries the pending name screen's context between the
+	// action that opened it and the render that draws it, including the validation
+	// error from a rejected attempt.
+	panelNewProfileVM panelui.NewProfileVM
+	// panelMergeFolders is the pair being resolved in the "merge" view.
+	panelMergeFolders [2]string
 
 	panelPlanMu sync.Mutex
 	panelPlan   = map[string]string{}
@@ -189,7 +196,15 @@ func showPanelAt(hwnd uintptr, anchor point) {
 	armCloseOnDeactivate(hwnd)
 	notifyTray("MCS_SHOWN")
 
-	go reloadPanel()
+	go func() {
+		// A profile that has since been signed in to is no longer pending, and the
+		// panel is the only place that notices.
+		profiles := panelMustFindProfiles()
+		for _, f := range core.StalePending(core.LoadPending(), profiles) {
+			_ = core.RemovePending(f)
+		}
+		reloadPanel()
+	}()
 }
 
 // parkPanel moves the panel back off-screen. This is what dismissal does now:
@@ -277,6 +292,8 @@ func dispatchAction(action, arg string) {
 		go reloadPanel()
 	case "showList":
 		panelSetView("list")
+		panelSetStatus("") // a deliberate return to the list starts clean; the paths
+		// that want a message set it and render the list themselves without this action
 		go reloadPanel()
 	case "showSettings":
 		panelSetView("settings")
@@ -377,14 +394,120 @@ func dispatchAction(action, arg string) {
 			panelWV.Dispatch(func() { parkPanel(hwnd) })
 		}
 	case "newProfile":
-		// Hand this to the tray. It owns the flow — native dialogs, and a relaunch
-		// of itself at the end — and it has been unreachable since v0.10.0 replaced
-		// the tray menu with this panel. Hide first so the dialogs are not stacked
-		// under a popover that dismisses itself when they take the foreground.
-		if hwnd := panelHWND.Load(); hwnd != 0 {
-			panelWV.Dispatch(func() { parkPanel(hwnd) })
+		// The add card: open the in-panel name screen on the plain add path (no
+		// account to recover), the same flow the macOS host uses. This replaces the
+		// old hand-off to the tray's native dialogs, so both hosts behave identically.
+		panelMu.Lock()
+		panelNewProfileVM = panelui.NewProfileVM{}
+		panelMu.Unlock()
+		panelSetView("newprofile")
+		go reloadPanel()
+	case "showRecover":
+		// arg is the account UUID. The source profiles are looked up from a fresh
+		// scan when the recovery runs: a ghost can have several, and their paths are
+		// only valid for the scan that produced them.
+		if arg == "" {
+			return
 		}
-		notifyTray("MCS_NEW_PROFILE")
+		row, ok := ghostRow(arg)
+		if !ok || !row.Recoverable {
+			panelSetStatus("That account is no longer recoverable — run Rescan")
+			panelSetView("list")
+			go reloadPanel()
+			return
+		}
+		panelMu.Lock()
+		panelNewProfileVM = panelui.NewProfileVM{
+			RecoverUUID:   arg,
+			SuggestedName: recoverySuggestedName(row),
+			Convos:        row.Convos,
+		}
+		panelMu.Unlock()
+		panelSetView("newprofile")
+		go reloadPanel()
+	case "createProfile":
+		var a []string
+		if json.Unmarshal([]byte(arg), &a) != nil || len(a) != 2 {
+			return
+		}
+		if panelGetBusy() {
+			return
+		}
+		panelSetBusy(true, "Setting up…")
+		reloadPanel()
+		go func() {
+			req := core.CreateProfileRequest{Name: a[0], RecoverUUID: a[1]}
+			if req.RecoverUUID != "" {
+				// Re-scan now rather than trusting anything the webview sent back: the
+				// sources' paths must come from the scan current at the moment of copy.
+				row, ok := ghostRow(req.RecoverUUID)
+				if !ok || !row.Recoverable {
+					panelSetBusy(false, "That account is no longer recoverable — run Rescan")
+					panelSetView("list")
+					reloadPanel()
+					return
+				}
+				req.Sources = row.Sources
+			}
+			_, err := core.NewProfileCreator(panelPlat).Create(req)
+			panelSetBusy(false, "")
+			if err != nil {
+				// Back to the same screen with the reason, and with the name the user
+				// typed still in the field so they do not have to retype it.
+				panelMu.Lock()
+				panelNewProfileVM.SuggestedName = a[0]
+				panelNewProfileVM.Err = err.Error()
+				panelMu.Unlock()
+				panelSetView("newprofile")
+				reloadPanel()
+				return
+			}
+			// The Store build's migration watcher runs in the tray process and only
+			// starts if a migration was already queued at boot. A create from the
+			// panel queues one afterwards, so ask the tray to pick it up.
+			notifyTrayMigrationQueued()
+			panelSetView("list")
+			reloadPanel()
+		}()
+	case "showMerge":
+		parts := strings.SplitN(arg, "|", 2)
+		if len(parts) != 2 {
+			return
+		}
+		panelMu.Lock()
+		panelMergeFolders = [2]string{parts[0], parts[1]}
+		panelMu.Unlock()
+		panelSetStatus("")
+		panelSetView("merge")
+		go reloadPanel()
+	case "mergeConfirm":
+		// arg is "<keepIdentity>|<archiveIdentity>". Identities, not paths: the merge
+		// resolves them itself.
+		parts := strings.SplitN(arg, "|", 2)
+		if len(parts) != 2 || panelGetBusy() {
+			return
+		}
+		keep, archive := parts[0], parts[1]
+		panelSetBusy(true, "Merging…")
+		reloadPanel()
+		go func() {
+			if err := panelPlat.TerminateApp(); err != nil {
+				panelSetBusy(false, err.Error())
+				reloadPanel()
+				return
+			}
+			_, err := core.MergeDuplicates(panelPlat, core.MergeRequest{
+				KeepIdentity: keep, ArchiveIdentity: archive,
+			})
+			if err != nil {
+				panelSetBusy(false, err.Error())
+				reloadPanel()
+				return
+			}
+			panelSetBusy(false, "Merged.")
+			panelSetView("list")
+			reloadPanel()
+		}()
 
 	case "quit":
 		if panelDeferQuitUntilIdle() {
@@ -434,6 +557,33 @@ func reloadPanel() {
 		htmlStr = panelui.RenderSync(panelBuildProfiles(), panelGetStatus(), panelGetBusy())
 	case "rename":
 		htmlStr = panelui.RenderRename(folder, core.DisplayName(folder))
+	case "newprofile":
+		panelMu.Lock()
+		vm := panelNewProfileVM
+		panelMu.Unlock()
+		htmlStr = panelui.RenderNewProfile(vm)
+	case "merge":
+		panelMu.Lock()
+		pair := panelMergeFolders
+		panelMu.Unlock()
+		a, b := mergeCandidate(pair[0]), mergeCandidate(pair[1])
+		// Preselect whichever is in use, so compute the plan for that direction.
+		// Swapping the keeper changes nothing shown: the union and the conflict
+		// count are symmetric except for which side wins a conflict.
+		keep, archive := pair[0], pair[1]
+		if b.Current && !a.Current {
+			keep, archive = pair[1], pair[0]
+		}
+		plan, planErr := mergePlanFor(keep, archive)
+		if planErr != nil {
+			// Fall back to the list with the reason rather than showing a merge whose
+			// outcome is unknown.
+			panelSetStatus(planErr.Error())
+			panelSetView("list")
+			htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus())
+			break
+		}
+		htmlStr = panelui.RenderMerge(a, b, plan, panelGetStatus(), panelGetBusy())
 	case "settings":
 		htmlStr = panelui.RenderSettings(panelui.SettingsVM{
 			AutoSync:   core.AutoSyncOnSwitch(),
@@ -443,7 +593,7 @@ func reloadPanel() {
 			Busy:       panelGetBusy(),
 		})
 	default:
-		htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported())
+		htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus())
 	}
 	panelWV.Dispatch(func() { panelWV.SetHtml(htmlStr) })
 }
@@ -549,6 +699,94 @@ func panelBuildProfiles() []panelui.ProfileVM {
 	running, _ := panelPlat.DetectRunningProfile()
 	// Shared with the macOS host on purpose: see panelui.BuildProfiles.
 	return panelui.BuildProfiles(panelMustFindProfiles(), core.LoadManaged(), running, panelCachedPlan)
+}
+
+// notifyTrayMigrationQueued tells the tray process to (re)start its post-sign-in
+// migration watcher. A profile created from this panel queues its Store-build
+// migration after the tray's boot-time watcher has already decided nothing was
+// pending; this stdout line, read by readPanelMessages, makes the tray look again.
+// startMigrationWatcher returns immediately when nothing is queued, so it is safe
+// on the standalone build too.
+func notifyTrayMigrationQueued() { notifyTray("MCS_MIGRATION_QUEUED") }
+
+// profilePathFor resolves a profile identity to its real path, or "" when there is
+// no such profile. A lookup, never a join: on the Store build a profile lives in
+// the shared slot or under .mcs-profiles, and the data root is not AppSupportDir(),
+// so joining a name onto it produces a path that does not exist.
+func profilePathFor(identity string) string {
+	for _, p := range panelMustFindProfiles() {
+		if p.Name == identity {
+			return p.Path
+		}
+	}
+	return ""
+}
+
+// mergeCandidate builds one side of the merge screen: the display name, plan, how
+// many conversations it holds for its own account, and whether Claude is running
+// on it.
+func mergeCandidate(identity string) panelui.MergeCandidateVM {
+	path := profilePathFor(identity)
+	running, _ := panelPlat.DetectRunningProfile()
+	vm := panelui.MergeCandidateVM{
+		Folder:  identity,
+		Name:    core.DisplayName(identity),
+		Plan:    panelCachedPlan(path),
+		Current: path != "" && path == running,
+	}
+	if path == "" {
+		return vm
+	}
+	if uuid, err := platform.GetProfileAccountUUID(path); err == nil {
+		for _, p := range panelMustFindProfiles() {
+			if p.Name == identity {
+				vm.Convos = p.UUIDBuckets[uuid]
+			}
+		}
+	}
+	return vm
+}
+
+// mergePlanFor computes what the merge would do, so the screen shows the total the
+// user will actually get rather than the sum of two counts. A failure here means
+// the merge screen must not be shown at all: offering a merge whose outcome could
+// not be computed is worse than reporting the problem.
+func mergePlanFor(keepIdentity, archiveIdentity string) (core.MergePlan, error) {
+	keepPath, archivePath := profilePathFor(keepIdentity), profilePathFor(archiveIdentity)
+	if keepPath == "" || archivePath == "" {
+		return core.MergePlan{}, fmt.Errorf("one of those profiles is no longer there — run Rescan")
+	}
+	uuid, err := platform.GetProfileAccountUUID(keepPath)
+	if err != nil {
+		return core.MergePlan{}, fmt.Errorf("%s has no account signed in", core.DisplayName(keepIdentity))
+	}
+	plan, err := core.MergePreview(keepPath, archivePath, uuid)
+	if err != nil {
+		return core.MergePlan{}, err
+	}
+	return *plan, nil
+}
+
+// ghostRow re-scans and returns the current row for an orphaned account. Every
+// recovery step goes through this rather than trusting values round-tripped through
+// the webview: the row carries the source profiles' paths, and a path is only valid
+// for the scan that produced it.
+func ghostRow(uuid string) (core.ScannedAccount, bool) {
+	for _, a := range core.ScanAccounts(panelMustFindProfiles(), core.LoadPending()) {
+		if a.UUID == uuid && !a.Complete {
+			return a, true
+		}
+	}
+	return core.ScannedAccount{}, false
+}
+
+// recoverySuggestedName proposes a name for a recovered account, dated by when it
+// was last used so the user can tell two recoveries apart.
+func recoverySuggestedName(row core.ScannedAccount) string {
+	if !row.LastUpdated.IsZero() {
+		return "Recovered " + row.LastUpdated.Format("2006-01-02")
+	}
+	return "Recovered"
 }
 
 // panelCachedPlan looks up the subscription plan, caching per-process.

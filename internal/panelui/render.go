@@ -317,9 +317,17 @@ func duplicateAccounts(profiles []ProfileVM, esc func(string) string) (map[strin
 	return dupFolder, warning
 }
 
-func RenderList(profiles []ProfileVM, canAddAccount bool) string {
+func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string {
 	esc := html.EscapeString
 	dupFolder, dupWarning := duplicateAccounts(profiles, esc)
+	// status carries the result of an action that ended back on the list — a
+	// merge that could not be computed, a recovery that came too late, a merge that
+	// succeeded. Without it those paths re-render an unchanged-looking list and read
+	// as having done nothing.
+	statusBanner := ""
+	if status != "" {
+		statusBanner = `<div class="status">` + esc(status) + `</div>`
+	}
 	var cards strings.Builder
 	for _, p := range profiles {
 		badge := planPill(p.Plan)
@@ -359,7 +367,7 @@ func RenderList(profiles []ProfileVM, canAddAccount bool) string {
       <button class="addcard" onclick="send('newProfile','')">＋&nbsp; Add another account</button>`)
 	}
 	body := avatarHeader("Multi-Claude Switcher", "Switch or manage your Claude accounts") +
-		dupWarning + `<div class="cards">` + cards.String() + `</div>
+		statusBanner + dupWarning + `<div class="cards">` + cards.String() + `</div>
 <div class="footer">
   <button class="btn btn-light" onclick="send('showRescan','')">⟳&nbsp; Rescan</button>
   <button class="btn btn-light" onclick="send('showSettings','')">⚙&nbsp; Settings</button>

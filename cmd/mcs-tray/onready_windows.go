@@ -275,8 +275,16 @@ func readPanelMessages(r io.ReadCloser) {
 			// The panel cannot run this itself: the flow shows native dialogs and
 			// ends by relaunching the tray, both of which belong to this process.
 			// The panel has already hidden itself, so the dialogs come up clean.
+			// Still reachable from the tray menu; the panel now uses the in-panel
+			// name screen instead.
 			log.Println("Panel requested the add-an-account flow.")
 			go runNewProfileFlow()
+		case "MCS_MIGRATION_QUEUED":
+			// The panel created a profile and queued its Store-build migration after
+			// this process's boot-time watcher had already given up. Look again;
+			// startMigrationWatcher is a no-op when nothing is queued.
+			log.Println("Panel queued a profile migration; restarting the watcher.")
+			startMigrationWatcher()
 		case "MCS_QUIT":
 			log.Println("Panel requested Quit; shutting down tray.")
 			stopPanelProcess()

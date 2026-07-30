@@ -5,10 +5,18 @@ package main
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
+
+// migrationWatcherRunning guards against more than one migration poller at a time.
+// The panel now asks the tray to (re)start the watcher after every create, so two
+// creates before the user signs in would otherwise run two goroutines both calling
+// MSIXAttemptMigration on the same on-disk state. One poller reads that state every
+// few seconds and handles whatever is currently queued, so a second is redundant.
+var migrationWatcherRunning atomic.Bool
 
 // newProfileSupported reports whether the "New account profile…" action applies.
 // It does only for the Store/MSIX build, whose profiles MCS creates and manages
@@ -55,7 +63,12 @@ func startMigrationWatcher() {
 	if !platform.MSIXPendingMigration() {
 		return
 	}
+	if !migrationWatcherRunning.CompareAndSwap(false, true) {
+		return // a poller is already running; it reads fresh state each tick and
+		// will pick up a migration queued by a later create on its own.
+	}
 	go func() {
+		defer migrationWatcherRunning.Store(false)
 		// Poll ~15 minutes (5s cadence) for the sign-in, then give up quietly.
 		for i := 0; i < 180; i++ {
 			copied, done := platform.MSIXAttemptMigration()
