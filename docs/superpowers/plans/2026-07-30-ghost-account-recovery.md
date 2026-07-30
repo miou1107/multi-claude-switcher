@@ -1,25 +1,37 @@
 # Ghost Account Recovery Implementation Plan
 
-> ## ⚠️ DO NOT EXECUTE AS WRITTEN — revision required
+> ## Revised 2026-07-30 after adversarial review — safe to execute
 >
-> Adversarial review on 2026-07-30 found defects that make this plan non-executable. It is kept because its structure and reasoning are sound; the tasks need correcting first. **Do not start Task 1 until this banner is removed.**
+> The first version of this plan was not executable. Adversarial review found six hard
+> blockers and a set of tests that could not fail, and the corrections changed the design
+> as well as the code, so the spec was revised alongside it. What follows is the corrected
+> plan. The record of what was wrong, kept because the same mistakes are easy to make again:
 >
-> **Hard blockers — a worker following the text cannot get past these:**
+> - **Profile identity had no home.** The plan keyed `pending.json` and `managed.json` on
+>   `filepath.Base(profilePath)`, which on the Windows Store build is `Claude` for every
+>   profile — the shared slot's directory name — while `msixFindProfiles` names the profile
+>   from `state.json`. The feature would have been inert on the one platform it exists for.
+>   Identity is now spec §3.5, `CreateProfile` returns it, and nothing derives it from a path.
+> - **A test helper was redefined.** Task 1 told the worker to write a `writeProfile` that
+>   already existed in the same test binary. Go refuses the redeclaration, `core` stops
+>   compiling, and every "verify it fails" gate in the plan then passes for the wrong reason.
+> - **Five renderer tests could not fail.** `shell()` emits every class name in its `<style>`
+>   block on every page, so `strings.Contains(html, "dup-pill")` and
+>   `strings.Contains(html, "disabled")` are true regardless of what was rendered, and their
+>   negations are unreachable. One preselection test compared attribute positions in an order
+>   that held whichever card was selected.
+> - **Two tasks violated the plan's own escaping constraint** by interpolating folder names
+>   into inline JS string arguments, and their tests locked the violation in.
+> - **One test asserted a string its own implementation did not render.**
+> - **Merge was blocked** on an unresolved design question and called a backup manager that
+>   did not exist in scope. Both are closed: `MergePreview` computes the union and the
+>   conflict count before the user commits, and the keeper is snapshotted explicitly.
+> - **Line numbers had drifted**, because earlier tasks lengthen the files later tasks cite.
+>   Everything is located by symbol now.
 >
-> 1. **Task 1 tells you to define a `writeProfile` test helper that already exists** at `core/scan_test.go:85`. Go rejects the redeclaration and the whole `core` test binary stops compiling, which also makes the "verify it fails" gate of Tasks 1, 3, 5, 8, 9 and 10 pass for the wrong reason. Reuse the existing helper. The import instruction in that step is wrong on both branches too.
-> 2. **Five renderer tests can never pass.** Tasks 11, 12 and 14 assert on CSS class names (`dup-pill`, `note-bad`, `disabled`) with `strings.Contains` / `strings.Count`, but `shell()` emits every class name in its `<style>` block on every page, so those strings are always present. The paired positive assertions are vacuous for the same reason. Assert on the markup that carries the class, not the name.
-> 3. **Tasks 11 and 12 violate this plan's own Global Constraint** by interpolating folder names into inline JS string arguments (`send('showMerge','%s')`), and their tests lock the violation in. `html.EscapeString` turns `'` into `&#39;`, which the HTML parser decodes back before the JS is parsed. Use `data-*` + `dataset`, as Tasks 13 and 14 correctly do.
-> 4. **Task 13's test asserts `"different account"`** but the implementation in the same task renders `different</b> account`. It fails against its own code.
-> 5. **The feature does not work on the Store build**, which is the platform it exists for. `filepath.Base(createdPath)` is always `"Claude"` there (the slot dir name), while `msixFindProfiles` names the slot `state.json`'s `Current` — the user's chosen name. So `pending.json` never matches, the entry is pruned as stale, and `managed.json` gains a phantom while the real profile stays invisible. Profile identity needs its own layer before any of this works on MSIX; `filepath.Base` is not it. `Create` also passes the name untrimmed while validation trims, reproducing the mismatch on Windows standalone.
-> 6. **Line numbers cited by Task 5 have drifted** by roughly +25 lines, because Task 3 lengthens `core/scan.go` first. Locate by symbol, not by line.
->
-> **Silent failures — tasks would report green while proving nothing:** Task 14's preselection test cannot detect the wrong card being preselected (the class attribute precedes `data-folder` in both cards, so the index comparison always holds); Task 14's busy test passes with `busy=false`; Task 16 never populates `ProfileVM.UUID` in `panelBuildProfiles`, so the duplicate warning and the merge entry point are dead on Windows; Task 16's `profilePathFor` snippet uses `plat`, which is nil in the panel process, instead of `panelPlat`; `platform/unsupported.go` is compiled by no verification step (add `GOOS=linux`).
->
-> **Also:** Task 8's archive collision loop only exits on `os.IsNotExist`, so any other `Stat` error spins forever; and it retries `EXDEV` for 20 seconds before reporting a misleading "Claude may still be holding its files".
->
-> **Merge (Task 9) is additionally blocked on a design question** — see the note at §5.2 of the spec. Where the keeper already holds a newer version of a record, sync leaves it alone and reports a conflict, and merge then moves the other side out of the scan path, so that version becomes reachable only by hand. Task 9 must also back up the keeper itself: `SyncSessions` does not snapshot anything, contrary to what an earlier draft of the spec asserted. Recovery does not have either problem and can ship first.
->
-> The three-machine evidence, the mechanism table, the phasing and the task decomposition are all still good. Correct the above and delete this banner.
+> Two verification gaps were also closed: `platform/unsupported.go` is compiled by neither
+> the mac nor the Windows build, and `go build` never type-checks the windows-only test
+> files. Both now have explicit steps.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -40,7 +52,9 @@
 - Commit messages: no `Co-Authored-By` trailer.
 - Copy style, verbatim from spec §4.2: recoverable ghosts read `Signed out in Claude Desktop` with note `Its conversations are still here. Recover to sign back in.` in the blue `note-todo` style. Red (`note-bad`) is reserved for dead ghosts and the duplicate warning.
 - Panel width is 400px. Nothing may widen it.
-- Branch: `ghost-account-recovery`, already created, spec committed at `348ccda`.
+- Branch: `ghost-account-recovery`, already created. The spec is committed on it; find the
+  commit with `git log --oneline -- docs/superpowers/specs/2026-07-30-ghost-account-recovery-design.md`
+  rather than quoting a SHA — this branch's history has been rewritten once already.
 
 **Clarification this plan locks in (spec §4.1 is singular-framed):** the duplicate warning addresses **one group at a time** — the group whose first member sorts first by folder name. After that group is merged, if another remains the warning reappears for it. There is no multi-group merge UI.
 
@@ -3266,7 +3280,12 @@ git commit -m "core: one create-a-profile sequence shared by both hosts"
 
 **Interfaces:**
 - Consumes: nothing from core directly; the host supplies `ProfileVM.UUID`.
-- Produces: `ProfileVM.UUID string`, and the panel actions `showNewProfile` (no arg) and `showMerge` (arg `folderA|folderB`).
+- Produces: `ProfileVM.UUID string`, and the panel actions `showNewProfile` (no arg) and `showMerge` (arg `identityA|identityB`).
+
+`ProfileVM.UUID` has to be populated by **both** hosts (Tasks 15 and 16). If one of them
+leaves it empty, no group ever reaches two members, and the warning and the merge entry point
+are dead on that platform with every test still green — the renderer tests supply their own
+view models.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3486,7 +3505,7 @@ After the card loop, append the add card to the cards builder:
 
 Finally, put `dupWarning` into the body immediately before `<div class="cards">`.
 
-Read `RenderList` in full before editing: the `esc` local and the exact `row1` markup must be matched rather than guessed, and the existing empty-state branch (line 217) must still render when there are no profiles — with the add card, that branch's "Run Rescan to add some" text now has a button beside it, so keep both.
+Read `RenderList` in full before editing: the `esc` local and the exact `row1` markup must be matched rather than guessed, and the existing empty-state branch must still render when there are no profiles — with the add card, that branch's "Run Rescan to add some" text now has a button beside it, so keep both.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -4094,7 +4113,10 @@ git commit -m "panel: merge screen, keeping the profile already in use by defaul
 ### Task 15: Wire the macOS host
 
 **Files:**
-- Modify: `cmd/mcs-menubar/main.go` — `goPanelAction` (line 106), `reloadPanel` (line 260), `buildProfiles` (line 324)
+- Modify: `cmd/mcs-menubar/main.go` — `goPanelAction`, `reloadPanel`, `buildProfiles`, `goPanelWillOpen`
+
+Locate each by symbol; earlier tasks have not touched this file, but Task 16 mirrors these
+edits and both hosts drift as soon as line numbers are trusted.
 
 **Interfaces:**
 - Consumes: everything from Tasks 1-14.
@@ -4104,7 +4126,7 @@ This host is CGO/darwin-only and has no unit tests; verification is a build plus
 
 - [ ] **Step 1: Add the view state and the UUID to buildProfiles**
 
-Extend the view comment and the package vars (line 40):
+Extend the view comment and the package vars:
 
 ```go
 	currentView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge"
@@ -4118,7 +4140,7 @@ Extend the view comment and the package vars (line 40):
 	mergeFolders [2]string
 ```
 
-In `buildProfiles`, keep the UUID instead of discarding it (line 330):
+In `buildProfiles`, keep the UUID instead of discarding it:
 
 ```go
 	for _, p := range profiles {
@@ -4147,46 +4169,91 @@ In `reloadPanel`'s switch:
 		mu.Lock()
 		pair := mergeFolders
 		mu.Unlock()
-		htmlStr = panelui.RenderMerge(mergeCandidate(pair[0]), mergeCandidate(pair[1]), getStatus(), getBusy())
+		a, b := mergeCandidate(pair[0]), mergeCandidate(pair[1])
+		// The screen is preselected on whichever is in use, so compute the plan for
+		// that direction. Swapping the keeper changes nothing in the plan: the union
+		// and the conflict count are symmetric except for which side wins a
+		// conflict, and the count of conflicts is what is shown.
+		keep, archive := pair[0], pair[1]
+		if b.Current && !a.Current {
+			keep, archive = pair[1], pair[0]
+		}
+		plan, planErr := mergePlanFor(keep, archive)
+		if planErr != nil {
+			// Fall back to the list with the reason rather than showing a merge whose
+			// outcome is unknown.
+			setStatus(planErr.Error())
+			setView("list")
+			htmlStr = panelui.RenderList(buildProfiles())
+			break
+		}
+		htmlStr = panelui.RenderMerge(a, b, plan, getStatus(), getBusy())
 ```
 
 Add both helpers at file scope:
 
 ```go
-// profilePathFor resolves a folder name to its real path by looking it up among
-// the discovered profiles. Not filepath.Join onto the data root: on the Windows
-// Store build a profile lives in the slot or under .mcs-profiles, so joining
-// would produce a path that does not exist. macOS only has sibling dirs today,
-// but a lookup is correct on both hosts and keeps them from diverging.
-func profilePathFor(folder string) string {
+// profilePathFor resolves a profile identity to its real path by looking it up
+// among the discovered profiles, and returns "" when there is no such profile.
+//
+// A lookup, never filepath.Join onto the data root: on the Windows Store build a
+// profile lives in the shared slot or under .mcs-profiles, and the data root is not
+// AppSupportDir() at all, so joining produces a path that does not exist. There is
+// deliberately no fallback — a guessed path is worse than an honest failure, because
+// it reads as a profile that is simply empty. See the identity rules in the design
+// spec.
+func profilePathFor(identity string) string {
 	for _, p := range mustFindProfiles() {
-		if p.Name == folder {
+		if p.Name == identity {
 			return p.Path
 		}
 	}
-	return filepath.Join(plat.AppSupportDir(), folder)
+	return ""
 }
 
 // mergeCandidate builds one side of the merge screen: the display name, plan,
 // how many conversations it holds for its own account, and whether Claude is
 // running on it.
-func mergeCandidate(folder string) panelui.MergeCandidateVM {
-	path := profilePathFor(folder)
+func mergeCandidate(identity string) panelui.MergeCandidateVM {
+	path := profilePathFor(identity)
 	running, _ := plat.DetectRunningProfile()
 	vm := panelui.MergeCandidateVM{
-		Folder:  folder,
-		Name:    core.DisplayName(folder),
+		Folder:  identity,
+		Name:    core.DisplayName(identity),
 		Plan:    cachedPlan(path),
-		Current: path == running,
+		Current: path != "" && path == running,
+	}
+	if path == "" {
+		return vm
 	}
 	if uuid, err := platform.GetProfileAccountUUID(path); err == nil {
 		for _, p := range mustFindProfiles() {
-			if p.Name == folder {
+			if p.Name == identity {
 				vm.Convos = p.UUIDBuckets[uuid]
 			}
 		}
 	}
 	return vm
+}
+
+// mergePlanFor computes what the merge would do, so the screen shows the total the
+// user will actually get rather than the sum of two counts. A failure here means the
+// merge screen must not be shown at all: offering a merge whose outcome could not be
+// computed is worse than reporting the problem (spec §6).
+func mergePlanFor(keepIdentity, archiveIdentity string) (core.MergePlan, error) {
+	keepPath, archivePath := profilePathFor(keepIdentity), profilePathFor(archiveIdentity)
+	if keepPath == "" || archivePath == "" {
+		return core.MergePlan{}, fmt.Errorf("one of those profiles is no longer there — run Rescan")
+	}
+	uuid, err := platform.GetProfileAccountUUID(keepPath)
+	if err != nil {
+		return core.MergePlan{}, fmt.Errorf("%s has no account signed in", core.DisplayName(keepIdentity))
+	}
+	plan, err := core.MergePreview(keepPath, archivePath, uuid)
+	if err != nil {
+		return core.MergePlan{}, err
+	}
+	return *plan, nil
 }
 ```
 
@@ -4202,16 +4269,23 @@ In `goPanelAction`'s switch:
 		setView("newprofile")
 		go reloadPanel()
 	case "showRecover":
-		// arg is "<uuid>|<sourceFolder>"
-		parts := strings.SplitN(arg, "|", 2)
-		if len(parts) != 2 {
+		// arg is the account UUID. The source profiles are looked up from a fresh
+		// scan when the recovery runs: a ghost can have several, and their paths are
+		// only valid for the scan that produced them.
+		if arg == "" {
+			return
+		}
+		row, ok := ghostRow(arg)
+		if !ok || !row.Recoverable {
+			setStatus("That account is no longer recoverable — run Rescan")
+			setView("list")
+			go reloadPanel()
 			return
 		}
 		vm := panelui.NewProfileVM{
-			RecoverUUID:   parts[0],
-			SourceFolder:  parts[1],
-			SuggestedName: recoverySuggestedName(parts[0], parts[1]),
-			Convos:        recoveryConvos(parts[0], parts[1]),
+			RecoverUUID:   arg,
+			SuggestedName: recoverySuggestedName(row),
+			Convos:        row.Convos,
 		}
 		mu.Lock()
 		newProfileVM = vm
@@ -4220,7 +4294,7 @@ In `goPanelAction`'s switch:
 		go reloadPanel()
 	case "createProfile":
 		var a []string
-		if json.Unmarshal([]byte(arg), &a) != nil || len(a) != 3 {
+		if json.Unmarshal([]byte(arg), &a) != nil || len(a) != 2 {
 			return
 		}
 		if getBusy() {
@@ -4229,9 +4303,21 @@ In `goPanelAction`'s switch:
 		setBusyStatus(true, "Setting up…")
 		reloadPanel()
 		go func() {
-			_, err := core.NewProfileCreator(plat).Create(core.CreateProfileRequest{
-				Name: a[0], RecoverUUID: a[1], SourceFolder: a[2],
-			})
+			req := core.CreateProfileRequest{Name: a[0], RecoverUUID: a[1]}
+			if req.RecoverUUID != "" {
+				// Re-scan now rather than trusting anything the webview sent back:
+				// the sources' paths must come from the scan that is current at the
+				// moment of the copy.
+				row, ok := ghostRow(req.RecoverUUID)
+				if !ok || !row.Recoverable {
+					setBusyStatus(false, "That account is no longer recoverable — run Rescan")
+					setView("list")
+					reloadPanel()
+					return
+				}
+				req.Sources = row.Sources
+			}
+			_, err := core.NewProfileCreator(plat).Create(req)
 			setBusyStatus(false, "")
 			if err != nil {
 				// Back to the same screen with the reason, so the typed name and
@@ -4257,7 +4343,9 @@ In `goPanelAction`'s switch:
 		setView("merge")
 		go reloadPanel()
 	case "mergeConfirm":
-		// arg is "<keepFolder>|<archiveFolder>"
+		// arg is "<keepIdentity>|<archiveIdentity>". Identities, not paths: the merge
+		// resolves them itself, because on the Store build swapping the keeper into
+		// the slot moves both directories.
 		parts := strings.SplitN(arg, "|", 2)
 		if len(parts) != 2 || getBusy() {
 			return
@@ -4266,15 +4354,14 @@ In `goPanelAction`'s switch:
 		setBusyStatus(true, "Merging…")
 		reloadPanel()
 		go func() {
-			// Resolve paths before quitting Claude: on the Store build quitting is
-			// what frees the directories, but the lookup itself only reads.
-			keepPath, archivePath := profilePathFor(keep), profilePathFor(archive)
 			if err := plat.TerminateApp(); err != nil {
 				setBusyStatus(false, err.Error())
 				reloadPanel()
 				return
 			}
-			_, err := core.MergeDuplicates(keepPath, archivePath, plat.ArchiveDir())
+			_, err := core.MergeDuplicates(plat, core.MergeRequest{
+				KeepIdentity: keep, ArchiveIdentity: archive,
+			})
 			if err != nil {
 				setBusyStatus(false, err.Error())
 				reloadPanel()
@@ -4289,30 +4376,30 @@ In `goPanelAction`'s switch:
 Add the two small helpers at file scope:
 
 ```go
-// recoverySuggestedName proposes a name for a recovered account, dated by when
-// it was last used so the user can tell two recoveries apart.
-func recoverySuggestedName(uuid, sourceFolder string) string {
+// ghostRow re-scans and returns the current row for an orphaned account. Every
+// recovery step goes through this rather than trusting values round-tripped through
+// the webview: the row carries the source profiles' paths, and a path is only valid
+// for the scan that produced it (design spec, profile identity).
+func ghostRow(uuid string) (core.ScannedAccount, bool) {
 	for _, a := range core.ScanAccounts(mustFindProfiles(), core.LoadPending()) {
-		if a.UUID == uuid && !a.LastUpdated.IsZero() {
-			return "Recovered " + a.LastUpdated.Format("2006-01-02")
+		if a.UUID == uuid && !a.Complete {
+			return a, true
 		}
+	}
+	return core.ScannedAccount{}, false
+}
+
+// recoverySuggestedName proposes a name for a recovered account, dated by when it
+// was last used so the user can tell two recoveries apart.
+func recoverySuggestedName(row core.ScannedAccount) string {
+	if !row.LastUpdated.IsZero() {
+		return "Recovered " + row.LastUpdated.Format("2006-01-02")
 	}
 	return "Recovered"
 }
-
-// recoveryConvos reports how many conversations the orphan has, which is how the
-// user recognises which account they are about to sign in as.
-func recoveryConvos(uuid, sourceFolder string) int {
-	for _, a := range core.ScanAccounts(mustFindProfiles(), core.LoadPending()) {
-		if a.UUID == uuid {
-			return a.Convos
-		}
-	}
-	return 0
-}
 ```
 
-Prune stale pending entries where the panel opens, so a signed-in profile stops being labelled as awaiting sign-in. In `goPanelWillOpen` (line 80), inside the existing goroutine:
+Prune stale pending entries where the panel opens, so a signed-in profile stops being labelled as awaiting sign-in. In `goPanelWillOpen`, inside the existing goroutine:
 
 ```go
 //export goPanelWillOpen
@@ -4331,7 +4418,7 @@ func goPanelWillOpen() {
 }
 ```
 
-Add `"encoding/json"` to the imports if absent — line 21 shows it is already there.
+This file already imports `"encoding/json"`, `"fmt"`, and `"strings"`.
 
 - [ ] **Step 4: Verify**
 
@@ -4363,7 +4450,8 @@ git commit -m "menubar: wire add, recover and merge into the panel"
 Mirrors Task 15 against the WebView2 panel. Read Task 15's diff first and keep the two hosts' behaviour identical; they share the renderer and must not drift.
 
 **Files:**
-- Modify: `cmd/mcs-tray/panel_windows.go` — the action switch (line 272) and the render switch (line 394)
+- Modify: `cmd/mcs-tray/panel_windows.go` — the action switch and the render switch
+- Modify: `cmd/mcs-tray/onready_windows.go` — `readPanelMessages`
 
 **Interfaces:**
 - Consumes: Tasks 1-14, and Task 15 as the reference implementation.
@@ -4375,27 +4463,44 @@ Read `cmd/mcs-menubar/main.go`'s `goPanelAction` and `reloadPanel` as changed in
 
 - [ ] **Step 2: Port the state, render cases, and handlers**
 
-Add the same package-level state (`newProfileVM`, `mergeFolders`), the same two render cases calling `panelui.RenderNewProfile` and `panelui.RenderMerge`, the same six action cases (`showNewProfile`, `showRecover`, `createProfile`, `showMerge`, `mergeConfirm`), and the same `mergeCandidate` / `recoverySuggestedName` / `recoveryConvos` helpers, using the Windows file's existing helpers for profile discovery and status.
+Add the same package-level state (`newProfileVM`, `mergeFolders`), the same two render cases calling `panelui.RenderNewProfile` and `panelui.RenderMerge`, the same five action cases (`showNewProfile`, `showRecover`, `createProfile`, `showMerge`, `mergeConfirm`), and the same `profilePathFor` / `mergeCandidate` / `mergePlanFor` / `ghostRow` / `recoverySuggestedName` helpers, using the Windows file's existing helpers for profile discovery and status.
 
-Two Windows-specific points:
+**The platform value in this process is `panelPlat`, not `plat`.** `plat` does not exist
+here: the panel runs as its own process and initialises `panelPlat`
+(`cmd/mcs-tray/panel_windows.go:93`). A ported snippet that says `plat` either fails to
+compile or, if some same-named var is in scope, dereferences something that was never set
+up. Every `plat.` in Task 15's snippets becomes `panelPlat.`, and `mustFindProfiles`
+becomes `panelMustFindProfiles`.
 
-- `profilePathFor` (added to the macOS host in Task 15) is what makes the Store build work: a profile there lives in the slot or under `.mcs-profiles`, so joining a folder name onto the data root produces a path that does not exist. Port it using this host's discovery helper:
+**`ProfileVM.UUID` has to be populated here too.** This host builds its cards in
+`panelBuildProfiles`; without the same `GetProfileAccountUUID` call Task 15 adds to
+`buildProfiles`, every card's UUID is empty, no group ever has two members, and the
+duplicate warning and the merge entry point are simply dead on Windows — with every test
+still green, because the renderer tests supply their own view models.
+
+Three Windows-specific points:
+
+- `profilePathFor` is what makes the Store build work: a profile there lives in the slot or
+  under `.mcs-profiles`, and the data root is not `AppSupportDir()`, so joining a name onto
+  it produces a path that does not exist. Port it with this host's discovery helper and
+  **keep the empty-string return** rather than inventing a fallback:
 
 ```go
-// profilePathFor resolves a folder name to its real path. On the Store build a
-// profile lives in the slot or under .mcs-profiles, so joining onto the data
-// root would produce a path that does not exist.
-func profilePathFor(folder string) string {
+// profilePathFor resolves a profile identity to its real path, or "" when there is
+// no such profile. A lookup, never a join: on the Store build a profile lives in the
+// shared slot or under .mcs-profiles, and the data root is not AppSupportDir().
+func profilePathFor(identity string) string {
 	for _, p := range panelMustFindProfiles() {
-		if p.Name == folder {
+		if p.Name == identity {
 			return p.Path
 		}
 	}
-	return filepath.Join(plat.AppSupportDir(), folder)
+	return ""
 }
 ```
 
-Use it in both `mergeCandidate` and the `mergeConfirm` handler, exactly as Task 15 does.
+Use it in `mergeCandidate` and `mergePlanFor`, exactly as Task 15 does. The `mergeConfirm`
+handler needs no path at all — it passes identities to `core.MergeDuplicates`.
 
 - Where the Store build's create flow needs its post-sign-in migration watcher, it is already started by the tray at boot (`onready_windows.go:97`). A profile created from the panel queues its migration in `msixParkForNewIn`, but the watcher in the *tray* process started before that. Restart it after a successful create so the queued migration is actually polled:
 
@@ -4406,7 +4511,15 @@ Use it in both `mergeCandidate` and the `mergeConfirm` handler, exactly as Task 
 		notifyTrayMigrationQueued()
 ```
 
-Implement `notifyTrayMigrationQueued` by writing a line to the panel's stdout that `readPanelMessages` (`cmd/mcs-tray/onready_windows.go:264`) understands, following the existing `MCS_QUIT` pattern: add a `MCS_MIGRATION_QUEUED` case that calls `startMigrationWatcher()`. `startMigrationWatcher` already returns immediately when nothing is queued, so a spurious message is harmless.
+Implement `notifyTrayMigrationQueued` by writing a line to the panel's stdout that
+`readPanelMessages` in `cmd/mcs-tray/onready_windows.go` understands, following the existing
+`MCS_QUIT` pattern: add a `MCS_MIGRATION_QUEUED` case that calls `startMigrationWatcher()`.
+`startMigrationWatcher` already returns immediately when nothing is queued, so a spurious
+message is harmless.
+
+`readPanelMessages` matches **fixed literal keywords**, so the new token must be added to
+that matcher — do not route this through `notifyTray`, whose payload is not free text, and do
+not invent a message type the reader does not already know how to parse.
 
 - [ ] **Step 3: Verify**
 
@@ -4418,6 +4531,15 @@ Expected: exit 0.
 
 Run: `go build ./... && go test ./... 2>&1 | tail -5`
 Expected: builds clean, all tests pass.
+
+Run: `GOOS=linux GOARCH=amd64 go build ./platform/`
+Expected: exit 0 — `platform/unsupported.go` is compiled by neither the mac nor the Windows
+build, so a method missing from it stays invisible until someone targets a third OS.
+
+Then check the duplicate path is actually alive on this host, since that is the part a test
+cannot catch: with two profiles signed in to the same account, open the panel and confirm the
+warning and the two Duplicate pills appear. If they do not, `panelBuildProfiles` is not
+setting `UUID`.
 
 - [ ] **Step 4: Commit**
 
@@ -4469,7 +4591,8 @@ Read `RenderSettings` and find the existing "Open backup folder" row. Add an ide
 
 Match the surrounding markup exactly rather than assuming the snippet above fits.
 
-In both hosts, add the handler beside the existing backup-folder one. `openBackups` on macOS is `cmd/mcs-menubar/main.go:196`:
+In both hosts, add the handler beside the existing backup-folder one. Find it with
+`grep -rn '"openBackups"' cmd/`. On macOS it reads:
 
 ```go
 	case "openBackups":
@@ -4488,7 +4611,9 @@ so the macOS case is:
 		_ = exec.Command("open", dir).Start()
 ```
 
-Read the Windows host's own `openBackups` case and mirror it the same way, keeping whatever launcher it uses (`explorer` rather than `open`) and adding the same `os.MkdirAll` first.
+Read the Windows host's own `openBackups` case and mirror it the same way, keeping whatever
+launcher it uses (`explorer` rather than `open`) and adding the same `os.MkdirAll` first. The
+platform value in that process is `panelPlat`, not `plat` (see Task 16).
 
 - [ ] **Step 4: Verify**
 
@@ -4514,7 +4639,7 @@ git commit -m "panel: settings shortcut to the archive folder"
 
 - [ ] **Step 1: Rewrite the README FAQ entry**
 
-`README.md:144` currently answers "Why do I only see one account in the list?" by pointing at Rescan. It now needs to cover the case this release fixes. Replace that entry with two:
+The README's FAQ currently answers "Why do I only see one account in the list?" by pointing at Rescan. It now needs to cover the case this release fixes. Replace that entry with two:
 
 ```markdown
 **Why do I only see one account in the list?**
@@ -4562,11 +4687,32 @@ Expected: exit 0.
 Run: `GOOS=windows GOARCH=amd64 go build ./...`
 Expected: exit 0.
 
+Run: `GOOS=linux GOARCH=amd64 go build ./platform/`
+Expected: exit 0. Neither build above compiles `platform/unsupported.go`
+(`//go:build !darwin && !windows`), so a method missing from it is invisible until this runs.
+
 Run: `go vet ./... && GOOS=windows GOARCH=amd64 go vet ./...`
-Expected: exit 0 for both.
+Expected: exit 0 for both. The Windows pass is the only thing that type-checks the
+windows-only test files — `go build` skips `_test.go` entirely, so a broken MSIX test would
+otherwise surface for the first time on a Windows machine.
 
 Run: `go test ./... -v 2>&1 | tail -30`
 Expected: PASS, no failures, and read the count to confirm the new tests actually ran.
+
+Then check that the gates are gates, not decoration. Each of these must fail the named test
+and nothing else; put every one back afterwards.
+
+| Break this | Must fail |
+|---|---|
+| Key `pending.json` on `filepath.Base(dataDir)` in `core/newprofile.go` | `TestCreateProfileKeysRegistriesOnTheIdentityNotThePath` |
+| Return `nil` from `StalePending` for a profile missing from the list — i.e. prune it | `TestStalePendingOnlyWhenSignedIn` |
+| Preselect `a.Folder` unconditionally in `RenderMerge` | `TestRenderMergePreselectsTheProfileInUse` |
+| Force `busy` to `false` in `RenderMerge` | `TestRenderMergeBusyDisablesTheAction` |
+| Show `a.Convos + b.Convos` instead of `plan.Combined` | `TestRenderMergeShowsThePlansCombinedTotalNotTheSum` |
+| Keep only the largest `GhostSource` in `assembleAccounts` | `TestAssembleGhostSplitAcrossTwoProfilesKeepsBothSources` |
+
+Five of these six replace assertions that could not fail in the first draft of this plan.
+Confirming they now can is the point of the exercise.
 
 - [ ] **Step 6: Commit**
 
@@ -4579,7 +4725,10 @@ git commit -m "docs: how to recover an account signed out inside Claude Desktop"
 
 ## After the last task
 
-1. **Code review.** Use `superpowers:requesting-code-review` with `BASE_SHA=348ccda` (the spec commit) and `HEAD_SHA=$(git rev-parse HEAD)`.
+1. **Code review.** Use `superpowers:requesting-code-review` with `BASE_SHA` set to the last
+   commit before Task 1 (`git log --oneline` and pick the docs commit that revised this plan)
+   and `HEAD_SHA=$(git rev-parse HEAD)`. Do not hard-code a SHA: this branch has been
+   rewritten once already.
 2. **Verification.** Use `superpowers:verification-before-completion` before claiming anything works.
 3. **Manual QA that cannot be automated here:**
    - macOS: full add and recover, including the sign-in, on a machine with a second real account.
