@@ -9,8 +9,9 @@ import (
 
 var namesMu sync.Mutex
 
-// namesPath is where user-chosen display names for profiles are stored.
-func namesPath() string {
+// namesPath is where user-chosen display names for profiles are stored. It is a
+// var so tests can redirect it to a temp dir (same pattern as managedPath).
+var namesPath = func() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return filepath.Join(os.TempDir(), "multi-claude-switcher-names.json")

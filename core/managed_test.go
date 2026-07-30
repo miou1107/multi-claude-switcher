@@ -5,11 +5,19 @@ import (
 	"testing"
 )
 
-func TestManagedRegistry(t *testing.T) {
+// withStubbedManaged points the managed registry at a temp file for the duration
+// of a test. Extracted from the inline stubbing that used to live in each test so
+// other files in the package can reuse it.
+func withStubbedManaged(t *testing.T) {
+	t.Helper()
 	dir := t.TempDir()
 	orig := managedPath
 	managedPath = func() string { return filepath.Join(dir, "managed.json") }
-	defer func() { managedPath = orig }()
+	t.Cleanup(func() { managedPath = orig })
+}
+
+func TestManagedRegistry(t *testing.T) {
+	withStubbedManaged(t)
 
 	// Absent file → nil (first-run signal).
 	if got := LoadManaged(); got != nil {
