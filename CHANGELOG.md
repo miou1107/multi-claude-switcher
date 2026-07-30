@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-30
+
 ### Added
 - **A way to add an account, from the panel, on macOS and the Windows Store build.**
   The flow that saves your current account, opens a clean Claude for you to sign into
