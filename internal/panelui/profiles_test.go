@@ -66,6 +66,35 @@ func TestBuildProfilesMarksTheRunningProfile(t *testing.T) {
 	}
 }
 
+// TestBuildProfilesCarriesTheAccountUUID is the regression test for a dead
+// duplicate-account warning. The account list groups profiles by ProfileVM.UUID to
+// spot two folders holding one account, but the shared builder never set the field,
+// so in the real app every VM arrived with an empty UUID, nothing ever grouped, and
+// the warning could not appear — while the renderer's own tests, which hand-build
+// VMs with UUID set, stayed green. A profile with no account keeps the empty UUID
+// that means exactly that.
+func TestBuildProfilesCarriesTheAccountUUID(t *testing.T) {
+	root := t.TempDir()
+	in := filepath.Join(root, "Claude")
+	fresh := filepath.Join(root, "Claude_Fresh")
+	writeAccount(t, in, "uuid-a")
+	writeConfigWithoutAccount(t, fresh)
+
+	got := BuildProfiles(
+		[]*platform.ProfileInfo{profile("Claude", in), profile("Claude_Fresh", fresh)},
+		[]string{"Claude", "Claude_Fresh"}, "", noPlan)
+
+	if len(got) != 2 {
+		t.Fatalf("want both managed profiles, got %+v", got)
+	}
+	if got[0].UUID != "uuid-a" {
+		t.Errorf("the signed-in profile must carry its account UUID so duplicates can be found: %+v", got[0])
+	}
+	if got[1].UUID != "" {
+		t.Errorf("a profile with no account must have an empty UUID, not something to be a duplicate of: %+v", got[1])
+	}
+}
+
 // TestBuildProfilesHonoursTheManagedList: once the user has curated the list, only
 // what they chose is shown — including a folder with no account in it, which is how
 // they reach it to sign in.

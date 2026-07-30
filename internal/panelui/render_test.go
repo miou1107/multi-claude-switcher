@@ -3,9 +3,15 @@ package panelui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/miou1107/multi-claude-switcher/core"
 )
+
+// dupPillMarkup is the rendered pill, not its class name. shell() puts every class
+// name into the <style> block of every page, so asserting on a bare class name
+// passes whether or not the element was rendered — and its negation can never fail.
+const dupPillMarkup = `<span class="dup-pill">Duplicate</span>`
 
 // The panel host cannot be tested without a display, so these cover the part
 // that decides what the user is shown: both hosts consume this same output.
@@ -141,6 +147,68 @@ func TestVersionShownFromVariableOnBothViews(t *testing.T) {
 	}
 }
 
+func TestRenderRescanRecoverableGhostOffersRecovery(t *testing.T) {
+	accounts := []core.ScannedAccount{{
+		UUID: "bbbbbbbb-0000-4000-8000-000000000002", Complete: false,
+		Recoverable: true, Convos: 94,
+		Sources:     []core.GhostSource{{Folder: "Claude", Path: "/data/Claude", Convos: 94}},
+		LastUpdated: time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC),
+		Note:        core.RecoverableGhostNote,
+	}}
+	html := RenderRescan(accounts, nil)
+	if !strings.Contains(html, "Signed out in Claude Desktop") {
+		t.Fatalf("recoverable ghost needs its own heading:\n%s", html)
+	}
+	if strings.Contains(html, "Unrecognized account") {
+		t.Fatal("a recoverable account is not unrecognised")
+	}
+	if !strings.Contains(html, `data-uuid="bbbbbbbb-0000-4000-8000-000000000002"`) {
+		t.Fatalf("want a Recover action carrying the account:\n%s", html)
+	}
+	// Assert on the rendered note, not the class name: shell() emits .note-todo and
+	// .note-bad in the <style> block of every page, so a bare class-name check is
+	// true regardless of what was rendered, and its negation can never fail.
+	if !strings.Contains(html, `<div class="note-todo">`+core.RecoverableGhostNote+`</div>`) {
+		t.Fatalf("recoverable note uses the blue style, not the red one:\n%s", html)
+	}
+	if strings.Contains(html, `<div class="note-bad">`) {
+		t.Fatal("red is reserved for dead ghosts")
+	}
+	if !strings.Contains(html, "94 chats") {
+		t.Fatal("the conversation count is how the user recognises the account")
+	}
+}
+
+func TestRenderRescanDeadGhostStaysReadOnly(t *testing.T) {
+	accounts := []core.ScannedAccount{{
+		UUID: "dead", Complete: false, Recoverable: false, Note: "Invalid account data",
+	}}
+	html := RenderRescan(accounts, nil)
+	if !strings.Contains(html, "Unrecognized account") {
+		t.Fatal("a dead ghost keeps its existing heading")
+	}
+	if strings.Contains(html, "showRecover") {
+		t.Fatal("nothing to recover, so no Recover button")
+	}
+	if !strings.Contains(html, `<div class="note-bad">Invalid account data</div>`) {
+		t.Fatal("dead ghost keeps the red note")
+	}
+}
+
+func TestRenderRescanRecoverableGhostIsNotSelectable(t *testing.T) {
+	accounts := []core.ScannedAccount{{
+		UUID: "u", Complete: false, Recoverable: true, Convos: 1,
+		Sources: []core.GhostSource{{Folder: "Claude", Path: "/data/Claude", Convos: 1}},
+		Note:    core.RecoverableGhostNote,
+	}}
+	html := RenderRescan(accounts, nil)
+	// It has no folder to manage yet, so it must not join the checkbox set that
+	// Confirm submits.
+	if strings.Contains(html, `class="card selectable`) {
+		t.Fatalf("a ghost cannot be managed, only recovered:\n%s", html)
+	}
+}
+
 func TestRenderRescanGhostStaysReadOnly(t *testing.T) {
 	accounts := []core.ScannedAccount{{UUID: "zzz-yyy", Convos: 4, Note: "Invalid account data"}}
 	html := RenderRescan(accounts, nil)
@@ -251,5 +319,86 @@ func TestRenderListAddCardShowsOnAnEmptyList(t *testing.T) {
 	}
 	if !strings.Contains(html, "Run Rescan to add some") {
 		t.Error("the existing empty-state text must survive alongside it")
+	}
+}
+
+func TestRenderListWarnsAboutDuplicates(t *testing.T) {
+	html := RenderList([]ProfileVM{
+		{Folder: "Claude", Name: "Claude", UUID: "same", SignedIn: true},
+		{Folder: "Claude_Work", Name: "Work", UUID: "same", SignedIn: true},
+		{Folder: "Claude_Solo", Name: "Solo", UUID: "solo", SignedIn: true},
+	}, false)
+	if !strings.Contains(html, "the same account") {
+		t.Fatalf("want a duplicate warning:\n%s", html)
+	}
+	// Folder names go through data-* and are read back with dataset, never
+	// interpolated into an inline JS string. That is the v0.9.1 bug class: a folder
+	// containing an apostrophe becomes &#39; via html.EscapeString, which the HTML
+	// parser decodes back to ' before the JS is parsed.
+	if !strings.Contains(html, `data-dup-a="Claude" data-dup-b="Claude_Work"`) {
+		t.Fatalf("warning must offer the merge for that group:\n%s", html)
+	}
+	// Assert on the markup, not the class name: shell() emits every class name in
+	// its <style> block on every page, so strings.Contains("dup-pill") is true even
+	// on a page with no pills at all.
+	if got := strings.Count(html, dupPillMarkup); got != 2 {
+		t.Fatalf("both duplicate cards must be marked, got %d:\n%s", got, html)
+	}
+}
+
+func TestRenderListDuplicateWarningDisambiguatesEqualNames(t *testing.T) {
+	// Two folders can carry the same display name. Naming both in the warning would
+	// read "Claude and Claude are the same account"; fall back to the folders.
+	html := RenderList([]ProfileVM{
+		{Folder: "Claude", Name: "Claude", UUID: "same", SignedIn: true},
+		{Folder: "Claude_Work", Name: "Claude", UUID: "same", SignedIn: true},
+	}, false)
+	if !strings.Contains(html, "Claude and Claude_Work are the same account") {
+		t.Fatalf("equal names must be disambiguated by folder:\n%s", html)
+	}
+}
+
+func TestRenderListNoWarningWhenAccountsAreUnique(t *testing.T) {
+	html := RenderList([]ProfileVM{
+		{Folder: "Claude", Name: "Claude", UUID: "a", SignedIn: true},
+		{Folder: "Claude_Two", Name: "Two", UUID: "b", SignedIn: true},
+	}, false)
+	if strings.Contains(html, "the same account") {
+		t.Fatal("no duplicates, no warning")
+	}
+	if strings.Contains(html, dupPillMarkup) {
+		t.Fatal("no duplicates, no pills")
+	}
+}
+
+func TestRenderListDuplicateWarningIgnoresProfilesWithNoAccount(t *testing.T) {
+	// Two profiles awaiting sign-in both have an empty UUID. That is not two
+	// profiles sharing an account.
+	html := RenderList([]ProfileVM{
+		{Folder: "Claude_A", Name: "A", UUID: "", SignedIn: false},
+		{Folder: "Claude_B", Name: "B", UUID: "", SignedIn: false},
+	}, false)
+	if strings.Contains(html, "the same account") {
+		t.Fatalf("empty UUIDs must not group:\n%s", html)
+	}
+}
+
+func TestRenderListOneWarningForTheFirstGroupOnly(t *testing.T) {
+	html := RenderList([]ProfileVM{
+		{Folder: "Claude_A", Name: "A", UUID: "x", SignedIn: true},
+		{Folder: "Claude_B", Name: "B", UUID: "x", SignedIn: true},
+		{Folder: "Claude_C", Name: "C", UUID: "y", SignedIn: true},
+		{Folder: "Claude_D", Name: "D", UUID: "y", SignedIn: true},
+	}, false)
+	if strings.Count(html, "the same account") != 1 {
+		t.Fatalf("one group at a time, got %d warnings:\n%s", strings.Count(html, "the same account"), html)
+	}
+	if !strings.Contains(html, `data-dup-a="Claude_A" data-dup-b="Claude_B"`) {
+		t.Fatal("the first group by folder order goes first")
+	}
+	// All four cards are still flagged, so the user can see the second pair is
+	// coming.
+	if got := strings.Count(html, dupPillMarkup); got != 4 {
+		t.Fatalf("every duplicate card is marked, got %d", got)
 	}
 }

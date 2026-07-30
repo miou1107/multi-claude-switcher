@@ -40,6 +40,11 @@ func BuildProfiles(profiles []*platform.ProfileInfo, managed []string, runningPa
 			// from accounts signed out inside Claude Desktop, and those are not
 			// what a sync moves.
 			Convos: p.UUIDBuckets[uuid],
+			// The account this profile is signed in to, empty when none. The list
+			// groups by it to spot two profiles holding one account. On the error
+			// path GetProfileAccountUUID returns "", which is the same empty
+			// sentinel, so no special-casing of the signed-out profile is needed.
+			UUID: uuid,
 		})
 	}
 	return out

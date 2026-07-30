@@ -34,6 +34,11 @@ type ProfileVM struct {
 	// account. The sync confirmation quotes it, so the user can see how much is
 	// about to move before agreeing to have Claude closed.
 	Convos int
+
+	// UUID is the account signed in to this profile, empty when none is. The
+	// account list groups by it to spot two profiles holding one account, which
+	// is a state the user has to resolve.
+	UUID string
 }
 
 // planPill renders the subscription badge for an account.
@@ -96,6 +101,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .addcard{display:flex;align-items:center;justify-content:center;gap:7px;background:transparent;border:2px dashed #cdc8e0;border-radius:14px;padding:13px 14px;cursor:pointer;font:inherit;font-size:13px;font-weight:800;color:#6b6580;width:100%}
 .addcard:hover{border-color:#7c6cf0;color:#7c6cf0;background:#faf9ff}
 .note-bad{margin-top:5px;display:inline-block;font-size:10.5px;font-weight:700;background:#fde4e4;color:#c0392b;padding:2px 8px;border-radius:999px}
+.dup{background:#fde4e4;border-radius:12px;padding:11px 13px;margin-bottom:11px;display:flex;align-items:center;gap:10px}
+.dup .dt{flex:1;font-size:12px;color:#a32d2d;line-height:1.45}
+.dup-pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:#fde4e4;color:#a32d2d;white-space:nowrap}
+.btn-sm{font:inherit;font-size:12px;font-weight:700;border:none;cursor:pointer;border-radius:9px;padding:7px 12px;background:linear-gradient(135deg,#7c6cf0,#9b6bff);color:#fff;flex:none}
+.btn-sm:hover{filter:brightness(1.05)}
 .note-todo{margin-top:5px;display:inline-block;font-size:10.5px;font-weight:700;background:#e6eefc;color:#2b62c9;padding:2px 8px;border-radius:999px;white-space:normal}
 .empty{color:#8b8598;font-size:13px;text-align:center;padding:18px 8px}
 .footer{display:flex;gap:9px;margin-top:14px}
@@ -182,6 +192,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     askConfirm('switch', folder, 'Switch to '+name+'?',
       'Claude closes and reopens signed in as '+name+'.', 'Switch');
   }
+  // The folders arrive via data-* and are joined here, never interpolated into the
+  // inline handler — a folder with an apostrophe would otherwise break the parse.
+  function mergePair(a, b){ send('showMerge', a+'|'+b); }
   function askSync(from, to, fromName, toName, convos){
     var n = parseInt(convos, 10) || 0;
     var what = n === 1 ? '1 conversation is copied' : n + ' conversations are copied';
@@ -219,17 +232,85 @@ func avatarHeader(title, subtitle string) string {
 // canAddAccount shows the card that starts the add-an-account flow. It is off
 // where there is nothing behind it: today only the Windows Store build can create
 // a profile, so offering the card elsewhere would be a button that does nothing.
+// duplicateAccounts groups profiles by the account signed in to them and reports
+// the ones sharing a single account: two profiles holding one account is a state
+// to resolve, not a preference. It returns the set of folders to flag on the list,
+// and the warning banner offering the merge for the first such group only — each
+// merge needs Claude quit, so batching them would only lengthen the same
+// interruption. Profiles with no account yet (empty UUID) are never grouped.
+func duplicateAccounts(profiles []ProfileVM, esc func(string) string) (map[string]bool, string) {
+	byUUID := map[string][]string{}
+	nameByFolder := map[string]string{}
+	var uuidOrder []string
+	for _, p := range profiles {
+		nameByFolder[p.Folder] = p.Name
+		if p.UUID == "" {
+			continue // no account signed in yet; nothing to be a duplicate of
+		}
+		if _, ok := byUUID[p.UUID]; !ok {
+			uuidOrder = append(uuidOrder, p.UUID)
+		}
+		byUUID[p.UUID] = append(byUUID[p.UUID], p.Folder)
+	}
+	dupFolder := map[string]bool{}
+	var firstGroup []string
+	for _, u := range uuidOrder {
+		g := byUUID[u]
+		if len(g) < 2 {
+			continue
+		}
+		for _, f := range g {
+			dupFolder[f] = true
+		}
+		if firstGroup == nil {
+			firstGroup = g
+		}
+	}
+	if firstGroup == nil {
+		return dupFolder, ""
+	}
+	a, b := firstGroup[0], firstGroup[1]
+	nameOf := func(folder string) string {
+		if n, ok := nameByFolder[folder]; ok {
+			return n
+		}
+		return folder
+	}
+	// Two folders can carry the same display name; naming both "Claude" in the
+	// warning would read as "Claude and Claude are the same account". When the names
+	// collide, fall back to the folder, which is always distinct.
+	labelA, labelB := nameOf(a), nameOf(b)
+	if labelA == labelB {
+		labelA, labelB = a, b
+	}
+	// The two folder names travel as data-* and are read back with dataset.
+	// Interpolating them into the onclick string would reintroduce the v0.9.1 bug:
+	// html.EscapeString turns an apostrophe into &#39;, the HTML parser decodes it
+	// back to ' before the JS is parsed, and the handler breaks on any folder
+	// containing one.
+	warning := fmt.Sprintf(`<div class="dup">
+  <div class="dt">%s and %s are the same account. Merge them to clean this up.</div>
+  <button class="btn-sm" data-dup-a="%s" data-dup-b="%s" onclick="mergePair(this.dataset.dupA,this.dataset.dupB)">Merge</button>
+</div>`, esc(labelA), esc(labelB), esc(a), esc(b))
+	return dupFolder, warning
+}
+
 func RenderList(profiles []ProfileVM, canAddAccount bool) string {
 	esc := html.EscapeString
+	dupFolder, dupWarning := duplicateAccounts(profiles, esc)
 	var cards strings.Builder
 	for _, p := range profiles {
 		badge := planPill(p.Plan)
+		dupPill := ""
+		if dupFolder[p.Folder] {
+			dupPill = `<span class="dup-pill">Duplicate</span>`
+		}
 		editBtn := fmt.Sprintf(`<button class="edit" data-folder="%s" onclick="event.stopPropagation();send('showRename',this.dataset.folder)">✎</button>`, esc(p.Folder))
 		if p.Current {
 			cards.WriteString(fmt.Sprintf(`
       <div class="card current"><div class="dotcur"></div>
-        <div class="body"><div class="row1"><span class="name">%s</span>%s</div><div class="sub">Current account</div></div>%s</div>`,
-				esc(p.Name), badge, editBtn))
+        <div class="body"><div class="row1"><span class="name">%s</span>%s%s</div><div class="sub">Current account</div></div>%s</div>`,
+				esc(p.Name), badge, dupPill, editBtn))
 			continue
 		}
 		// A profile with no account yet is still switchable: switching to it is
@@ -242,8 +323,8 @@ func RenderList(profiles []ProfileVM, canAddAccount bool) string {
 		}
 		cards.WriteString(fmt.Sprintf(`
       <div class="card selectable" data-folder="%s" data-name="%s" onclick="askSwitch(this.dataset.folder,this.dataset.name)"><div class="chev">⇄</div>
-        <div class="body"><div class="row1"><span class="name">%s</span>%s</div><div class="sub">%s</div></div>%s</div>`,
-			esc(p.Folder), esc(p.Name), esc(p.Name), badge, esc(sub), editBtn))
+        <div class="body"><div class="row1"><span class="name">%s</span>%s%s</div><div class="sub">%s</div></div>%s</div>`,
+			esc(p.Folder), esc(p.Name), esc(p.Name), badge, dupPill, esc(sub), editBtn))
 	}
 	if len(profiles) == 0 {
 		cards.WriteString(`<div class="empty">No managed accounts yet. Run Rescan to add some.</div>`)
@@ -256,7 +337,7 @@ func RenderList(profiles []ProfileVM, canAddAccount bool) string {
       <button class="addcard" onclick="send('newProfile','')">＋&nbsp; Add another account</button>`)
 	}
 	body := avatarHeader("Multi-Claude Switcher", "Switch or manage your Claude accounts") +
-		`<div class="cards">` + cards.String() + `</div>
+		dupWarning + `<div class="cards">` + cards.String() + `</div>
 <div class="footer">
   <button class="btn btn-light" onclick="send('showRescan','')">⟳&nbsp; Rescan</button>
   <button class="btn btn-light" onclick="send('showSettings','')">⚙&nbsp; Settings</button>
@@ -353,6 +434,24 @@ func RenderRescan(accounts []core.ScannedAccount, preselected map[string]bool) s
 			continue
 		}
 		if !a.Complete {
+			if a.Recoverable {
+				// Not selectable: there is no folder to manage yet. The action is
+				// to give this account one, which is what Recover does. The note
+				// is deliberately blue — nothing here is broken, the conversations
+				// are intact and only the profile is missing. The action carries
+				// only the UUID: the source paths are re-read from a fresh scan
+				// when recovery runs, since they are valid only for the scan that
+				// produced them.
+				cards.WriteString(fmt.Sprintf(`
+      <div class="card"><div style="width:21px;flex:none"></div>
+        <div class="body"><div class="row1"><span class="name">Signed out in Claude Desktop</span></div>
+          <div class="meta"><span class="chip">%s</span><span class="dot">·</span>%d chats<span class="dot">·</span>%s</div>
+          <div class="note-todo">%s</div></div>
+        <button class="btn-sm" data-uuid="%s" onclick="send('showRecover',this.dataset.uuid)">Recover</button></div>`,
+					esc(ShortID(a.UUID)), a.Convos, esc(date), esc(a.Note),
+					esc(a.UUID)))
+				continue
+			}
 			cards.WriteString(fmt.Sprintf(`
       <div class="card ghost"><div style="width:21px;flex:none"></div>
         <div class="body"><div class="row1"><span class="name">Unrecognized account</span></div>

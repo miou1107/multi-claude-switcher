@@ -11,6 +11,15 @@
   way back for an account signed out from inside Claude Desktop: sign into it here and
   its conversations follow. macOS and the Windows standalone build do not have this
   yet.
+- **Rescan offers to recover an account signed out from inside Claude Desktop.** Such
+  an account used to show up only as an "Unrecognized account" you could not act on,
+  even though all of its conversations were still on disk. It now appears as "Signed
+  out in Claude Desktop" with a Recover button that gives it a profile again and signs
+  you back in. A genuinely broken account still shows read-only, as before.
+- **The account list warns when two profiles hold the same account.** Both cards are
+  marked "Duplicate" and a banner offers to merge them into one, so a state that only
+  ever causes confusion is surfaced rather than left for you to discover. One group is
+  offered at a time — each merge needs Claude closed.
 
 ### Changed
 - **Closing Claude Desktop now always asks first.** Syncing closed Claude on a single
