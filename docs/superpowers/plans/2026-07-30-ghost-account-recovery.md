@@ -1,5 +1,26 @@
 # Ghost Account Recovery Implementation Plan
 
+> ## ⚠️ DO NOT EXECUTE AS WRITTEN — revision required
+>
+> Adversarial review on 2026-07-30 found defects that make this plan non-executable. It is kept because its structure and reasoning are sound; the tasks need correcting first. **Do not start Task 1 until this banner is removed.**
+>
+> **Hard blockers — a worker following the text cannot get past these:**
+>
+> 1. **Task 1 tells you to define a `writeProfile` test helper that already exists** at `core/scan_test.go:85`. Go rejects the redeclaration and the whole `core` test binary stops compiling, which also makes the "verify it fails" gate of Tasks 1, 3, 5, 8, 9 and 10 pass for the wrong reason. Reuse the existing helper. The import instruction in that step is wrong on both branches too.
+> 2. **Five renderer tests can never pass.** Tasks 11, 12 and 14 assert on CSS class names (`dup-pill`, `note-bad`, `disabled`) with `strings.Contains` / `strings.Count`, but `shell()` emits every class name in its `<style>` block on every page, so those strings are always present. The paired positive assertions are vacuous for the same reason. Assert on the markup that carries the class, not the name.
+> 3. **Tasks 11 and 12 violate this plan's own Global Constraint** by interpolating folder names into inline JS string arguments (`send('showMerge','%s')`), and their tests lock the violation in. `html.EscapeString` turns `'` into `&#39;`, which the HTML parser decodes back before the JS is parsed. Use `data-*` + `dataset`, as Tasks 13 and 14 correctly do.
+> 4. **Task 13's test asserts `"different account"`** but the implementation in the same task renders `different</b> account`. It fails against its own code.
+> 5. **The feature does not work on the Store build**, which is the platform it exists for. `filepath.Base(createdPath)` is always `"Claude"` there (the slot dir name), while `msixFindProfiles` names the slot `state.json`'s `Current` — the user's chosen name. So `pending.json` never matches, the entry is pruned as stale, and `managed.json` gains a phantom while the real profile stays invisible. Profile identity needs its own layer before any of this works on MSIX; `filepath.Base` is not it. `Create` also passes the name untrimmed while validation trims, reproducing the mismatch on Windows standalone.
+> 6. **Line numbers cited by Task 5 have drifted** by roughly +25 lines, because Task 3 lengthens `core/scan.go` first. Locate by symbol, not by line.
+>
+> **Silent failures — tasks would report green while proving nothing:** Task 14's preselection test cannot detect the wrong card being preselected (the class attribute precedes `data-folder` in both cards, so the index comparison always holds); Task 14's busy test passes with `busy=false`; Task 16 never populates `ProfileVM.UUID` in `panelBuildProfiles`, so the duplicate warning and the merge entry point are dead on Windows; Task 16's `profilePathFor` snippet uses `plat`, which is nil in the panel process, instead of `panelPlat`; `platform/unsupported.go` is compiled by no verification step (add `GOOS=linux`).
+>
+> **Also:** Task 8's archive collision loop only exits on `os.IsNotExist`, so any other `Stat` error spins forever; and it retries `EXDEV` for 20 seconds before reporting a misleading "Claude may still be holding its files".
+>
+> **Merge (Task 9) is additionally blocked on a design question** — see the note at §5.2 of the spec. Sync became purely additive, so a clashing conversation stays on both sides and merge then moves one side out of the scan path. Recovery does not have this problem and can ship first.
+>
+> The three-machine evidence, the mechanism table, the phasing and the task decomposition are all still good. Correct the above and delete this banner.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give every platform a reachable way to create a new account profile and to recover an account that was signed out inside Claude Desktop, and make two profiles holding one account impossible to leave in place.
@@ -1943,8 +1964,12 @@ func MergeDuplicates(keepPath, archivePath, archiveRoot string) (*SyncReport, er
 			DisplayName(filepath.Base(keepPath)), DisplayName(filepath.Base(archivePath)))
 	}
 
-	// SyncSessions snapshots the destination before writing, keeps the newer copy
-	// on a clash, and reports clashes rather than resolving them silently.
+	// SyncSessions does NOT snapshot anything — the backup has always been the
+	// caller's job. Take it here, and abort rather than copy unprotected.
+	if _, err := bm.BackupIfHasData(keepPath); err != nil {
+		return nil, fmt.Errorf("aborting merge: could not back up %s first: %w",
+			DisplayName(filepath.Base(keepPath)), err)
+	}
 	report, err := SyncSessions(archivePath, keepPath)
 	if err != nil {
 		return nil, fmt.Errorf("combine conversations: %w", err)

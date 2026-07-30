@@ -312,12 +312,31 @@ func MergeDuplicates(keepPath, archivePath string) (*SyncReport, error)
 1. Read both `config.json` files and refuse unless both live logins are the **same**
    UUID. A merge is only ever a duplicate cleanup.
 2. Caller terminates Claude first. Abort if it will not quit.
-3. `SyncSessions(archivePath, keepPath)` — existing code, which snapshots the
-   destination before writing, keeps the newer copy on a clash, and reports clashes
-   rather than resolving them silently. One direction only: the profile being archived
-   is not modified at all, so the archive is a byte-exact record of what was there.
-4. `ArchiveProfile(archivePath)`.
-5. Remove the archived folder from `managed.json`.
+3. **Back up the keeper.** `BackupIfHasData(keepPath)`, aborting on failure. This
+   step is explicit here because `SyncSessions` does **not** snapshot anything: the
+   backup has always been the caller's job (`core/switch.go`, `core/align.go`, and
+   the CLI each do their own). An earlier draft of this spec asserted the opposite
+   and used that non-existent safety net as the reason not to add one.
+4. `SyncSessions(archivePath, keepPath)`. One direction only: the profile being
+   archived is never written to, so the archive is a byte-exact record of what was
+   there.
+5. `ArchiveProfile(archivePath)`.
+6. Remove the archived folder from `managed.json`.
+
+**Open question, must be resolved before merge is implemented.** Sync is purely
+additive: it copies what the keeper lacks and never replaces what it has, so a
+conversation that differs on both sides stays different on both sides
+(`core/sync.go`). Merge then moves the losing profile out of the scan path. So for
+every clash, the losing version ends up only inside the archive, reachable by hand
+and by nothing in the UI. The count shown on the merge screen would also be wrong:
+it promises a combined total that a clash silently reduces.
+
+Merge is therefore **not** ready to implement as specified. Options to decide
+between: report clashes on the merge screen before the user commits and let them
+cancel; copy the losing versions of clashing files into a reachable
+`conflicts/<timestamp>/` outside any session bucket, so both really are available;
+or refuse to merge at all while clashes exist and offer a separate resolution step.
+Recovery (§5.1) has no such problem and can ship without this being settled.
 
 ### 5.3 Archive
 
@@ -359,7 +378,8 @@ is a rename the user can undo by hand.
 | Bucket copy fails partway (recovery, standalone) | Remove the half-created profile dir, drop the pending entry, leave the source untouched, report. The source is the only copy that mattered and was never written to. |
 | Park fails (MSIX) | Existing rollback: rename the parked dir back into the slot, remove the container if empty. |
 | Merge: the two profiles are not the same account | Refuse with a clear message. Guards against a stale panel acting on rows that changed under it. |
-| Merge: sync fails | Abort before archiving. `SyncSessions` has already snapshotted the destination. Nothing is archived, nothing is unmanaged, the warning stays. |
+| Merge: keeper backup fails | Abort before any copy. Nothing has been touched. |
+| Merge: sync fails | Abort before archiving. The keeper was snapshotted in step 3, so a partial copy is recoverable. Nothing is archived, nothing is unmanaged, the warning stays. |
 | Merge: archive rename fails (files locked) | Retry, then abort. `managed.json` is left unchanged, so the user sees both profiles and the warning, exactly as before the attempt. Never unmanage a folder that is still in place. |
 | Archive destination already exists | Append a counter: `<name>-<timestamp>-2`. |
 | Sign-in never happens | The pending entry stays, the row keeps reading "Sign in to finish setting this up", and the user can switch to it later or delete the folder. MSIX additionally gives up its watcher after ~15 minutes, as today. |
