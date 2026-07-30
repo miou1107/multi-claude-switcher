@@ -20,6 +20,17 @@ type SyncReport struct {
 	ConflictCount int      `json:"conflict_count"`
 	CopiedFiles   []string `json:"copied_files"`
 	Conflicts     []string `json:"conflicts"`
+
+	// SkipErrors names files that could not be examined or copied, with the
+	// reason. One unreadable file must not stop the rest: a profile holds
+	// hundreds of conversations, and aborting the walk over a single junk entry
+	// would block every other one from ever syncing.
+	SkipErrors []string `json:"skip_errors,omitempty"`
+}
+
+// noteSkipError records a per-file failure so the walk can carry on.
+func (r *SyncReport) noteSkipError(relPath string, err error) {
+	r.SkipErrors = append(r.SkipErrors, fmt.Sprintf("%s: %v", relPath, err))
 }
 
 // SyncSessions makes the target account's conversation history include the
@@ -35,16 +46,35 @@ type SyncReport struct {
 // never looks (silent failure) — and would drag along any foreign/orphaned
 // buckets, re-polluting the target. We copy ONLY the source account bucket.
 //
-// Conflict handling: sync is purely ADDITIVE. A file the target does not have is
-// copied; a file the target already has is never replaced, whatever its contents
-// or timestamps. When the two sides hold different versions of the same file,
-// both are kept and the clash is recorded in the report for the caller to
-// surface.
+// Conflict handling: a file the target does not have is copied. When both sides
+// hold the same path with different contents, the one with the newer mtime wins;
+// if the target's copy is newer, or the two mtimes are equal, the target is left
+// alone and the clash is recorded as a conflict.
 //
-// This used to overwrite when the source's mtime was newer. Do not reintroduce
-// that: on real data the newer file is the damaged one. See the conflict branch
-// in the walk below for the measurements, and
-// TestSyncNeverOverwritesDifferingContent for the regression test.
+// mtime is a good proxy for "which version is current" in this particular data
+// model, and that is measured rather than assumed. On a machine with two live
+// profiles of the same account, all 384 identically-contented files also had
+// identical mtimes, with no exceptions, because Claude Desktop advances the mtime
+// on every rewrite and copyFile preserves it. Of the 13 files that did differ,
+// every one where completedTurns differed had the higher turn count on the
+// newer-mtime side.
+//
+// Do not replace this with a rule that reads the JSON. These records are Claude
+// Desktop's private format, and a field-based rule fails in both directions:
+// silently, if a field is renamed, and destructively, if the field is not
+// monotonic. completedTurns is not monotonic — it falls when a user undoes turns,
+// and it is incomparable across worktree branches — so "more turns wins" would
+// undo a user's own deletion.
+//
+// In particular, transcriptUnavailable is NOT a damage signal. Claude Code
+// reclaims old transcripts on a retention policy, and the flag is Claude Desktop
+// honestly recording that the body behind a record is gone. On the machine
+// measured above, 123 of 397 records pointed at transcripts that no longer
+// existed and a further 113 were already flagged, so roughly six records in ten
+// have no body behind them. That share only rises. An earlier version of this
+// function treated the flag as corruption and refused to overwrite anything at
+// all, which turned every ordinary version advance into a permanent false
+// conflict.
 func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 	// Sessions are stored per account, so both ends need one. A profile that
 	// has never been signed in to has no bucket to read from or write to, and
@@ -92,56 +122,61 @@ func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 
 		targetPath := filepath.Join(dstBucket, relPath)
 
-		// Only existence matters. The target's mtime is deliberately not read;
-		// see the conflict branch below for why comparing it was harmful.
+		// Lstat, and only ErrNotExist counts as absent. copyFile truncates through
+		// os.Create, so treating every stat failure as "not there" would destroy
+		// the target's copy on a permission or I/O error. Lstat rather than Stat so
+		// a dangling symlink is seen for what it is instead of being followed and
+		// written past, which would land the data outside the sessions directory.
 		//
-		// Lstat, and only ErrNotExist counts as absent. copyFile truncates
-		// through os.Create, so treating every stat failure as "not there" would
-		// destroy the target's copy on a permission or I/O error — the one thing
-		// this function must never do. Lstat rather than Stat so a dangling
-		// symlink counts as present instead of being followed and written past.
-		if _, statErr := os.Lstat(targetPath); statErr != nil {
+		// A failure here is recorded and the walk continues. Returning an error
+		// would abort the whole run, and a profile holds hundreds of conversations:
+		// one junk entry must not stop all the others from ever syncing.
+		dstInfo, statErr := os.Lstat(targetPath)
+		if statErr != nil {
 			if !errors.Is(statErr, fs.ErrNotExist) {
-				return fmt.Errorf("inspect %s in the target: %w", relPath, statErr)
+				report.noteSkipError(relPath, statErr)
+				return nil
 			}
 			// Absent from the target: copy it.
 			if err := copyFile(path, targetPath); err != nil {
-				return fmt.Errorf("copy %s: %w", relPath, err)
+				report.noteSkipError(relPath, err)
+				return nil
 			}
 			report.CopiedCount++
 			report.CopiedFiles = append(report.CopiedFiles, relPath)
+			return nil
+		}
+		if !dstInfo.Mode().IsRegular() {
+			// A symlink, directory or device where a session record belongs. Not
+			// something to compare, and certainly not something to write through.
+			report.noteSkipError(relPath, fmt.Errorf("target is not a regular file (%s)", dstInfo.Mode()))
 			return nil
 		}
 
 		// Target already has this file. Compare content before touching it.
 		same, cmpErr := filesEqual(path, targetPath)
 		if cmpErr != nil {
-			return fmt.Errorf("compare %s: %w", relPath, cmpErr)
+			report.noteSkipError(relPath, cmpErr)
+			return nil
 		}
 		if same {
 			report.SkippedCount++
 			return nil
 		}
 
-		// Content differs, so this file is never touched. Sync is purely
-		// additive: it brings across conversations the target does not have and
-		// never replaces one it does.
-		//
-		// This used to overwrite when the source's mtime was newer, on the
-		// assumption that a newer mtime meant a more recent edit. On real data it
-		// means the opposite. Measured on a user's machine (2026-07-30) for one
-		// account held by two profiles: of 26 differing files, 16 had the NEWER
-		// copy carrying "transcriptUnavailable" and missing its "cliSessionId"
-		// while the older copy was intact. Claude Desktop rewrites a session
-		// record when it can no longer find the transcript behind it, and that
-		// rewrite moves the mtime forward — so preferring the newer file
-		// systematically replaced good data with degraded data, and the only good
-		// copy was gone.
-		//
-		// There is no reliable way to tell which side is better from here: the
-		// judgement depends on Claude's own record format, which this tool does
-		// not own and which changes without notice. So we do not guess. The clash
-		// is reported and both copies survive.
+		// Content differs: the newer mtime wins. See the function comment for why
+		// mtime and not the record's own fields.
+		if info.ModTime().After(dstInfo.ModTime()) {
+			if err := copyFile(path, targetPath); err != nil {
+				report.noteSkipError(relPath, err)
+				return nil
+			}
+			report.CopiedCount++
+			report.CopiedFiles = append(report.CopiedFiles, relPath)
+			return nil
+		}
+		// The target is newer, or the two are the same age and still differ. Either
+		// way this side has nothing better to offer, so the target is left alone.
 		report.ConflictCount++
 		report.Conflicts = append(report.Conflicts, relPath)
 		return nil
@@ -184,11 +219,11 @@ func filesEqual(a, b string) (bool, error) {
 // additive and skips identical files, so this is safe and idempotent. Both
 // profiles must be logged in (SyncSessions errors otherwise).
 //
-// It returns both legs' reports so the caller can surface clashes. Sync never
-// replaces a file the other side already has, so a conversation that differs on
-// both sides stays different on both sides. Dropping that on the floor is how a
-// user of Auto Sync would be told nothing at all about the sessions that did not
-// converge.
+// It returns both legs' reports. Note that a clash reported by the first leg is
+// usually resolved by the second: if B's copy was newer, leg one leaves it alone
+// and reports a conflict, then leg two copies it back over A. Treating leg one's
+// count as the outcome would report a problem that no longer exists. Use
+// UnresolvedConflicts for what actually failed to converge.
 func SyncBidirectional(profileA, profileB string) (aToB, bToA *SyncReport, err error) {
 	aToB, err = SyncSessions(profileA, profileB)
 	if err != nil {
@@ -199,4 +234,29 @@ func SyncBidirectional(profileA, profileB string) (aToB, bToA *SyncReport, err e
 		return aToB, nil, err
 	}
 	return aToB, bToA, nil
+}
+
+// UnresolvedConflicts returns the paths a two-way sync could not make agree: the
+// ones both legs reported. Anything only one leg flagged was fixed by the other.
+//
+// With the newer-mtime-wins rule the only way to be in both lists is for the two
+// copies to differ while carrying the same mtime, which nothing observed in
+// practice does — Claude Desktop advances the mtime on every rewrite and copyFile
+// preserves it. So this is normally empty, and when it is not, something genuinely
+// odd has happened and is worth a log line.
+func UnresolvedConflicts(aToB, bToA *SyncReport) []string {
+	if aToB == nil || bToA == nil {
+		return nil
+	}
+	inB := make(map[string]bool, len(bToA.Conflicts))
+	for _, c := range bToA.Conflicts {
+		inB[c] = true
+	}
+	var out []string
+	for _, c := range aToB.Conflicts {
+		if inB[c] {
+			out = append(out, c)
+		}
+	}
+	return out
 }

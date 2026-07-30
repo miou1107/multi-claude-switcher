@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -186,23 +187,22 @@ func TestSyncConflictDoesNotOverwriteNewerTarget(t *testing.T) {
 	}
 }
 
-// TestSyncNeverOverwritesDifferingContent is the regression test for the
-// newer-wins rule, which was removed because on real data it preferred the
-// damaged copy.
+// TestSyncOverwritesWhenSourceNewer verifies a genuinely newer source version
+// still updates the target.
 //
-// Measured on a user's machine, 2026-07-30, for one account held by two
-// profiles: 26 files differed, and in 16 of them the file with the NEWER
-// mtime carried "transcriptUnavailable" and had lost its "cliSessionId",
-// while the older file was intact. Claude Desktop rewrites a session record
-// when it can no longer find the transcript behind it, and that rewrite moves
-// the mtime forward. So a newer mtime does not mean "more recent edit", it
-// means "degraded more recently", and preferring it destroyed the only good
-// copy.
+// This rule was briefly removed on the theory that a newer mtime meant a more
+// degraded record, from reading 26 differing files in which the newer copy
+// carried "transcriptUnavailable". That reading was wrong twice over. The files
+// were in an orphan bucket sync never reads (only each profile's own
+// lastKnownAccountUuid bucket is synced), and the flag is not damage: Claude Code
+// reclaims old transcripts on a retention policy, so the flag is Claude Desktop
+// honestly recording that the body behind a record is gone.
 //
-// Sync is therefore purely additive: it copies files the target does not have
-// and never replaces one it does. A file present in both with differing
-// content is always reported as a conflict, whichever side is newer.
-func TestSyncNeverOverwritesDifferingContent(t *testing.T) {
+// On the buckets sync actually compares, 13 files differed, and every one where
+// completedTurns differed had the higher count on the newer-mtime side. Under
+// this rule the two profiles converge completely; under "never overwrite" all 13
+// became permanent conflicts that no amount of syncing could clear.
+func TestSyncOverwritesWhenSourceNewer(t *testing.T) {
 	tempDir := t.TempDir()
 	src := filepath.Join(tempDir, "Src")
 	dst := filepath.Join(tempDir, "Dst")
@@ -212,52 +212,50 @@ func TestSyncNeverOverwritesDifferingContent(t *testing.T) {
 	old := time.Now().Add(-1 * time.Hour)
 	newer := time.Now()
 
-	// The shape that made this a bug: the newer copy is the degraded one.
-	degradedButNewer := `{"v":"y","transcriptUnavailable":true}`
-	intactButOlder := `{"v":"y","cliSessionId":"abc"}`
-
+	// The shape seen in the real data: the newer side has more of the
+	// conversation behind it.
 	rel := filepath.Join("uuid1", "org1", "local_y.json")
-	writeSessionFile(t, src, rel, degradedButNewer, newer)
-	dstPath := writeSessionFile(t, dst, rel, intactButOlder, old)
+	writeSessionFile(t, src, rel, `{"v":"y","completedTurns":315}`, newer)
+	dstPath := writeSessionFile(t, dst, rel, `{"v":"y","completedTurns":277}`, old)
 
 	report, err := SyncSessions(src, dst)
 	if err != nil {
 		t.Fatalf("SyncSessions failed: %v", err)
 	}
-	if report.CopiedCount != 0 {
-		t.Errorf("a differing file must never be copied over, got CopiedCount=%d", report.CopiedCount)
-	}
-	if report.ConflictCount != 1 {
-		t.Errorf("expected 1 conflict, got %d (copied=%d skipped=%d)",
-			report.ConflictCount, report.CopiedCount, report.SkippedCount)
+	if report.CopiedCount != 1 {
+		t.Errorf("expected 1 copied, got %d", report.CopiedCount)
 	}
 	got, _ := os.ReadFile(dstPath)
-	if string(got) != intactButOlder {
-		t.Errorf("the target's intact copy was destroyed by a newer degraded source: %q", got)
+	if string(got) != `{"v":"y","completedTurns":315}` {
+		t.Errorf("expected the target updated to the newer version, got %q", got)
 	}
 }
 
-// TestSyncDoesNotWriteThroughADanglingSymlink pins the hole that made the
-// additive rule conditional. The existence check used os.Stat and treated every
-// failure as "the target does not have this file". os.Stat follows symlinks, so
-// a dangling one failed, and copyFile then wrote through it with os.Create,
-// landing the data at the link's target — outside the sessions bucket entirely.
-// The same branch would truncate a real file whenever stat failed for a mundane
-// reason such as a permission error.
-func TestSyncDoesNotWriteThroughADanglingSymlink(t *testing.T) {
+// TestSyncDanglingSymlinkNeitherEscapesNorAbortsTheRun pins two things at once.
+//
+// The existence check used os.Stat and treated every failure as "the target does
+// not have this file". os.Stat follows symlinks, so a dangling one failed, and
+// copyFile then wrote through it with os.Create, landing the data at the link's
+// target, outside the sessions bucket. The first fix for that used Lstat but
+// returned an error from the walk, which was worse in a different way: one junk
+// entry aborted the entire run, so the hundreds of healthy conversations beside
+// it could never sync and the caller got a nil report.
+func TestSyncDanglingSymlinkNeitherEscapesNorAbortsTheRun(t *testing.T) {
 	tempDir := t.TempDir()
 	src := filepath.Join(tempDir, "Src")
 	dst := filepath.Join(tempDir, "Dst")
 	writeAccountConfig(t, src, "uuid1")
 	writeAccountConfig(t, dst, "uuid1")
 
-	rel := filepath.Join("uuid1", "local_z.json")
-	writeSessionFile(t, src, rel, `{"v":"source"}`, time.Now())
+	// One poisoned path, plus healthy files either side of it alphabetically so
+	// the walk has to get past the bad one to reach them.
+	writeSessionFile(t, src, filepath.Join("uuid1", "local_a.json"), `{"v":"a"}`, time.Now())
+	writeSessionFile(t, src, filepath.Join("uuid1", "local_z.json"), `{"v":"z"}`, time.Now())
+	poisoned := filepath.Join("uuid1", "local_m.json")
+	writeSessionFile(t, src, poisoned, `{"v":"m"}`, time.Now())
 
-	// A dangling symlink where the target's copy would live, pointing outside
-	// the profile.
 	escapee := filepath.Join(tempDir, "escaped.json")
-	link := filepath.Join(platformSessions(dst), rel)
+	link := filepath.Join(platformSessions(dst), poisoned)
 	if err := os.MkdirAll(filepath.Dir(link), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -266,44 +264,96 @@ func TestSyncDoesNotWriteThroughADanglingSymlink(t *testing.T) {
 	}
 
 	report, err := SyncSessions(src, dst)
-
-	// Erroring out is fine; writing outside the bucket is not.
+	if err != nil {
+		t.Fatalf("one bad entry must not fail the whole run: %v", err)
+	}
+	if report == nil {
+		t.Fatal("report must be returned so the caller can say what did happen")
+	}
 	if _, statErr := os.Stat(escapee); statErr == nil {
 		t.Fatalf("sync wrote through the symlink to %s, escaping the sessions directory", escapee)
 	}
-	if err == nil && report.CopiedCount != 0 {
-		t.Errorf("a path the target already occupies must not be counted as copied, got %d", report.CopiedCount)
+	// The healthy files either side must have made it.
+	if report.CopiedCount != 2 {
+		t.Errorf("want the 2 healthy files copied, got CopiedCount=%d", report.CopiedCount)
+	}
+	for _, name := range []string{"local_a.json", "local_z.json"} {
+		if _, err := os.Stat(filepath.Join(platformSessions(dst), "uuid1", name)); err != nil {
+			t.Errorf("%s did not make it across: %v", name, err)
+		}
+	}
+	// And the bad one is reported rather than silently dropped.
+	if len(report.SkipErrors) != 1 {
+		t.Fatalf("want 1 skip error, got %v", report.SkipErrors)
+	}
+	if !strings.Contains(report.SkipErrors[0], "local_m.json") {
+		t.Errorf("skip error must name the file: %q", report.SkipErrors[0])
 	}
 }
 
-// TestSyncBidirectionalReportsConflicts pins that both legs' reports come back.
-// Auto Sync on switch runs unattended, so a clash that is not reported here can
-// never be reported at all.
-func TestSyncBidirectionalReportsConflicts(t *testing.T) {
+// TestSyncBidirectionalConvergesAndReportsNothingUnresolved covers the ordinary
+// case: one side is newer, so the two-way sync makes both agree. The first leg
+// may report a clash on its way there, and reporting that as the outcome would
+// warn about a problem that no longer exists by the time the call returns.
+func TestSyncBidirectionalConvergesAndReportsNothingUnresolved(t *testing.T) {
 	tempDir := t.TempDir()
 	a := filepath.Join(tempDir, "A")
 	b := filepath.Join(tempDir, "B")
 	writeAccountConfig(t, a, "uuid1")
 	writeAccountConfig(t, b, "uuid1")
 
-	// Same relative path, different contents: neither side may overwrite the
-	// other, so both legs report the clash.
-	rel := filepath.Join("uuid1", "local_clash.json")
-	writeSessionFile(t, a, rel, `{"v":"A"}`, time.Now())
-	writeSessionFile(t, b, rel, `{"v":"B"}`, time.Now().Add(-time.Hour))
+	// B is the newer side, which is the order that makes leg one report a clash.
+	rel := filepath.Join("uuid1", "local_x.json")
+	writeSessionFile(t, a, rel, `{"completedTurns":277}`, time.Now().Add(-time.Hour))
+	writeSessionFile(t, b, rel, `{"completedTurns":315}`, time.Now())
 
 	aToB, bToA, err := SyncBidirectional(a, b)
 	if err != nil {
 		t.Fatalf("SyncBidirectional failed: %v", err)
 	}
-	if aToB.ConflictCount != 1 || bToA.ConflictCount != 1 {
-		t.Fatalf("both legs must report the clash, got aToB=%d bToA=%d", aToB.ConflictCount, bToA.ConflictCount)
+	if got := UnresolvedConflicts(aToB, bToA); len(got) != 0 {
+		t.Errorf("the two sides converged, so nothing is unresolved; got %v", got)
 	}
-	// And neither side was changed.
+	// Both ends now hold the newer version.
+	for _, p := range []string{a, b} {
+		got, err := os.ReadFile(filepath.Join(platformSessions(p), rel))
+		if err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		if string(got) != `{"completedTurns":315}` {
+			t.Errorf("%s did not converge on the newer version, got %q", p, got)
+		}
+	}
+}
+
+// TestSyncBidirectionalReportsATrulyUnresolvedClash covers the one shape that
+// survives both legs: equal mtimes, differing content. Neither side can claim to
+// be newer, so nothing is overwritten and the caller has to be told.
+func TestSyncBidirectionalReportsATrulyUnresolvedClash(t *testing.T) {
+	tempDir := t.TempDir()
+	a := filepath.Join(tempDir, "A")
+	b := filepath.Join(tempDir, "B")
+	writeAccountConfig(t, a, "uuid1")
+	writeAccountConfig(t, b, "uuid1")
+
+	same := time.Now().Truncate(time.Second)
+	rel := filepath.Join("uuid1", "local_clash.json")
+	writeSessionFile(t, a, rel, `{"v":"A"}`, same)
+	writeSessionFile(t, b, rel, `{"v":"B"}`, same)
+
+	aToB, bToA, err := SyncBidirectional(a, b)
+	if err != nil {
+		t.Fatalf("SyncBidirectional failed: %v", err)
+	}
+	got := UnresolvedConflicts(aToB, bToA)
+	if len(got) != 1 || !strings.Contains(got[0], "local_clash.json") {
+		t.Fatalf("want the clash reported as unresolved, got %v", got)
+	}
+	// And neither side was touched.
 	gotA, _ := os.ReadFile(filepath.Join(platformSessions(a), rel))
 	gotB, _ := os.ReadFile(filepath.Join(platformSessions(b), rel))
 	if string(gotA) != `{"v":"A"}` || string(gotB) != `{"v":"B"}` {
-		t.Errorf("a clash must leave both copies alone, got A=%q B=%q", gotA, gotB)
+		t.Errorf("an unresolvable clash must leave both copies alone, got A=%q B=%q", gotA, gotB)
 	}
 }
 

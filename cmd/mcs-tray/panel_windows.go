@@ -562,16 +562,21 @@ func doSyncPanel(fromFolder, toFolder string) string {
 		return core.SyncFailureMessage(err)
 	}
 	msg := core.SyncResultMessage(rep, core.DisplayName(toFolder))
-	if rep.ConflictCount > 0 {
+	for _, e := range rep.SkipErrors {
+		// The message says "see the log", so it has to actually be there.
+		log.Printf("sync skipped a session file: %s", e)
+	}
+	if len(rep.SkipErrors) > 0 {
 		// The panel parks itself on losing focus and clears its status as it goes
 		// (see parkPanel), and ManualAlign has just reopened Claude Desktop, which
-		// takes the foreground. So the status line this returns is usually gone
-		// before it is read. A clash is the one outcome the user has to know
-		// about, so it also goes somewhere that outlives the panel.
+		// takes the foreground. So this status line is usually gone before it is
+		// read. Files that could not be read are the outcome worth surviving that.
+		// A conflict is not: it only means the target's copy was already newer.
+		//
 		// notify, not notifyTray: notifyTray's protocol is a fixed set of literal
 		// keywords the tray switches on, so it cannot carry text. notify spawns its
 		// own toast and works from any process, panel included.
-		notify("Sync finished with clashes", msg)
+		notify("Some conversations were skipped", msg)
 	}
 	return msg
 }

@@ -18,15 +18,24 @@ func SyncResultMessage(rep *SyncReport, targetDisplay string) string {
 	}
 	msg := fmt.Sprintf("✓ Copied %s into %s.", pluralConversations(rep.CopiedCount), targetDisplay)
 	if rep.ConflictCount > 0 {
-		// Sync never replaces a conversation the target already has, so a clash
-		// has to be said out loud. Silence would read as "nothing needed doing"
-		// when the truth is "some conversations differ on both sides and both
-		// copies were kept".
-		tail := "differed on both sides and was left as it is."
+		// The target already had a newer version of these, so they were left
+		// alone. Worth saying, because otherwise a sync that copied little looks
+		// like a sync that did nothing.
+		tail := "was already newer here and left alone."
 		if rep.ConflictCount != 1 {
-			tail = "differed on both sides and were left as they are."
+			tail = "were already newer here and left alone."
 		}
 		msg += " " + pluralConversations(rep.ConflictCount) + " " + tail
+	}
+	if n := len(rep.SkipErrors); n > 0 {
+		// These could not be read or written at all. A count with a pointer to the
+		// log beats silence: the run continued past them on purpose, so nothing
+		// else would ever mention them.
+		tail := "file could not be read and was skipped (see the log)."
+		if n != 1 {
+			tail = "files could not be read and were skipped (see the log)."
+		}
+		msg += fmt.Sprintf(" %d %s", n, tail)
 	}
 	return msg
 }

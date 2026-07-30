@@ -120,21 +120,17 @@ both accounts' sessions in both directions, so the two converge over time. It
 warns you the first time, because the merge is not undone by switching the
 toggle back off.
 
-Either way, syncing only ever **adds**. A conversation the other account already
-has is never replaced, even if the incoming copy looks newer. When the two sides
-hold different versions of the same conversation, both are kept and the clash is
-reported to you rather than quietly resolved.
+Either way, if both accounts hold the same conversation in different states, the
+more recently updated one wins and the other is reported rather than quietly
+discarded. Every write is preceded by a timestamped snapshot. If that snapshot
+fails, the write does not happen.
 
-That is deliberate. A session file's timestamp does not reliably tell you which
-copy is better: Claude Desktop rewrites a conversation's record when it can no
-longer find the transcript behind it, which makes the damaged copy the newer one.
-So neither copy is thrown away, and nothing here tries to guess.
-
-Every write is preceded by a timestamped snapshot. If that snapshot fails, the
-write does not happen.
-
-Only the Code tab syncs. Ordinary chat conversations live on Anthropic's servers,
-one set per account, and nothing local can move them.
+Only the Code tab syncs, and only its conversation **list**. Ordinary chat
+conversations live on Anthropic's servers, one set per account, and nothing local
+can move them. The Code transcripts are kept elsewhere again, and Claude Code
+clears out old ones on its own schedule — so a conversation can sit in the list
+with nothing left behind it. That is Claude's own housekeeping, which this tool
+neither causes nor can undo.
 
 ## Team accounts only sync outwards
 

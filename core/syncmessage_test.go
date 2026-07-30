@@ -29,17 +29,28 @@ func TestSyncResultMessage(t *testing.T) {
 			want: "✓ Copied 12 conversations into Work.",
 		},
 		{
-			// The case the additive rule made common: nothing could be copied
-			// because every file already existed in a different version. Reporting
-			// only "Copied 0" here would read as "nothing needed doing".
-			name: "one clash reads as singular throughout",
+			// A sync that copied little because the target was already ahead would
+			// otherwise read as a sync that did nothing.
+			name: "one already-newer reads as singular throughout",
 			rep:  &SyncReport{CopiedCount: 0, ConflictCount: 1},
-			want: "✓ Copied 0 conversations into Work. 1 conversation differed on both sides and was left as it is.",
+			want: "✓ Copied 0 conversations into Work. 1 conversation was already newer here and left alone.",
 		},
 		{
-			name: "several clashes",
+			name: "several already-newer",
 			rep:  &SyncReport{CopiedCount: 3, ConflictCount: 16},
-			want: "✓ Copied 3 conversations into Work. 16 conversations differed on both sides and were left as they are.",
+			want: "✓ Copied 3 conversations into Work. 16 conversations were already newer here and left alone.",
+		},
+		{
+			// The walk continues past a file it cannot read, so this count is the
+			// only thing that would ever mention it.
+			name: "one skipped file",
+			rep:  &SyncReport{CopiedCount: 2, SkipErrors: []string{"a.json: boom"}},
+			want: "✓ Copied 2 conversations into Work. 1 file could not be read and was skipped (see the log).",
+		},
+		{
+			name: "clashes and skips together",
+			rep:  &SyncReport{CopiedCount: 1, ConflictCount: 2, SkipErrors: []string{"a: x", "b: y"}},
+			want: "✓ Copied 1 conversation into Work. 2 conversations were already newer here and left alone. 2 files could not be read and were skipped (see the log).",
 		},
 	}
 	for _, c := range cases {

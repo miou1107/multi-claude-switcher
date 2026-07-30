@@ -323,20 +323,24 @@ func MergeDuplicates(keepPath, archivePath string) (*SyncReport, error)
 5. `ArchiveProfile(archivePath)`.
 6. Remove the archived folder from `managed.json`.
 
-**Open question, must be resolved before merge is implemented.** Sync is purely
-additive: it copies what the keeper lacks and never replaces what it has, so a
-conversation that differs on both sides stays different on both sides
-(`core/sync.go`). Merge then moves the losing profile out of the scan path. So for
-every clash, the losing version ends up only inside the archive, reachable by hand
-and by nothing in the UI. The count shown on the merge screen would also be wrong:
-it promises a combined total that a clash silently reduces.
+**Open question, must be resolved before merge is implemented.** `SyncSessions`
+copies what the keeper lacks and, where both hold the same record, keeps the newer
+mtime. A record the keeper already has a *newer* version of is therefore left
+alone and reported as a conflict (`core/sync.go`). Merge then moves the losing
+profile out of the scan path, so for every such conflict the losing version ends
+up only inside the archive, reachable by hand and by nothing in the UI.
+
+In practice this should be rare: a merge is between two profiles signed in to the
+same account, and the newer side wins per record, so most records converge. But
+"rare" is not "never", and the count shown on the merge screen promises a combined
+total that a conflict silently reduces.
 
 Merge is therefore **not** ready to implement as specified. Options to decide
-between: report clashes on the merge screen before the user commits and let them
-cancel; copy the losing versions of clashing files into a reachable
-`conflicts/<timestamp>/` outside any session bucket, so both really are available;
-or refuse to merge at all while clashes exist and offer a separate resolution step.
-Recovery (§5.1) has no such problem and can ship without this being settled.
+between: show the conflict count on the merge screen before the user commits and
+let them cancel; copy the losing versions into a reachable `conflicts/<timestamp>/`
+outside any session bucket; or compute the screen's total from what will actually
+converge rather than from the sum of both sides. Recovery (§5.1) has no such
+problem and can ship without this being settled.
 
 ### 5.3 Archive
 

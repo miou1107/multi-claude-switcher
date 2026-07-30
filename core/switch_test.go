@@ -63,11 +63,21 @@ func TestSafeSwitchLaunchesWhenTargetNotLoggedIn(t *testing.T) {
 	}
 }
 
-// TestSafeSwitchAbortsWhenBackupFails verifies that if a profile has data but
-// the backup step fails, SafeSwitch aborts BEFORE aligning (never destroy data
-// without a backup). Backup only runs when auto sync is ON and both profiles
-// are logged in, so this test turns auto sync ON.
-func TestSafeSwitchAbortsWhenBackupFails(t *testing.T) {
+// TestSafeSwitchSkipsSyncButStillLaunchesWhenBackupFails verifies that a failed
+// backup skips the session union (never write without a backup) yet still opens
+// the target profile.
+//
+// It used to return early instead, which read as "abort the switch" but was not
+// one: Claude Desktop has already been terminated by then, and the launch is the
+// only thing that brings it back. The user was left with Claude shut, holding an
+// error, with no indication of which account they would land in if they opened it
+// by hand. Nothing is written when the sync is skipped, so launching is safe, and
+// it is what the user actually asked for. The error still comes back so the
+// skipped sync is not silent.
+//
+// Backup only runs when auto sync is ON and both profiles are logged in, so this
+// test turns auto sync ON.
+func TestSafeSwitchSkipsSyncButStillLaunchesWhenBackupFails(t *testing.T) {
 	withStubbedSettings(t)
 	if err := SetAutoSyncOnSwitch(true); err != nil { // ON so the backup step runs
 		t.Fatal(err)
@@ -108,10 +118,13 @@ func TestSafeSwitchAbortsWhenBackupFails(t *testing.T) {
 	s := NewSwitcher(mp, bm)
 
 	if err := s.SafeSwitch(src, dst); err == nil {
-		t.Fatal("expected SafeSwitch to abort when backup fails, got nil error")
+		t.Fatal("expected the skipped sync to be reported, got nil error")
 	}
-	if mp.launched {
-		t.Error("target profile must NOT be launched after a failed backup")
+	if !mp.launched {
+		t.Error("Claude was terminated, so the target must still be launched — otherwise the user is stranded with Claude shut")
+	}
+	if mp.launchedPath != dst {
+		t.Errorf("launched %q, want the switch target %q", mp.launchedPath, dst)
 	}
 	got, readErr := os.ReadFile(dstFile)
 	if readErr != nil {

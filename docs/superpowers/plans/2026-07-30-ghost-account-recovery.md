@@ -17,7 +17,7 @@
 >
 > **Also:** Task 8's archive collision loop only exits on `os.IsNotExist`, so any other `Stat` error spins forever; and it retries `EXDEV` for 20 seconds before reporting a misleading "Claude may still be holding its files".
 >
-> **Merge (Task 9) is additionally blocked on a design question** — see the note at §5.2 of the spec. Sync became purely additive, so a clashing conversation stays on both sides and merge then moves one side out of the scan path. Recovery does not have this problem and can ship first.
+> **Merge (Task 9) is additionally blocked on a design question** — see the note at §5.2 of the spec. Where the keeper already holds a newer version of a record, sync leaves it alone and reports a conflict, and merge then moves the other side out of the scan path, so that version becomes reachable only by hand. Task 9 must also back up the keeper itself: `SyncSessions` does not snapshot anything, contrary to what an earlier draft of the spec asserted. Recovery does not have either problem and can ship first.
 >
 > The three-machine evidence, the mechanism table, the phasing and the task decomposition are all still good. Correct the above and delete this banner.
 

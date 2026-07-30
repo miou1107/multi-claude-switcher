@@ -19,6 +19,7 @@ import "C"
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -253,13 +254,17 @@ func doSync(fromFolder, toFolder string) string {
 		return core.SyncFailureMessage(err)
 	}
 	msg := core.SyncResultMessage(rep, core.DisplayName(toFolder))
-	if rep.ConflictCount > 0 {
+	for _, e := range rep.SkipErrors {
+		// The message says "see the log", so it has to actually be there.
+		log.Printf("sync skipped a session file: %s", e)
+	}
+	if len(rep.SkipErrors) > 0 {
 		// The panel is a transient popover and ManualAlign has just reopened
-		// Claude Desktop, which takes the foreground and dismisses it. So the
-		// status line this returns is usually gone before it is read. A clash is
-		// the one outcome the user has to know about, so it also goes somewhere
-		// that outlives the panel.
-		notify("Sync finished with clashes", msg)
+		// Claude Desktop, which takes the foreground and dismisses it, so this
+		// status line is usually gone before it is read. Files that could not be
+		// read are the outcome worth surviving that. A conflict is not: it only
+		// means the target's copy was already newer, which is ordinary.
+		notify("Some conversations were skipped", msg)
 	}
 	return msg
 }

@@ -167,11 +167,12 @@ func copyFile(src, dst string) error {
 		return err
 	}
 
-	// Preserve the source modification time. Sync no longer compares mtimes (it
-	// is purely additive — see core/sync.go), but the scanner still reports each
-	// account's "last updated" from the newest session file's mtime, so a copy
-	// that reset them to "now" would make every restored or synced account look
-	// freshly used.
+	// Preserve the source modification time. Two things depend on it: sync decides
+	// which of two copies of a record is current by comparing mtimes
+	// (core/sync.go), and the scanner reports each account's "last updated" from
+	// the newest session file. A copy that reset them to "now" would make every
+	// copied file look newer than its source on the next comparison, and every
+	// restored account look freshly used.
 	if fi, statErr := os.Stat(src); statErr == nil {
 		_ = os.Chtimes(dst, fi.ModTime(), fi.ModTime())
 	}
