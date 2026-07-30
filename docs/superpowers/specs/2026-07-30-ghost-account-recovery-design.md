@@ -730,12 +730,18 @@ release rather than assumed.
    `ClaudeBar` is enumerated. It is dropped by `ScanAccounts` for having no config, no
    login, and no buckets, so it is harmless today. Tightening the match to require a
    separator is a separate cleanup, noted here so it is not rediscovered as a bug.
-7. **On the Store build a ghost split across profiles recovers one share at a time.**
-   The migration watcher copies from the single profile it parked (§5.1 step 4), so
-   conversations for that account sitting in a *third* profile stay behind. The row
-   remains a recoverable ghost afterwards with the smaller count, so a second pass
-   finishes the job. The standalone path copies from all sources at once and has no such
-   limit.
+7. **On the Store build a ghost split across profiles recovers only the active
+   profile's share, and the rest is then stranded.** The migration watcher copies from
+   the single profile it parked (§5.1 step 4), so conversations for that account sitting
+   in a *third* profile stay behind. Once the recovered account is signed in it is live,
+   and `assembleAccounts` (`core/scan.go`) skips every remaining bucket of a live
+   account — so the leftover is *not* re-offered as a recoverable ghost. It stays on
+   disk but out of reach through the UI. (An earlier draft of this note claimed a second
+   Recover pass would finish the job; it does not, because the scanner folds the
+   remainder into the now-live account.) The standalone path copies from all sources at
+   once and has no such limit. **Unverified on a real Store install** — the proper fix
+   is for the Store create/migration to record and copy from every source, not only the
+   parked one; tracked as a follow-up.
 8. **A pending entry can outlive its profile** if the user deletes the folder by hand,
    leaving a row that asks for a sign-in that can never happen. This is the accepted cost
    of pruning only on sign-in (§3.3), which the Store build requires.
