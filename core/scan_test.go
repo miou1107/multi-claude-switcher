@@ -52,8 +52,14 @@ func TestAssembleAccounts(t *testing.T) {
 	if ghost.Complete || ghost.UUID != "33333333" || ghost.Convos != 21 {
 		t.Fatalf("ghost convos (19+2=21): %+v", ghost)
 	}
-	if !ghost.LastUpdated.Equal(ts("2026-04-02")) || ghost.Note != "Invalid account data" {
+	// A populated bucket is now recoverable, so this ghost reads as something to
+	// act on rather than as bad data. "Invalid account data" is reserved for a
+	// ghost with an empty bucket, which really is a dead end.
+	if !ghost.LastUpdated.Equal(ts("2026-04-02")) || ghost.Note != RecoverableGhostNote {
 		t.Fatalf("ghost date/note: %+v", ghost)
+	}
+	if !ghost.Recoverable || len(ghost.Sources) != 2 {
+		t.Fatalf("its 21 conversations live in two dirs, both recoverable from: %+v", ghost)
 	}
 }
 
@@ -208,5 +214,118 @@ func TestScanAccounts(t *testing.T) {
 	}
 	if complete != 2 || ghost != 1 {
 		t.Fatalf("counts: complete=%d ghost=%d", complete, ghost)
+	}
+}
+
+func TestAssembleGhostRecoverable(t *testing.T) {
+	// One dir, a live login, plus an orphan left behind by an in-app account
+	// switch: the shape every reporter's machine had.
+	scans := []dirScan{
+		{Folder: "Claude", Path: "/data/Claude", LiveUUID: "cccccccc", Buckets: map[string]bucketStat{
+			"cccccccc": {Count: 99, LastUpdated: ts("2026-07-30")},
+			"bbbbbbbb": {Count: 94, LastUpdated: ts("2026-07-29")},
+		}},
+	}
+	got := assembleAccounts(scans)
+	if len(got) != 2 {
+		t.Fatalf("want 1 complete + 1 ghost, got %d: %+v", len(got), got)
+	}
+	ghost := got[1]
+	if ghost.Complete || ghost.UUID != "bbbbbbbb" {
+		t.Fatalf("row1 must be the bbbbbbbb ghost: %+v", ghost)
+	}
+	if !ghost.Recoverable {
+		t.Fatalf("a ghost with 94 conversations is recoverable: %+v", ghost)
+	}
+	if len(ghost.Sources) != 1 {
+		t.Fatalf("want one source, got %+v", ghost.Sources)
+	}
+	// The path has to travel with the folder: recovery copies from it, and it
+	// cannot be reconstructed from the name outside the platform package.
+	if ghost.Sources[0].Folder != "Claude" || ghost.Sources[0].Path != "/data/Claude" {
+		t.Fatalf("source must name the dir and its path: %+v", ghost.Sources[0])
+	}
+	if ghost.Sources[0].Convos != 94 {
+		t.Fatalf("source must carry its own share: %+v", ghost.Sources[0])
+	}
+	if ghost.Note != RecoverableGhostNote {
+		t.Fatalf("note = %q, want %q", ghost.Note, RecoverableGhostNote)
+	}
+}
+
+func TestAssembleGhostEmptyBucketIsNotRecoverable(t *testing.T) {
+	scans := []dirScan{
+		{Folder: "Claude", Path: "/data/Claude", LiveUUID: "live", Buckets: map[string]bucketStat{
+			"live":  {Count: 3, LastUpdated: ts("2026-07-30")},
+			"empty": {Count: 0},
+		}},
+	}
+	got := assembleAccounts(scans)
+	ghost := got[len(got)-1]
+	if ghost.UUID != "empty" {
+		t.Fatalf("expected the empty ghost last: %+v", got)
+	}
+	if ghost.Recoverable {
+		t.Fatalf("nothing to recover from an empty bucket: %+v", ghost)
+	}
+	if len(ghost.Sources) != 0 {
+		t.Fatalf("a dead ghost has nothing to copy from: %+v", ghost.Sources)
+	}
+	if ghost.Note != "Invalid account data" {
+		t.Fatalf("dead ghost keeps its existing note, got %q", ghost.Note)
+	}
+}
+
+func TestAssembleGhostSplitAcrossTwoProfilesKeepsBothSources(t *testing.T) {
+	// The same orphan has conversations in two dirs. Recovery must copy from both,
+	// or the row's count promises more than it delivers.
+	scans := []dirScan{
+		{Folder: "Claude_Two", Path: "/data/Claude_Two", LiveUUID: "b", Buckets: map[string]bucketStat{
+			"b": {Count: 1}, "orphan": {Count: 40, LastUpdated: ts("2026-07-02")},
+		}},
+		{Folder: "Claude", Path: "/data/Claude", LiveUUID: "a", Buckets: map[string]bucketStat{
+			"a": {Count: 1}, "orphan": {Count: 5, LastUpdated: ts("2026-07-01")},
+		}},
+	}
+	got := assembleAccounts(scans)
+	var ghost ScannedAccount
+	for _, r := range got {
+		if r.UUID == "orphan" {
+			ghost = r
+		}
+	}
+	if ghost.Convos != 45 {
+		t.Fatalf("counts sum across dirs: %+v", ghost)
+	}
+	if len(ghost.Sources) != 2 {
+		t.Fatalf("want both sources, got %+v", ghost.Sources)
+	}
+	// Sorted by folder so the order is stable across scans — the scans slice
+	// arrives in filesystem order, which is not guaranteed.
+	if ghost.Sources[0].Folder != "Claude" || ghost.Sources[1].Folder != "Claude_Two" {
+		t.Fatalf("sources must be sorted by folder: %+v", ghost.Sources)
+	}
+	if ghost.Sources[0].Convos != 5 || ghost.Sources[1].Convos != 40 {
+		t.Fatalf("each source carries its own share: %+v", ghost.Sources)
+	}
+}
+
+func TestRecoverableGhostSortsAboveDeadGhost(t *testing.T) {
+	scans := []dirScan{
+		{Folder: "Claude", Path: "/data/Claude", LiveUUID: "live", Buckets: map[string]bucketStat{
+			"live": {Count: 1},
+			"zzz":  {Count: 7, LastUpdated: ts("2026-07-30")}, // recoverable, sorts late by UUID
+			"aaa":  {Count: 0},                                // dead, sorts early by UUID
+		}},
+	}
+	got := assembleAccounts(scans)
+	if len(got) != 3 {
+		t.Fatalf("want 3 rows, got %+v", got)
+	}
+	if got[1].UUID != "zzz" || !got[1].Recoverable {
+		t.Fatalf("recoverable ghost must come first among ghosts: %+v", got)
+	}
+	if got[2].UUID != "aaa" || got[2].Recoverable {
+		t.Fatalf("dead ghost must come last: %+v", got)
 	}
 }

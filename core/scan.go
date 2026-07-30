@@ -35,12 +35,42 @@ type ScannedAccount struct {
 	// second profile ready and waiting see "only one account found" and have
 	// no idea what to do about it.
 	SignedOut bool
+
+	// Recoverable marks a ghost whose conversations can be brought back: its
+	// bucket is non-empty, so giving the account its own profile and signing in
+	// once reunites account and history. The credentials are gone for good; the
+	// conversations never were. False for a ghost with an empty bucket, which
+	// really is a dead end.
+	Recoverable bool
+
+	// Sources lists every profile holding part of this ghost's conversations, in
+	// folder order. Recovery copies from all of them: an orphan's conversations
+	// really can be split across two profiles, and taking only the largest share
+	// would quietly deliver less than this row's count promises. Ghost rows only,
+	// and empty for a dead ghost.
+	Sources []GhostSource
+}
+
+// GhostSource is one profile holding part of an orphaned account's conversations.
+// It carries the path as well as the folder because a folder name cannot be turned
+// back into a path outside the platform package — on the Store build the active
+// profile's directory is named "Claude" whatever the profile is called. The path is
+// already in hand: ScanAccounts is given []*platform.ProfileInfo.
+type GhostSource struct {
+	Folder string
+	Path   string
+	Convos int
 }
 
 // SignedOutNote is the review note for a profile folder awaiting its one-time
 // sign-in. Sign-in is per folder and permanent, so this is a single step, not
 // something the user will have to repeat on every switch.
 const SignedOutNote = "Not signed in yet. Select it here, then switch to it and sign in."
+
+// RecoverableGhostNote is the review note for an account that was signed out
+// inside Claude Desktop. It is deliberately not phrased as a defect: the data is
+// intact, and what is missing is a profile that claims the account.
+const RecoverableGhostNote = "Its conversations are still here. Recover to sign back in."
 
 type bucketStat struct {
 	Count       int
@@ -49,6 +79,7 @@ type bucketStat struct {
 
 type dirScan struct {
 	Folder    string
+	Path      string // the dir this was read from; recovery copies out of it
 	LiveUUID  string // config.json lastKnownAccountUuid ("" if logged out)
 	HasConfig bool   // config.json exists, i.e. this really is a profile folder
 	Identity  AccountIdentity
@@ -106,13 +137,33 @@ func assembleAccounts(scans []dirScan) []ScannedAccount {
 			}
 			g := ghost[uuid]
 			if g == nil {
-				g = &ScannedAccount{UUID: uuid, Complete: false, Account: AccountUnknown, Note: deriveNote(false, AccountUnknown)}
+				g = &ScannedAccount{UUID: uuid, Complete: false, Account: AccountUnknown}
 				ghost[uuid] = g
 			}
 			g.Convos += b.Count
 			if b.LastUpdated.After(g.LastUpdated) {
 				g.LastUpdated = b.LastUpdated
 			}
+			if b.Count > 0 {
+				// Only non-empty buckets are worth copying from. An empty one is
+				// not a source, and listing it would make a dead ghost look
+				// recoverable.
+				g.Sources = append(g.Sources, GhostSource{Folder: s.Folder, Path: s.Path, Convos: b.Count})
+			}
+		}
+	}
+	for _, g := range ghost {
+		// scans arrives in filesystem order, so sort for a stable UI and stable
+		// tests.
+		sort.Slice(g.Sources, func(i, j int) bool { return g.Sources[i].Folder < g.Sources[j].Folder })
+		// Derived from the sources, not from the count: sources are what recovery
+		// actually needs, so a ghost with nowhere to copy from must never be
+		// offered as recoverable whatever its count says.
+		g.Recoverable = len(g.Sources) > 0
+		if g.Recoverable {
+			g.Note = RecoverableGhostNote
+		} else {
+			g.Note = deriveNote(false, AccountUnknown)
 		}
 	}
 	// Profile folders waiting for their one-time sign-in. No account, no
@@ -144,15 +195,19 @@ func assembleAccounts(scans []dirScan) []ScannedAccount {
 }
 
 // rowRank orders the review: accounts you can switch to now, then folders
-// waiting to be signed in to, then ghosts.
+// waiting to be signed in to, then orphans you can recover, then orphans you
+// cannot. Recoverable orphans sort above dead ones because they are the only
+// ghost rows the user can act on.
 func rowRank(a ScannedAccount) int {
 	switch {
 	case a.Complete:
 		return 0
 	case a.SignedOut:
 		return 1
-	default:
+	case a.Recoverable:
 		return 2
+	default:
+		return 3
 	}
 }
 
@@ -160,7 +215,7 @@ func rowRank(a ScannedAccount) int {
 // config.json), its session buckets (count + newest mtime), and — only for a
 // live login — the account identity and type (best-effort Local Storage reads).
 func gatherDir(p *platform.ProfileInfo) dirScan {
-	ds := dirScan{Folder: p.Name, Buckets: map[string]bucketStat{}}
+	ds := dirScan{Folder: p.Name, Path: p.Path, Buckets: map[string]bucketStat{}}
 	// config.json is what separates a Claude Desktop profile folder from any
 	// other directory that happens to start with "Claude" (the Claude Code CLI
 	// keeps one next door, for instance).
