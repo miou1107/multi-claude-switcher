@@ -56,7 +56,13 @@ func TestSafeSwitchLaunchesWhenTargetNotLoggedIn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dst := filepath.Join(tempDir, "Dst") // no config.json -> not logged in
+	// The folder exists but holds no config.json, so nobody is signed in to it.
+	// It has to exist: switching to a folder that is not there is now refused, or a
+	// mistyped name would silently create a profile the user never asked for.
+	dst := filepath.Join(tempDir, "Dst")
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		t.Fatal(err)
+	}
 	bm := NewBackupManager(filepath.Join(tempDir, "backups"))
 	mp := &mockPlatform{}
 	s := NewSwitcher(mp, bm)
@@ -306,5 +312,52 @@ func TestManualAlignOwesNothingWhenClaudeWasNotRunning(t *testing.T) {
 	}
 	if mp.launched {
 		t.Fatal("Claude was not running, so it must not be launched")
+	}
+}
+
+// TestSafeSwitchValidatesTargetBeforeClosingClaude
+//
+// SafeSwitch closed the running Claude as its very first act, before checking that
+// the target profile was even a directory. So `mcs switch NoSuchProfile AlsoNoSuch`
+// killed the app the user was working in and then failed — and the same is true for
+// any caller passing a stale or mistyped folder. Closing somebody's app is the last
+// thing to do after every check has passed, not the first.
+func TestSafeSwitchValidatesTargetBeforeClosingClaude(t *testing.T) {
+	root := t.TempDir()
+	mp := &mockPlatform{running: true}
+	s := NewSwitcher(mp, NewBackupManager(filepath.Join(root, "backups")))
+
+	err := s.SafeSwitch(filepath.Join(root, "Claude"), filepath.Join(root, "NoSuchProfile"))
+
+	if err == nil {
+		t.Fatal("switching to a profile that is not there must fail")
+	}
+	if mp.terminated {
+		t.Error("Claude must not be closed before the target is known to exist")
+	}
+	if mp.launched {
+		t.Error("nothing should have been launched")
+	}
+	if p := s.PendingRelaunch(); p != "" {
+		t.Errorf("nothing was closed, so nothing is owed a relaunch, got %q", p)
+	}
+}
+
+// TestSafeSwitchValidatesTargetIsADirectory guards the same gate against a file
+// sitting where a profile folder should be.
+func TestSafeSwitchValidatesTargetIsADirectory(t *testing.T) {
+	root := t.TempDir()
+	notADir := filepath.Join(root, "Claude_File")
+	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mp := &mockPlatform{running: true}
+	s := NewSwitcher(mp, NewBackupManager(filepath.Join(root, "backups")))
+
+	if err := s.SafeSwitch(filepath.Join(root, "Claude"), notADir); err == nil {
+		t.Fatal("a file is not a profile")
+	}
+	if mp.terminated {
+		t.Error("Claude must not be closed for a target that is not a directory")
 	}
 }

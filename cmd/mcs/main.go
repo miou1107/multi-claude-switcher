@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/miou1107/multi-claude-switcher/core"
 	"github.com/miou1107/multi-claude-switcher/platform"
@@ -15,7 +17,8 @@ func printUsage() {
 	fmt.Println("  mcs status                     Show detected profiles and running status")
 	fmt.Println("  mcs backup [ProfileName]       Backup sessions for a profile")
 	fmt.Println("  mcs sync <Src> <Dst>           Sync sessions from Src profile to Dst profile")
-	fmt.Println("  mcs switch <Src> <Dst>         Perform safe switch from Src profile to Dst profile")
+	fmt.Println("  mcs switch <Src> <Dst> [-y]    Perform safe switch from Src profile to Dst profile")
+	fmt.Println("                                 Closes Claude Desktop, so it asks first; -y skips the prompt")
 	fmt.Println("  mcs restore <BackupPath> <Dst> Restore sessions from backup")
 	fmt.Println("  mcs help                       Show this help message")
 }
@@ -143,11 +146,21 @@ func main() {
 
 	case "switch":
 		if len(os.Args) < 4 {
-			fmt.Println("Usage: mcs switch <SrcProfile> <DstProfile>")
+			fmt.Println("Usage: mcs switch <SrcProfile> <DstProfile> [-y]")
 			os.Exit(1)
 		}
 		src := resolveProfilePath(plat, os.Args[2])
 		dst := resolveProfilePath(plat, os.Args[3])
+
+		// Switching closes the running Claude Desktop, so ask first. Same rule as
+		// the panel: an app somebody is working in is not closed on one command
+		// without their word.
+		if !confirmClosingClaude(
+			fmt.Sprintf("Switch to %s? Claude closes and reopens signed in as that account.",
+				filepath.Base(dst))) {
+			fmt.Println("Cancelled.")
+			return
+		}
 
 		if err := switcher.SafeSwitch(src, dst); err != nil {
 			fmt.Printf("Switch failed: %v\n", err)
@@ -187,4 +200,43 @@ func resolveProfilePath(plat platform.Platform, nameOrPath string) string {
 	}
 	appSup := plat.AppSupportDir()
 	return filepath.Join(appSup, nameOrPath)
+}
+
+// hasYesFlag reports whether -y / --yes was passed anywhere in the arguments.
+func hasYesFlag() bool {
+	for _, a := range os.Args[1:] {
+		if a == "-y" || a == "--yes" {
+			return true
+		}
+	}
+	return false
+}
+
+// confirmClosingClaude gets the user's agreement before an operation closes their
+// running Claude Desktop, and reports whether to go ahead.
+//
+// -y skips it, for scripts. Without -y and without a terminal to ask on, it
+// refuses rather than assuming consent: a cron job that closes the app somebody is
+// typing in should have said so explicitly.
+func confirmClosingClaude(what string) bool {
+	if hasYesFlag() {
+		return true
+	}
+	fi, err := os.Stdin.Stat()
+	interactive := err == nil && fi.Mode()&os.ModeCharDevice != 0
+	if !interactive {
+		fmt.Println(what)
+		fmt.Println("This closes Claude Desktop. Re-run with -y to confirm (no terminal available to ask on).")
+		return false
+	}
+	fmt.Println(what)
+	fmt.Println("Anything unsaved in Claude is interrupted.")
+	fmt.Print("Continue? [y/N] ")
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return true
+	}
+	return false
 }

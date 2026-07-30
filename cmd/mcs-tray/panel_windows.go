@@ -536,37 +536,9 @@ func panelMustFindProfiles() []*platform.ProfileInfo {
 
 // panelBuildProfiles returns the managed accounts for the list view.
 func panelBuildProfiles() []panelui.ProfileVM {
-	profiles := panelMustFindProfiles()
-	managed := core.LoadManaged()
 	running, _ := panelPlat.DetectRunningProfile()
-	var out []panelui.ProfileVM
-	for _, p := range profiles {
-		_, uErr := platform.GetProfileAccountUUID(p.Path)
-		if !panelIncludesFolder(managed, p.Name, uErr == nil, p.Managed) {
-			continue
-		}
-		vm := panelui.ProfileVM{
-			Folder:   p.Name,
-			Name:     core.DisplayName(p.Name),
-			Current:  p.Path == running,
-			Plan:     panelCachedPlan(p.Path),
-			SignedIn: uErr == nil,
-		}
-		out = append(out, vm)
-	}
-	return out
-}
-
-func panelIncludesFolder(managed []string, folder string, hasLiveLogin, managedFlag bool) bool {
-	if managed != nil {
-		for _, m := range managed {
-			if m == folder {
-				return true
-			}
-		}
-		return false
-	}
-	return hasLiveLogin || managedFlag
+	// Shared with the macOS host on purpose: see panelui.BuildProfiles.
+	return panelui.BuildProfiles(panelMustFindProfiles(), core.LoadManaged(), running, panelCachedPlan)
 }
 
 // panelCachedPlan looks up the subscription plan, caching per-process.

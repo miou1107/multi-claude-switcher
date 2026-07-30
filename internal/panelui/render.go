@@ -29,6 +29,11 @@ type ProfileVM struct {
 	// it cannot take part in a sync: sessions are stored per account, so with
 	// no account there is no bucket to read from or write to.
 	SignedIn bool
+
+	// Convos is how many Code conversations this profile holds for its own
+	// account. The sync confirmation quotes it, so the user can see how much is
+	// about to move before agreeing to have Claude closed.
+	Convos int
 }
 
 // planPill renders the subscription badge for an account.
@@ -126,16 +131,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .modal{background:#fff;border-radius:16px;padding:20px 20px 16px;width:100%;max-width:340px;box-shadow:0 12px 40px rgba(30,20,50,.28)}
 .modal h2{font-size:15px;font-weight:800;margin-bottom:8px;letter-spacing:-.01em}
 .modal p{font-size:12.5px;color:#6b6580;line-height:1.5;margin-bottom:14px}
+.modal .warn{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.45;padding:8px 11px;border-radius:10px;margin-bottom:14px}
 .modal .row{display:flex;gap:9px}
 .modal .btn{flex:1}
 </style></head><body>` + body + `
 <div class="modal-bg" id="mcsModal" onclick="if(event.target===this) closeConfirm()">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mcsModalTitle" aria-describedby="mcsModalBody">
-    <h2 id="mcsModalTitle">Switch account?</h2>
-    <p id="mcsModalBody">This will quit the running Claude and reopen it with the new account. Any in-progress work will be interrupted.</p>
+    <h2 id="mcsModalTitle">Close Claude?</h2>
+    <p id="mcsModalBody"></p>
+    <div class="warn">Anything unsaved in Claude is interrupted.</div>
     <div class="row">
-      <button class="btn btn-light" onclick="closeConfirm()">Cancel</button>
-      <button class="btn btn-primary" id="mcsModalOk" onclick="okConfirm()">Switch</button>
+      <button class="btn btn-light" id="mcsModalCancel" onclick="closeConfirm()">Cancel</button>
+      <button class="btn btn-primary" id="mcsModalOk" onclick="okConfirm()">Continue</button>
     </div>
   </div>
 </div>
@@ -152,17 +159,35 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     document.querySelectorAll('.card.selectable.selected').forEach(function(c){ if(c.dataset.folder) picked.push(c.dataset.folder); });
     send('confirmManaged', JSON.stringify(picked));
   }
-  function syncDir(f,t){ send('sync', f+'|'+t); }
   function renameSave(f){ var v=document.getElementById('rn').value.trim(); send('renameSave', JSON.stringify([f, v])); }
-  var _pendingSwitch=null;
-  function askSwitch(folder, name){
-    _pendingSwitch=folder;
-    document.getElementById('mcsModalTitle').textContent='Switch to '+name+'?';
+
+  // Every action that closes the user's Claude goes through askConfirm. Nothing
+  // may call send('switch') or send('sync') directly: closing an app somebody is
+  // working in is not a single-click operation, and a warning that one code path
+  // can skip is not a warning.
+  var _pending=null;
+  function askConfirm(action, arg, title, body, okLabel){
+    _pending={a:action, arg:arg};
+    document.getElementById('mcsModalTitle').textContent=title;
+    document.getElementById('mcsModalBody').textContent=body;
+    document.getElementById('mcsModalOk').textContent=okLabel;
     document.getElementById('mcsModal').classList.add('on');
-    document.getElementById('mcsModalOk').focus();
+    // Cancel takes the focus, not Continue. Enter on an unread dialog must not
+    // close somebody's app.
+    document.getElementById('mcsModalCancel').focus();
   }
-  function closeConfirm(){ _pendingSwitch=null; document.getElementById('mcsModal').classList.remove('on'); }
-  function okConfirm(){ var f=_pendingSwitch; closeConfirm(); if(f) send('switch', f); }
+  function askSwitch(folder, name){
+    askConfirm('switch', folder, 'Switch to '+name+'?',
+      'Claude closes and reopens signed in as '+name+'.', 'Switch');
+  }
+  function askSync(from, to, fromName, toName, convos){
+    var n = parseInt(convos, 10) || 0;
+    var what = n === 1 ? '1 conversation is copied' : n + ' conversations are copied';
+    askConfirm('sync', from+'|'+to, 'Sync into '+toName+'?',
+      'Claude closes, '+what+' from '+fromName+', then Claude reopens where you were.', 'Sync');
+  }
+  function closeConfirm(){ _pending=null; document.getElementById('mcsModal').classList.remove('on'); }
+  function okConfirm(){ var p=_pending; closeConfirm(); if(p) send(p.a, p.arg); }
   // Enter is intentionally NOT hijacked: browsers activate the focused button on Enter,
   // so tabbing to Cancel and pressing Enter cancels — hijacking it would silently confirm.
   document.addEventListener('keydown', function(e){
@@ -402,7 +427,13 @@ func RenderSync(profiles []ProfileVM, status string, busy bool) string {
 			if busy {
 				cls = "card ghost"
 			} else {
-				oc = fmt.Sprintf(`data-from="%s" data-to="%s" onclick="syncDir(this.dataset.from,this.dataset.to)"`, esc(from.Folder), esc(to.Folder))
+				// Through askSync, never straight to send('sync'): this closes the
+				// user's Claude, so it needs their yes first. The names and count
+				// ride along so the dialog can say which way the copy goes and how
+				// much moves — "Sync?" alone does not tell the user that.
+				oc = fmt.Sprintf(`data-from="%s" data-to="%s" data-from-name="%s" data-to-name="%s" data-convos="%d" `+
+					`onclick="askSync(this.dataset.from,this.dataset.to,this.dataset.fromName,this.dataset.toName,this.dataset.convos)"`,
+					esc(from.Folder), esc(to.Folder), esc(from.Name), esc(to.Name), from.Convos)
 			}
 			cards.WriteString(fmt.Sprintf(`
       <div class="%s" %s><div class="chev">→</div>

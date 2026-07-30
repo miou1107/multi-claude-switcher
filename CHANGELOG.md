@@ -2,7 +2,27 @@
 
 ## [Unreleased]
 
+### Changed
+- **Closing Claude Desktop now always asks first.** Syncing closed Claude on a single
+  click with no warning at all, while switching accounts had a confirmation the whole
+  time. Both now ask, both say what happens next, and both warn that unsaved work in
+  Claude is interrupted. Cancel holds the focus, so pressing Enter on a dialog you
+  have not read cannot close your app. `mcs switch` asks on the command line too and
+  takes `-y` to skip; with no terminal to ask on and no `-y` it refuses rather than
+  assuming consent.
+
 ### Fixed
+- **The sync screen worked again on macOS.** It reported every account as "not signed
+  in yet" and offered no sync at all, however many accounts were signed in, so the
+  screen had been unusable since 0.10.1. The macOS panel was not filling in one field
+  the Windows panel did; both panels now build their account list from the same code,
+  so the two cannot drift apart again.
+
+- **Switching to a profile that is not there no longer closes Claude first.** A stale
+  or mistyped folder name killed the running Claude Desktop and only then failed, and
+  had the folder been created on the way it would have switched you into an empty
+  profile you never asked for. The target is now checked before anything is closed.
+
 - **An interrupted copy no longer damages a conversation.** Copies were written
   straight into the destination, which truncates it immediately, so a process that
   died partway left a truncated file behind. That was worse than a failed copy: a

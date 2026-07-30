@@ -432,31 +432,11 @@ func doSwitch(folder string) {
 
 // buildProfiles lists the managed accounts for the list view.
 func buildProfiles() []panelui.ProfileVM {
-	profiles := mustFindProfiles()
-	managed := core.LoadManaged()
 	running, _ := plat.DetectRunningProfile()
-	var out []panelui.ProfileVM
-	for _, p := range profiles {
-		_, uErr := platform.GetProfileAccountUUID(p.Path)
-		if !panelIncludes(managed, p.Name, uErr == nil, p.Managed) {
-			continue
-		}
-		vm := panelui.ProfileVM{Folder: p.Name, Name: core.DisplayName(p.Name), Current: p.Path == running, Plan: cachedPlan(p.Path)}
-		out = append(out, vm)
-	}
-	return out
-}
-
-func panelIncludes(managed []string, folder string, hasLiveLogin, managedFlag bool) bool {
-	if managed != nil {
-		for _, m := range managed {
-			if m == folder {
-				return true
-			}
-		}
-		return false
-	}
-	return hasLiveLogin || managedFlag
+	// Shared with the Windows host on purpose: this used to be a copy in each, and
+	// the copies drifted — SignedIn was set in one and not the other, which left the
+	// sync screen unable to offer any pair at all on macOS.
+	return panelui.BuildProfiles(mustFindProfiles(), core.LoadManaged(), running, cachedPlan)
 }
 
 func sourceProfilePath(targetPath string, profiles []*platform.ProfileInfo) string {

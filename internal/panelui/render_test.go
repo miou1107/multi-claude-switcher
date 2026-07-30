@@ -126,3 +126,72 @@ func TestRenderRescanGhostStaysReadOnly(t *testing.T) {
 		t.Fatal("a ghost has no folder to manage and must not be selectable")
 	}
 }
+
+// TestNoActionClosesClaudeWithoutAsking is the guard for the rule, not for one
+// screen: any click handler that would close the user's Claude must go through
+// askConfirm first.
+//
+// Sync shipped without it. The button called send('sync', …) straight from the
+// card, so a single click closed Claude Desktop with no warning at all, while the
+// switch path two screens over had a confirmation the whole time. A warning one
+// code path can skip is not a warning, so this test reads the rendered markup
+// rather than trusting each call site.
+func TestNoActionClosesClaudeWithoutAsking(t *testing.T) {
+	pages := map[string]string{
+		"list": RenderList([]ProfileVM{
+			{Folder: "Claude", Name: "Work", SignedIn: true, Current: true},
+			{Folder: "Claude_P", Name: "Personal", SignedIn: true},
+		}),
+		"sync": RenderSync([]ProfileVM{
+			{Folder: "Claude", Name: "Work", SignedIn: true, Convos: 94},
+			{Folder: "Claude_P", Name: "Personal", SignedIn: true, Convos: 12},
+		}, "", false),
+	}
+	// Reaching either action from an onclick without the dialog in between is the
+	// defect. The strings are deliberately the ones an author would write by
+	// habit.
+	for _, bad := range []string{`onclick="send('sync'`, `onclick="send('switch'`, "syncDir("} {
+		for page, html := range pages {
+			if strings.Contains(html, bad) {
+				t.Errorf("%s page reaches a Claude-closing action via %s without confirming", page, bad)
+			}
+		}
+	}
+}
+
+func TestRenderSyncAsksBeforeClosingClaude(t *testing.T) {
+	html := RenderSync([]ProfileVM{
+		{Folder: "Claude", Name: "Work", SignedIn: true, Convos: 94},
+		{Folder: "Claude_P", Name: "Personal", SignedIn: true, Convos: 12},
+	}, "", false)
+
+	if !strings.Contains(html, "askSync(this.dataset.from,this.dataset.to") {
+		t.Fatalf("sync must route through the confirmation:\n%s", html)
+	}
+	// The dialog has to name the direction and the volume; "Sync?" on its own does
+	// not tell the user what is about to happen to their conversations.
+	if !strings.Contains(html, `data-from-name="Work" data-to-name="Personal" data-convos="94"`) {
+		t.Fatalf("confirmation needs both names and the source count:\n%s", html)
+	}
+}
+
+// TestConfirmDialogFocusesCancel: Enter on a dialog the user has not read must not
+// close their Claude, so the safe button holds the focus.
+func TestConfirmDialogFocusesCancel(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}})
+	if !strings.Contains(html, "getElementById('mcsModalCancel').focus()") {
+		t.Error("the confirmation must open with Cancel focused")
+	}
+	if strings.Contains(html, "getElementById('mcsModalOk').focus()") {
+		t.Error("focusing Continue makes Enter destructive on an unread dialog")
+	}
+}
+
+// TestConfirmDialogWarnsAboutUnsavedWork: the consequence the user cannot see for
+// themselves is that Claude is mid-work. Both dialogs carry the same line.
+func TestConfirmDialogWarnsAboutUnsavedWork(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}})
+	if !strings.Contains(html, `<div class="warn">Anything unsaved in Claude is interrupted.</div>`) {
+		t.Errorf("the dialog must say what closing Claude costs:\n%s", html)
+	}
+}

@@ -3,6 +3,8 @@ package core
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/miou1107/multi-claude-switcher/platform"
@@ -72,6 +74,19 @@ func (s *Switcher) ClaimPendingRelaunch() string {
 // data at all — a pure account switch.
 func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 	log.Printf("[Safe Switch] Starting switch from %s to %s...", srcProfilePath, dstProfilePath)
+
+	// Step 0: the target has to be real before anything else happens. Closing the
+	// app the user is working in is the most disruptive thing MCS does, so it comes
+	// after every check that can be made cheaply — not before. This used to be
+	// missing, and a mistyped or stale folder name killed a running Claude and then
+	// failed anyway, which is the worst of both outcomes.
+	//
+	// The source is deliberately not checked here: it only feeds the optional align,
+	// which reports its own failure, and a switch away from a profile that has since
+	// been removed is still a switch worth completing.
+	if fi, err := os.Stat(dstProfilePath); err != nil || !fi.IsDir() {
+		return fmt.Errorf("can't switch to %s: no profile folder there", filepath.Base(dstProfilePath))
+	}
 
 	// Step 1: close any running Claude Desktop (never write into a live profile).
 	running, procs, err := s.Platform.IsAppRunning()
