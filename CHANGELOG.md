@@ -25,6 +25,13 @@
   names where the data is and how to put it back.
 - **Switching is guarded against a second click**, the way syncing, backing up and
   merging already were. Two switches running at once raced over one folder.
+- **"Check for updates" updates you, on Windows.** It opened the releases page in a
+  browser and did nothing else — whether or not a newer version existed — so the
+  silent installer could only ever be reached by the background check that runs at
+  startup and every six hours. There was no other route: the tray's right-click menu
+  on Windows offers Quit alone. The button now runs the real check and installs what
+  it finds, and tells you when you are already up to date instead of sending you to
+  a web page to work it out yourself.
 
 ## [0.11.0] - 2026-07-30
 
