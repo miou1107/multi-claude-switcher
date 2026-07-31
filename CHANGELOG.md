@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Switching accounts on the Windows Store build.** Every switch failed with
+  `Access is denied`. Two programs keep running out of the account folder after
+  Claude Desktop closes, the Chrome bridge helper and the Claude Code CLI, and
+  Windows will not rename a folder a running program was loaded from. Neither was
+  recognised, because the switcher looked for processes called `Claude.exe`. They
+  are now found by where they run from, including the redirected `%APPDATA%\Claude`
+  spelling the Store build reports, and closed before the folder is moved. The
+  switcher's own parent processes are never closed, so a switch started from inside
+  a Claude Code session stops with an explanation instead of terminating itself
+  halfway through.
+- **A switch no longer fails when Claude recreates its folder mid-swap.** A switch
+  moves two folders and Claude is relaunched between them, recreating its data
+  folder within seconds; the second move then landed on an existing folder, which
+  Windows also refuses with a bare `Access is denied`. Anything that appears there
+  is now moved aside first, and kept rather than deleted, because a sign-in
+  completed in that window is real data.
+- **A failed switch now says so.** The error was discarded, so a switch that had
+  not happened looked exactly like one that had, and the account list only went
+  strange later. The failure is shown, and when the rollback fails too the message
+  names where the data is and how to put it back.
+- **Switching is guarded against a second click**, the way syncing, backing up and
+  merging already were. Two switches running at once raced over one folder.
+
 ## [0.11.0] - 2026-07-30
 
 ### Added
