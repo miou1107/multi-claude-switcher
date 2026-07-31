@@ -162,7 +162,71 @@ func renameWithRetry(from, to string) error {
 		time.Sleep(500 * time.Millisecond)
 	}
 	log.Printf("[msix] rename %q -> %q FAILED after retries: %v", filepath.Base(from), filepath.Base(to), err)
+	// "Access is denied" says nothing about who is holding the directory, and the
+	// answer is nearly always a program loaded from inside it. Name them in the
+	// error, not just the log: this text is what msixSwapToIn wraps into the
+	// notification the user sees, and "quit chrome-native-host.exe" is something
+	// they can act on where "Access is denied" is not.
+	if holders := msixDescribeHolders(from); holders != "" {
+		log.Printf("[msix] still running from inside %q: %s", filepath.Base(from), holders)
+		return fmt.Errorf("%w — still running from inside it: %s", err, holders)
+	}
 	return err
+}
+
+// msixStrayPrefix names directories moved out of the slot's way. They sit in
+// <roaming>, deliberately not in the profile container: msixFindProfilesIn reads
+// only the slot and the container, so a stray is preserved without turning up in
+// the account list as a profile the user never made.
+const msixStrayPrefix = ".mcs-stray-"
+
+// msixStrayDir returns an unused <roaming>\.mcs-stray-N. Numbered rather than
+// timestamped so the name is reproducible in tests.
+func msixStrayDir(roaming string) (string, error) {
+	for n := 1; n <= 100; n++ {
+		p := filepath.Join(roaming, fmt.Sprintf("%s%d", msixStrayPrefix, n))
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("too many %s* directories left in %s; move or remove them", msixStrayPrefix, roaming)
+}
+
+// msixClearSlot frees the slot path so a profile can be renamed into it.
+//
+// The slot is supposed to be free by now: parking moved the live profile out.
+// Anything sitting there appeared DURING the swap, and in practice only one
+// thing does that — Claude, which recreates its data directory within seconds of
+// starting. Windows fails a rename onto an existing directory with a bare
+// "Access is denied", which is exactly what made this read as a permissions
+// problem when it is really a race.
+//
+// The intruder is moved aside, never deleted. The user may have completed a
+// sign-in in that window, and that is real data.
+func msixClearSlot(roaming string) error {
+	slot := msixSlotDir(roaming)
+	if _, err := os.Stat(slot); err != nil {
+		return nil // nothing in the way
+	}
+	stray, err := msixStrayDir(roaming)
+	if err != nil {
+		return err
+	}
+	if err := renameWithRetry(slot, stray); err != nil {
+		return fmt.Errorf("Claude recreated its data folder during the switch and it could not be moved out of the way — fully quit Claude and try again (%w)", err)
+	}
+	log.Printf("[msix] Claude recreated the slot during the switch; moved it aside to %q (kept, not deleted)", filepath.Base(stray))
+	return nil
+}
+
+// msixActivate renames dir into the slot, clearing whatever has appeared there
+// first. Every rename INTO the slot goes through here, rollbacks included: a
+// rollback races Claude for the same directory the activation just lost to it.
+func msixActivate(roaming, dir string) error {
+	if err := msixClearSlot(roaming); err != nil {
+		return err
+	}
+	return renameWithRetry(dir, msixSlotDir(roaming))
 }
 
 // removeIfEmpty deletes dir only if it is empty (best effort). Used to clean up a
@@ -232,11 +296,17 @@ func msixSwapToIn(roaming, targetName string) error {
 		slotParked = true
 	}
 	// 2. Activate the target into the slot; roll back the parking on failure.
-	if err := renameWithRetry(targetDir, slot); err != nil {
+	//
+	// The rollback's own failure used to be discarded, which is the worst outcome
+	// this code can produce: the slot is gone, the user's profile is parked under
+	// a name they never chose, and nothing says so. Say so.
+	if err := msixActivate(roaming, targetDir); err != nil {
 		if slotParked {
-			_ = renameWithRetry(parked, slot)
+			if rb := msixActivate(roaming, parked); rb != nil {
+				return fmt.Errorf("couldn't switch to %q, and %q could not be put back either. Nothing is lost — that profile's data is at %s. Fully quit Claude, then move that folder to %s. (%w)", targetName, current, parked, slot, rb)
+			}
 		}
-		return fmt.Errorf("couldn't switch to %q — Claude is still holding its files. Fully quit Claude and try again. (%w)", targetName, err)
+		return fmt.Errorf("couldn't switch to %q: %w", targetName, err)
 	}
 	// 3. Record the new occupant. Dirs are already swapped, so a write failure
 	//    only mislabels the slot (no data loss); surface it so the user knows.
@@ -290,7 +360,9 @@ func msixParkForNewIn(roaming, newName string) error {
 	}
 	if err := writeMSIXStateIn(roaming, st); err != nil {
 		if didPark {
-			_ = renameWithRetry(parked, slot) // roll back the parking
+			if rb := msixActivate(roaming, parked); rb != nil {
+				return fmt.Errorf("couldn't save the new profile (%v), and %q could not be put back either. Nothing is lost — that profile's data is at %s. Fully quit Claude, then move that folder to %s. (%w)", err, current, parked, slot, rb)
+			}
 		}
 		return fmt.Errorf("save state: %w", err)
 	}

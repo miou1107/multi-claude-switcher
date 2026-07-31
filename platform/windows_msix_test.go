@@ -5,6 +5,7 @@ package platform
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -319,5 +320,93 @@ func TestMSIXFindProfilesInventsNothingWhenMCSHasNeverRunHere(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("want no profiles before MCS has recorded any state, got %+v", got[0])
+	}
+}
+
+// The failure this whole mechanism exists for. Parking the live profile works,
+// then Claude gets relaunched and recreates its data directory in the slot, and
+// the rename that should move the target in lands on an existing directory —
+// which Windows refuses with a bare "Access is denied". Both the activation and
+// its rollback hit it, so the user is left with their profile parked under a
+// name they never chose and an empty slot.
+func TestMSIXActivateMovesARecreatedSlotAside(t *testing.T) {
+	roaming := t.TempDir()
+	slot := msixSlotDir(roaming)
+	source := filepath.Join(msixContainerDir(roaming), "Work")
+	writeProfileDir(t, slot, "recreated-by-claude")
+	writeProfileDir(t, source, "work-data")
+
+	if err := msixActivate(roaming, source); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	if got := readMarker(t, slot); got != "work-data" {
+		t.Errorf("slot holds %q, want the activated profile", got)
+	}
+	if exists(source) {
+		t.Error("the source should have been moved, not copied")
+	}
+	stray := filepath.Join(roaming, msixStrayPrefix+"1")
+	if !exists(stray) {
+		t.Fatalf("what was in the slot must be kept, not deleted; nothing at %s", stray)
+	}
+	if got := readMarker(t, stray); got != "recreated-by-claude" {
+		t.Errorf("stray holds %q, want what Claude had recreated", got)
+	}
+}
+
+func TestMSIXActivateIntoAFreeSlotLeavesNoStray(t *testing.T) {
+	roaming := t.TempDir()
+	source := filepath.Join(msixContainerDir(roaming), "Work")
+	writeProfileDir(t, source, "work-data")
+
+	if err := msixActivate(roaming, source); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	if got := readMarker(t, msixSlotDir(roaming)); got != "work-data" {
+		t.Errorf("slot holds %q", got)
+	}
+	if exists(filepath.Join(roaming, msixStrayPrefix+"1")) {
+		t.Error("nothing was in the way, so no stray should have been created")
+	}
+}
+
+// A second stray must not clobber the first: each one is somebody's data.
+func TestMSIXStrayDirNumbersPastWhatIsAlreadyThere(t *testing.T) {
+	roaming := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(roaming, msixStrayPrefix+"1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := msixStrayDir(roaming)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(roaming, msixStrayPrefix+"2"); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// Strays live in <roaming> rather than the profile container precisely so they
+// stay out of the account list. Put one where a careless fix would put it and
+// the user gets a profile called ".mcs-stray-1" they never made.
+func TestMSIXStrayIsNotListedAsAProfile(t *testing.T) {
+	roaming := t.TempDir()
+	writeProfileDir(t, msixSlotDir(roaming), "live")
+	if err := writeMSIXStateIn(roaming, msixState{Current: "Claude"}); err != nil {
+		t.Fatal(err)
+	}
+	writeProfileDir(t, filepath.Join(roaming, msixStrayPrefix+"1"), "moved-aside")
+
+	w := &WindowsPlatform{}
+	got, err := w.msixFindProfilesIn(roaming)
+	if err != nil {
+		t.Fatalf("msixFindProfilesIn: %v", err)
+	}
+	for _, p := range got {
+		if strings.HasPrefix(p.Name, msixStrayPrefix) {
+			t.Fatalf("a stray was listed as the profile %q", p.Name)
+		}
+	}
+	if len(got) != 1 || got[0].Name != "Claude" {
+		t.Fatalf("want just the slot profile, got %+v", got)
 	}
 }
