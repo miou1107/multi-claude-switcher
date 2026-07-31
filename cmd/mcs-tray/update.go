@@ -100,8 +100,15 @@ func checkForUpdate(auto bool) {
 		log.Printf("Update failed: %v", err)
 		notify("Update failed", err.Error())
 	}
-	// On success installUpdate either relaunches and quits (macOS) or opens the
-	// download page (Windows); there is nothing more to do here.
+	// On success installUpdate relaunches and quits: macOS swaps the bundle, Windows
+	// runs the downloaded setup.exe unattended and exits so it can replace the
+	// running executable. Either way there is nothing more to do here.
+	//
+	// Windows opens the releases page only when an update was found and could NOT be
+	// installed, and only for a check the user asked for (see openURL in
+	// update_install_windows.go). This comment used to say the download page was the
+	// normal Windows outcome, which is how the silent installer looked like it had
+	// regressed when it had not.
 }
 
 // copyExecutable copies src to dst (0755), truncating dst. Used by the macOS

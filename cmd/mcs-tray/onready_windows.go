@@ -285,6 +285,17 @@ func readPanelMessages(r io.ReadCloser) {
 			// startMigrationWatcher is a no-op when nothing is queued.
 			log.Println("Panel queued a profile migration; restarting the watcher.")
 			startMigrationWatcher()
+		case "MCS_CHECK_UPDATES":
+			// The panel's "Check for updates" button. It has to run here: this
+			// process owns the update lock and survives the install, which replaces
+			// the executable and relaunches. checkForUpdate reports back through a
+			// toast, so nothing has to travel the other way down this pipe.
+			//
+			// This is the only manual route on Windows. The tray menu's "Check for
+			// Updates" item lives on the macOS onReady; onReadyWindowsPanel builds a
+			// menu with Quit alone.
+			log.Println("Panel requested an update check.")
+			go checkForUpdate(false)
 		case "MCS_QUIT":
 			log.Println("Panel requested Quit; shutting down tray.")
 			stopPanelProcess()

@@ -394,16 +394,21 @@ func dispatchAction(action, arg string) {
 		if panelGetBusy() {
 			return
 		}
-		panelSetBusy(true, "Checking for updates…")
+		// Ask the tray to run the check. The update flow does belong on the
+		// persistent process — it owns the update lock, and installing means
+		// replacing the running executable and relaunching, which the process being
+		// replaced cannot supervise. But this used to open the releases page and
+		// stop there, which meant the silent installer could only ever be reached by
+		// the background check: the tray's own "Check for Updates" item is macOS-only
+		// (see onReadyWindowsPanel), so on Windows there was no button that fetched
+		// anything, and the browser opened whether or not an update existed.
+		//
+		// The protocol is one-way, so the outcome cannot come back here.
+		// checkForUpdate(false) reports every case — up to date, failed, unavailable
+		// — through a toast, and that is where the answer appears.
+		notifyTray("MCS_CHECK_UPDATES")
+		panelSetStatus("Checking for updates… the result appears in a notification.")
 		reloadPanel()
-		go func() {
-			// The tray runs the periodic auto-update. The panel just opens the
-			// releases page so the user sees the latest — a full update flow
-			// belongs on the persistent tray process, not this transient window.
-			_ = exec.Command("cmd", "/c", "start", "https://github.com/miou1107/multi-claude-switcher/releases").Start()
-			panelSetBusy(false, "Opened Releases page in your browser.")
-			reloadPanel()
-		}()
 	case "hidePanel":
 		// Esc. Park rather than exit: the process is reused for the next show.
 		if hwnd := panelHWND.Load(); hwnd != 0 {
