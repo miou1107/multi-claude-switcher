@@ -389,6 +389,13 @@ func TestCreateBackupInTheSameSecondDoesNotMergeIntoTheLastOne(t *testing.T) {
 // typical umask), and the rename carries that onto the destination, so every synced
 // conversation would come out group- and world-readable. A sync must not quietly
 // relax the permissions on the user's chat history.
+//
+// The expectation is read back off the source rather than hardcoded to 0600.
+// Windows has no POSIX permission bits: Chmod there only drives the read-only
+// attribute, so a 0600 source reports 0666 and asserting the literal can never
+// hold. Comparing the two modes is the same guarantee where the bits are real —
+// a staged file created with the process default still reports 0644 against a
+// 0600 source and still fails — and it stays honest where they are not.
 func TestCopyFilePreservesTheSourceMode(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.json")
@@ -399,6 +406,10 @@ func TestCopyFilePreservesTheSourceMode(t *testing.T) {
 	if err := os.Chmod(src, 0600); err != nil { // WriteFile is subject to umask
 		t.Fatal(err)
 	}
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := copyFile(src, dst); err != nil {
 		t.Fatal(err)
 	}
@@ -406,8 +417,8 @@ func TestCopyFilePreservesTheSourceMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fi.Mode().Perm(); got != 0600 {
-		t.Fatalf("copied mode = %04o, want 0600 from the source", got)
+	if got, want := fi.Mode().Perm(), srcInfo.Mode().Perm(); got != want {
+		t.Fatalf("copied mode = %04o, want %04o from the source", got, want)
 	}
 }
 
