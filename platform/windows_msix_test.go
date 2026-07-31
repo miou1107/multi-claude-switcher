@@ -404,7 +404,7 @@ func TestMSIXStrandedSlotLeavesTheParkedProfileListedOnceAndSwitchable(t *testin
 		t.Fatal(err)
 	}
 
-	err := msixRecordStrandedSlot(roaming, st, "Claude", parked, "Work", errors.New("rollback failed"))
+	err := msixRecordStrandedSlot(roaming, st, `switch to "Work"`, "Claude", parked, errors.New("rollback failed"))
 	if err == nil {
 		t.Fatal("the caller must still be told the switch failed")
 	}
@@ -434,6 +434,56 @@ func TestMSIXStrandedSlotLeavesTheParkedProfileListedOnceAndSwitchable(t *testin
 	}
 	if cur := readMSIXStateIn(roaming).Current; cur != "Claude" {
 		t.Errorf("state names %q as live, want Claude", cur)
+	}
+}
+
+// The same dead end is reachable from the create path: msixParkForNewIn parks the
+// live profile, fails to write the state, and fails to put it back. The disk ends
+// up identical to the switch case, so it needs the same recording.
+//
+// What is specific to this path is the queued first-login migration. state carries
+// PendingMigrateFrom pointing at the profile just parked, and if that survived, the
+// watcher would later copy that account's sessions into a slot holding neither
+// profile — Claude's recreated directory.
+func TestMSIXStrandedSlotFromTheCreatePathClearsTheQueuedMigration(t *testing.T) {
+	roaming := t.TempDir()
+	parked := filepath.Join(msixContainerDir(roaming), "Claude")
+	writeProfileDir(t, msixSlotDir(roaming), "recreated-by-claude")
+	writeProfileDir(t, parked, "the-real-data")
+
+	// The state msixParkForNewIn holds when its write fails: the new profile named
+	// as live, and a migration queued from the one it just parked.
+	st := msixState{Current: "Work", PendingMigrateFrom: "Claude"}
+
+	if err := msixRecordStrandedSlot(roaming, st, `set up the new profile "Work"`, "Claude", parked, errors.New("rollback failed")); err == nil {
+		t.Fatal("the caller must still be told it failed")
+	}
+
+	got := readMSIXStateIn(roaming)
+	if got.PendingMigrateFrom != "" {
+		t.Errorf("a queued migration must not survive this: it would copy sessions into a slot holding neither profile, got %q", got.PendingMigrateFrom)
+	}
+	if got.Current == "Work" || got.Current == "Claude" {
+		t.Errorf("the slot holds neither profile, but state names it %q", got.Current)
+	}
+
+	w := &WindowsPlatform{}
+	profiles, ferr := w.msixFindProfilesIn(roaming)
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	seen := map[string]int{}
+	for _, p := range profiles {
+		seen[p.Name]++
+	}
+	if seen["Claude"] != 1 {
+		t.Fatalf(`"Claude" is listed %d times, want exactly 1: %v`, seen["Claude"], seen)
+	}
+	if err := msixSwapToIn(roaming, "Claude"); err != nil {
+		t.Fatalf("switching back to the parked profile: %v", err)
+	}
+	if got := readMarker(t, msixSlotDir(roaming)); got != "the-real-data" {
+		t.Errorf("slot holds %q, want the real profile moved back in", got)
 	}
 }
 
