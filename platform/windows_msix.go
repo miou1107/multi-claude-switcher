@@ -206,7 +206,14 @@ func msixStrayDir(roaming string) (string, error) {
 func msixClearSlot(roaming string) error {
 	slot := msixSlotDir(roaming)
 	if _, err := os.Stat(slot); err != nil {
-		return nil // nothing in the way
+		if os.IsNotExist(err) {
+			return nil // nothing in the way, which is the normal case
+		}
+		// A permission or path error is not "the slot is free". Treating it as one
+		// hands the caller a rename onto a directory that does exist, and the error
+		// it fails with is worse than this one — it is the bare "Access is denied"
+		// this function exists to prevent.
+		return fmt.Errorf("couldn't check whether the live slot at %s is free: %w", slot, err)
 	}
 	stray, err := msixStrayDir(roaming)
 	if err != nil {
@@ -227,6 +234,66 @@ func msixActivate(roaming, dir string) error {
 		return err
 	}
 	return renameWithRetry(dir, msixSlotDir(roaming))
+}
+
+// msixRecreatedName is what the slot is called once a switch has failed in both
+// directions and the directory sitting there is one Claude made, not a profile
+// the user ever named.
+const msixRecreatedName = "Recreated by Claude"
+
+// msixUnusedProfileName returns base, or base with a number appended, so that it
+// does not collide with a parked profile.
+func msixUnusedProfileName(roaming, base string) string {
+	container := msixContainerDir(roaming)
+	for n := 1; n <= 100; n++ {
+		name := base
+		if n > 1 {
+			name = fmt.Sprintf("%s %d", base, n)
+		}
+		if _, err := os.Stat(filepath.Join(container, name)); os.IsNotExist(err) {
+			return name
+		}
+	}
+	return base
+}
+
+// msixRecordStrandedSlot makes state.json describe the disk after BOTH the move
+// into the slot and its rollback failed, and returns the error the user is shown.
+// what names the operation that failed ("switch to \"Work\"") and only appears in
+// that message, since both callers arrive at the same disk state by different
+// routes.
+//
+// At that point the slot holds whatever Claude recreated — that is why both
+// renames failed — while the profile that used to be in it is parked under its
+// own name. Leaving state.json naming that parked profile as the slot occupant is
+// what turns a bad switch into a dead end:
+//
+//   - msixFindProfilesIn lists the slot as st.Current AND every directory in the
+//     container, so the one profile appears twice under the same name;
+//   - a switch back to it takes msixSwapToIn's `targetName == current` early
+//     return and reports success without moving anything;
+//   - every later sync or backup then works on Claude's empty directory while the
+//     real data sits unreachable through the UI.
+//
+// Naming the slot for what it actually holds costs no new field and no new state
+// machine. The parked profile becomes an ordinary inactive profile, listed once,
+// and switching to it does the real work — which is exactly the recovery the user
+// needs and can reach from the account list.
+func msixRecordStrandedSlot(roaming string, st msixState, what, current, parked string, rollbackErr error) error {
+	slot := msixSlotDir(roaming)
+	stranded := msixUnusedProfileName(roaming, msixRecreatedName)
+	st.Current = stranded
+	st.PendingMigrateFrom = ""
+	if werr := writeMSIXStateIn(roaming, st); werr != nil {
+		// Nothing left to record with. Say plainly what is where, including the
+		// directory in the slot: "move your folder back" cannot be followed while
+		// something else is sitting in the destination.
+		return fmt.Errorf("couldn't %[1]s, %[2]q could not be put back (%[3]v), and the record of which profile is live could not be updated either (%[4]v). Nothing is lost: %[2]q is at %[5]s, and the live slot at %[6]s holds a folder Claude recreated. Fully quit Claude, move that folder out of the way, then move %[2]q's folder into its place",
+			what, current, rollbackErr, werr, parked, slot)
+	}
+	log.Printf("[msix] %s failed and the rollback failed too; the slot holds a directory Claude recreated, now recorded as %q so %q stays listed and switchable", what, stranded, current)
+	return fmt.Errorf("couldn't %[1]s, and %[2]q could not be put back into the live slot: %[3]w. Nothing is lost — %[2]q is still listed, so fully quit Claude and switch to it to put it back. The live slot currently holds a folder Claude recreated, listed as %[4]q",
+		what, current, rollbackErr, stranded)
 }
 
 // removeIfEmpty deletes dir only if it is empty (best effort). Used to clean up a
@@ -303,7 +370,7 @@ func msixSwapToIn(roaming, targetName string) error {
 	if err := msixActivate(roaming, targetDir); err != nil {
 		if slotParked {
 			if rb := msixActivate(roaming, parked); rb != nil {
-				return fmt.Errorf("couldn't switch to %q, and %q could not be put back either. Nothing is lost — that profile's data is at %s. Fully quit Claude, then move that folder to %s. (%w)", targetName, current, parked, slot, rb)
+				return msixRecordStrandedSlot(roaming, st, fmt.Sprintf("switch to %q", targetName), current, parked, rb)
 			}
 		}
 		return fmt.Errorf("couldn't switch to %q: %w", targetName, err)
@@ -361,7 +428,18 @@ func msixParkForNewIn(roaming, newName string) error {
 	if err := writeMSIXStateIn(roaming, st); err != nil {
 		if didPark {
 			if rb := msixActivate(roaming, parked); rb != nil {
-				return fmt.Errorf("couldn't save the new profile (%v), and %q could not be put back either. Nothing is lost — that profile's data is at %s. Fully quit Claude, then move that folder to %s. (%w)", err, current, parked, slot, rb)
+				// The same dead end msixSwapToIn avoids, reached from the create path
+				// instead: state.json still names current as the slot occupant while the
+				// slot holds whatever Claude recreated, so current is listed twice and a
+				// switch back to it short-circuits on "already active".
+				//
+				// Recording it means writing state again right after a write failed. That
+				// is worth doing anyway: the first failure can be transient — a lock, a
+				// momentarily full disk — and the retry then leaves the user switchable
+				// rather than stranded. When it fails again, msixRecordStrandedSlot's own
+				// write-failure branch produces the message this used to hand-roll, and
+				// that one names all three locations including the folder in the slot.
+				return msixRecordStrandedSlot(roaming, st, fmt.Sprintf("set up the new profile %q", newName), current, parked, rb)
 			}
 		}
 		return fmt.Errorf("save state: %w", err)

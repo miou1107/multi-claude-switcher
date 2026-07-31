@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -381,6 +382,118 @@ func TestMSIXStrayDirNumbersPastWhatIsAlreadyThere(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := filepath.Join(roaming, msixStrayPrefix+"2"); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// The dead end behind the duplicate entries seen in the field. When the
+// activation AND its rollback both fail, the slot holds a directory Claude
+// recreated while the real profile sits parked. If state.json still names the
+// parked profile as the slot occupant then msixFindProfilesIn lists it twice --
+// once as the slot, once as the container entry -- and switching back to it takes
+// msixSwapToIn's "already active" early return: success is reported, nothing
+// moves, and every later sync or backup works on Claude's empty directory while
+// the real data stays unreachable through the UI.
+func TestMSIXStrandedSlotLeavesTheParkedProfileListedOnceAndSwitchable(t *testing.T) {
+	roaming := t.TempDir()
+	parked := filepath.Join(msixContainerDir(roaming), "Claude")
+	writeProfileDir(t, msixSlotDir(roaming), "recreated-by-claude")
+	writeProfileDir(t, parked, "the-real-data")
+	st := msixState{Current: "Claude"}
+	if err := writeMSIXStateIn(roaming, st); err != nil {
+		t.Fatal(err)
+	}
+
+	err := msixRecordStrandedSlot(roaming, st, `switch to "Work"`, "Claude", parked, errors.New("rollback failed"))
+	if err == nil {
+		t.Fatal("the caller must still be told the switch failed")
+	}
+
+	w := &WindowsPlatform{}
+	got, ferr := w.msixFindProfilesIn(roaming)
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	seen := map[string]int{}
+	for _, p := range got {
+		seen[p.Name]++
+	}
+	if seen["Claude"] != 1 {
+		t.Fatalf(`"Claude" is listed %d times, want exactly 1: %v`, seen["Claude"], seen)
+	}
+	if seen[msixRecreatedName] != 1 {
+		t.Errorf("what is actually in the slot should be listed under %q so the user can see it: %v", msixRecreatedName, seen)
+	}
+
+	// The way out has to do real work, not take the early return.
+	if err := msixSwapToIn(roaming, "Claude"); err != nil {
+		t.Fatalf("switching back to the parked profile: %v", err)
+	}
+	if got := readMarker(t, msixSlotDir(roaming)); got != "the-real-data" {
+		t.Errorf("slot holds %q, want the real profile moved back in", got)
+	}
+	if cur := readMSIXStateIn(roaming).Current; cur != "Claude" {
+		t.Errorf("state names %q as live, want Claude", cur)
+	}
+}
+
+// The same dead end is reachable from the create path: msixParkForNewIn parks the
+// live profile, fails to write the state, and fails to put it back. The disk ends
+// up identical to the switch case, so it needs the same recording.
+//
+// What is specific to this path is the queued first-login migration. state carries
+// PendingMigrateFrom pointing at the profile just parked, and if that survived, the
+// watcher would later copy that account's sessions into a slot holding neither
+// profile — Claude's recreated directory.
+func TestMSIXStrandedSlotFromTheCreatePathClearsTheQueuedMigration(t *testing.T) {
+	roaming := t.TempDir()
+	parked := filepath.Join(msixContainerDir(roaming), "Claude")
+	writeProfileDir(t, msixSlotDir(roaming), "recreated-by-claude")
+	writeProfileDir(t, parked, "the-real-data")
+
+	// The state msixParkForNewIn holds when its write fails: the new profile named
+	// as live, and a migration queued from the one it just parked.
+	st := msixState{Current: "Work", PendingMigrateFrom: "Claude"}
+
+	if err := msixRecordStrandedSlot(roaming, st, `set up the new profile "Work"`, "Claude", parked, errors.New("rollback failed")); err == nil {
+		t.Fatal("the caller must still be told it failed")
+	}
+
+	got := readMSIXStateIn(roaming)
+	if got.PendingMigrateFrom != "" {
+		t.Errorf("a queued migration must not survive this: it would copy sessions into a slot holding neither profile, got %q", got.PendingMigrateFrom)
+	}
+	if got.Current == "Work" || got.Current == "Claude" {
+		t.Errorf("the slot holds neither profile, but state names it %q", got.Current)
+	}
+
+	w := &WindowsPlatform{}
+	profiles, ferr := w.msixFindProfilesIn(roaming)
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	seen := map[string]int{}
+	for _, p := range profiles {
+		seen[p.Name]++
+	}
+	if seen["Claude"] != 1 {
+		t.Fatalf(`"Claude" is listed %d times, want exactly 1: %v`, seen["Claude"], seen)
+	}
+	if err := msixSwapToIn(roaming, "Claude"); err != nil {
+		t.Fatalf("switching back to the parked profile: %v", err)
+	}
+	if got := readMarker(t, msixSlotDir(roaming)); got != "the-real-data" {
+		t.Errorf("slot holds %q, want the real profile moved back in", got)
+	}
+}
+
+// A second stranding must not overwrite the first one's parked directory.
+func TestMSIXRecreatedNameDoesNotCollide(t *testing.T) {
+	roaming := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(msixContainerDir(roaming), msixRecreatedName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := msixUnusedProfileName(roaming, msixRecreatedName), msixRecreatedName+" 2"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }

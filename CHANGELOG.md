@@ -25,6 +25,22 @@
   names where the data is and how to put it back.
 - **Switching is guarded against a second click**, the way syncing, backing up and
   merging already were. Two switches running at once raced over one folder.
+- **A switch that fails in both directions no longer strands your account.** If the
+  move in fails and the move back fails too, the folder left live is one Claude
+  recreated, not your account. The record of which account is live now says so,
+  which means your account stays listed exactly once instead of twice, and
+  switching to it puts it back — before this, that switch reported success and did
+  nothing, and everything afterwards worked on the empty folder while your
+  conversations sat where the account list could not reach them. When even that
+  record cannot be written, the message names the folder in the way, because the
+  old advice to move your folder back could not be followed while something else
+  was sitting in its place.
+- **Closing a program that is holding the account folder can no longer hit the
+  wrong one.** Programs were closed by process number, and Windows hands numbers
+  out again after a program exits, so one that quit on its own in the meantime
+  could take an unrelated program — and everything it had started — down with it.
+  Each one is now confirmed to still be the program in that folder at the moment
+  it is closed.
 - **"Check for updates" updates you, on Windows.** It opened the releases page in a
   browser and did nothing else — whether or not a newer version existed — so the
   silent installer could only ever be reached by the background check that runs at
