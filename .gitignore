@@ -6,5 +6,7 @@ dist/
 # compiled binaries emitted at repo root (source lives in cmd/mcs, cmd/mcs-tray)
 /mcs
 /mcs-tray
+/mcs.exe
+/mcs-tray.exe
 .superpowers/
 docs/superpowers/handoffs/
