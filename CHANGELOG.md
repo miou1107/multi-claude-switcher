@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-31
+
 ### Fixed
 - **Switching accounts on the Windows Store build.** Every switch failed with
   `Access is denied`. Two programs keep running out of the account folder after
