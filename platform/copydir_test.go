@@ -225,6 +225,12 @@ func TestCopyFileSwapsTheDestinationRatherThanWritingThroughIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Pin the identity while dst is still the old file. On Windows os.Stat does not
+	// read the file ID; SameFile resolves it lazily by reopening the stored path, so
+	// a `before` first inspected after the swap describes the NEW file and the
+	// comparison below reports "written through" no matter what copyFile did. This
+	// call forces the load now. On Unix the id is already there and it is a no-op.
+	os.SameFile(before, before)
 
 	if err := copyFile(src, dst); err != nil {
 		t.Fatal(err)

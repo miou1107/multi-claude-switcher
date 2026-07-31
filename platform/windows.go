@@ -302,6 +302,19 @@ func sameWindowsPath(a, b string) bool {
 // named Claude Code CLI is never affected. Returning success while a process
 // still holds the profile would let the caller sync into a live-writing profile
 // and corrupt the shared session index, so the final state is verified.
+//
+// On the Store build it then closes whatever else is running out of the live
+// slot. Every caller of this method goes on to rename, copy or archive that one
+// directory, and Windows will not let it while a program is loaded from inside —
+// see the commentary in windows_msix_blockers.go. The CLI exemption above still
+// holds for the image-name pass; the slot pass excludes MCS's own parent chain
+// instead, which is the case that exemption was really protecting.
+//
+// That slot pass is best-effort and cannot fail this method. The error here means
+// one specific thing to callers — "Desktop is still up, nothing was closed, so no
+// relaunch is owed" — and it has to keep meaning it, because by the time the slot
+// pass runs Desktop IS closed. A blocker it cannot clear surfaces from the rename
+// instead, which names the holder and rolls back.
 func (w *WindowsPlatform) TerminateApp() error {
 	desktopPIDs := func() []int {
 		procs, err := queryClaudeProcesses()
@@ -317,35 +330,40 @@ func (w *WindowsPlatform) TerminateApp() error {
 		return pids
 	}
 
-	pids := desktopPIDs()
-	if len(pids) == 0 {
-		return nil
-	}
-
-	// Graceful close first: taskkill without /F posts WM_CLOSE to the tree.
-	for _, pid := range pids {
-		c := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T")
-		hideConsole(c)
-		_ = c.Run()
-	}
-	time.Sleep(1 * time.Second)
-
-	if still, _, _ := w.IsAppRunning(); still {
-		// Force kill the tree.
-		for _, pid := range desktopPIDs() {
-			c := exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid), "/T")
+	// Desktop may already be closed — the user can have quit it themselves. That
+	// is not a reason to return early: the slot pass below still has to run, and
+	// the helpers it looks for outlive Desktop by design.
+	if pids := desktopPIDs(); len(pids) > 0 {
+		// Graceful close first: taskkill without /F posts WM_CLOSE to the tree.
+		for _, pid := range pids {
+			c := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T")
 			hideConsole(c)
 			_ = c.Run()
 		}
-		time.Sleep(500 * time.Millisecond)
-	}
+		time.Sleep(1 * time.Second)
 
-	still, _, err := w.IsAppRunning()
-	if err != nil {
-		return err
+		if still, _, _ := w.IsAppRunning(); still {
+			// Force kill the tree.
+			for _, pid := range desktopPIDs() {
+				c := exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid), "/T")
+				hideConsole(c)
+				_ = c.Run()
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		still, _, err := w.IsAppRunning()
+		if err != nil {
+			return err
+		}
+		if still {
+			return fmt.Errorf("failed to terminate Claude Desktop: process still running after force kill")
+		}
 	}
-	if still {
-		return fmt.Errorf("failed to terminate Claude Desktop: process still running after force kill")
+	if w.isMSIX() {
+		if roaming := msixRoamingDir(); roaming != "" {
+			msixClearSlotBlockers(roaming)
+		}
 	}
 	return nil
 }
