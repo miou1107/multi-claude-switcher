@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 // Slot blockers.
@@ -195,6 +197,64 @@ func taskkillTree(pid int, force bool) {
 	_ = c.Run()
 }
 
+// killSlotBlocker closes p and its child tree, but only while p is still a
+// process running out of the slot.
+//
+// taskkill matches on PID alone, and Windows reuses PIDs. Between listing the
+// process table and reaching this call the blocker can exit and its number be
+// handed to something unrelated, which taskkill /T would then take down along
+// with its whole child tree. TerminateApp carries the same exposure but kills a
+// set filtered by image name; this one kills whatever sits at a path, so a stale
+// row is that much more dangerous.
+//
+// Opening a handle first does two jobs. It proves the identity, and it pins the
+// number: Windows cannot reuse a PID while a handle to that process is open, so
+// the kill that follows cannot land on a different process. (Children reached by
+// /T are not pinned, which is inherent to killing a tree by PID.)
+//
+// The test is containment in the slot rather than string equality with the
+// recorded path. WMI and QueryFullProcessImageName need not spell a redirected
+// path identically, and "is this still running out of the slot" is the property
+// that actually licenses the kill.
+func killSlotBlocker(p slotProc, aliases []string, force bool) {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(p.pid))
+	if err != nil {
+		return // already gone; nothing to kill and nothing to warn about
+	}
+	defer windows.CloseHandle(h)
+
+	exe, err := processImagePath(h)
+	if err != nil {
+		log.Printf("[msix] could not confirm what pid %d is now (%v); leaving it alone", p.pid, err)
+		return
+	}
+	for _, a := range aliases {
+		if underDir(exe, a) {
+			log.Printf("[msix] closing slot blocker %s (pid %d) force=%v %s", p.name, p.pid, force, exe)
+			taskkillTree(p.pid, force)
+			return
+		}
+	}
+	log.Printf("[msix] pid %d is now %s, which is not in the slot; the number was reused, leaving it alone", p.pid, exe)
+}
+
+// processImagePath returns the executable path behind an open process handle,
+// growing the buffer for the long paths Windows now allows.
+func processImagePath(h windows.Handle) (string, error) {
+	buf := make([]uint16, windows.MAX_PATH)
+	for {
+		n := uint32(len(buf))
+		err := windows.QueryFullProcessImageName(h, 0, &buf[0], &n)
+		if err == nil {
+			return windows.UTF16ToString(buf[:n]), nil
+		}
+		if err != windows.ERROR_INSUFFICIENT_BUFFER || len(buf) >= 32768 {
+			return "", err
+		}
+		buf = make([]uint16, len(buf)*2)
+	}
+}
+
 // describeProcs names processes for a message the user has to act on, so it says
 // "chrome-native-host.exe (pid 19024)" rather than a bare path.
 func describeProcs(procs []slotProc) string {
@@ -256,8 +316,9 @@ func msixClearSlotBlockers(roaming string) {
 		}
 		force := i > 0
 		for _, p := range kill {
-			log.Printf("[msix] closing slot blocker %s (pid %d) force=%v %s", p.name, p.pid, force, p.exePath)
-			taskkillTree(p.pid, force)
+			// Not taskkillTree directly: the rows were read at the top of this sweep
+			// and a PID can be recycled before the loop reaches it. See killSlotBlocker.
+			killSlotBlocker(p, aliases, force)
 		}
 		time.Sleep(750 * time.Millisecond)
 	}

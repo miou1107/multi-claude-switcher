@@ -8,7 +8,95 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"golang.org/x/sys/windows"
 )
+
+// processIsRunning reports whether pid is still alive, without waiting on it.
+func processIsRunning(t *testing.T, pid int) bool {
+	t.Helper()
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(h)
+	var code uint32
+	if err := windows.GetExitCodeProcess(h, &code); err != nil {
+		return false
+	}
+	const stillActive = 259
+	return code == stillActive
+}
+
+// killSlotBlocker kills by PID and Windows reuses PIDs, so the guarantee is that
+// a row which no longer describes the process at that number is ignored. Without
+// it, taskkill /T takes down an unrelated process AND its whole child tree.
+func TestKillSlotBlockerLeavesAProcessThatIsNotInTheSlotAlone(t *testing.T) {
+	cmd := exec.Command("cmd.exe", "/c", "ping -n 30 127.0.0.1 >nul")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("could not start a helper process: %v", err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}()
+
+	const slot = `C:\Users\A\AppData\Local\Packages\Claude_x\LocalCache\Roaming\Claude`
+	// A stale row: recorded as a slot blocker, but the process holding that number
+	// now runs from somewhere else entirely.
+	stale := slotProc{
+		pid:     cmd.Process.Pid,
+		name:    "chrome-native-host.exe",
+		exePath: slot + `\ChromeNativeHost\chrome-native-host.exe`,
+	}
+	killSlotBlocker(stale, []string{slot}, true)
+
+	time.Sleep(500 * time.Millisecond)
+	if !processIsRunning(t, cmd.Process.Pid) {
+		t.Fatal("a process that was not running from the slot was terminated")
+	}
+}
+
+// The other half, and the one a path-spelling mismatch would break silently: a
+// process that really is running out of the slot still gets closed. WMI and
+// QueryFullProcessImageName have to agree closely enough for underDir to match,
+// and only a real process proves that.
+func TestKillSlotBlockerClosesAProcessRunningFromTheSlot(t *testing.T) {
+	slot := filepath.Join(t.TempDir(), msixSlotName)
+	if err := os.MkdirAll(slot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.ReadFile(`C:\Windows\System32\ping.exe`)
+	if err != nil {
+		t.Skipf("no ping.exe to stand in for a slot resident: %v", err)
+	}
+	exe := filepath.Join(slot, "helper.exe")
+	if err := os.WriteFile(exe, src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(exe, "-n", "30", "127.0.0.1")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("could not start the helper: %v", err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}()
+
+	killSlotBlocker(slotProc{pid: cmd.Process.Pid, name: "helper.exe", exePath: exe}, []string{slot}, true)
+
+	// taskkill signals; the process still has to be seen to go.
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if !processIsRunning(t, cmd.Process.Pid) {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatal("a process running from inside the slot was not closed")
+}
 
 func TestUnderDir(t *testing.T) {
 	const slot = `C:\Users\A\AppData\Local\Packages\Claude_x\LocalCache\Roaming\Claude`
