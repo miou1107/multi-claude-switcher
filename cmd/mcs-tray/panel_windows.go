@@ -283,8 +283,18 @@ func bindPanelHandlers(wv webview2.WebView) {
 func dispatchAction(action, arg string) {
 	switch action {
 	case "switch":
+		// Guarded like sync, backup and merge. Without this a second click starts
+		// a second SafeSwitch alongside the first, and the two race over one
+		// directory: both close Claude, both park the slot, and whichever
+		// relaunches Claude first makes the other's rename fail, because Claude
+		// recreates the very directory that rename was about to move into.
+		if panelGetBusy() {
+			return
+		}
+		panelSetBusy(true, "Closing Claude Desktop and switching…")
+		reloadPanel()
 		go func() {
-			doSwitchPanel(arg)
+			panelSetBusy(false, doSwitchPanel(arg))
 			reloadPanel()
 		}()
 	case "showRescan":
@@ -821,10 +831,15 @@ func panelCachedPlan(path string) string {
 }
 
 // doSwitchPanel closes the running Claude and reopens it with the target
-// account.
-func doSwitchPanel(folder string) {
+// account, returning the status line for the panel.
+//
+// The error SafeSwitch returns used to be discarded here, and that is how a
+// switch that had actually failed — a rename that never landed, a profile left
+// parked under .mcs-profiles — looked exactly like one that worked. The user
+// found out later, from an account list that had gone strange. Report it.
+func doSwitchPanel(folder string) string {
 	if folder == "" {
-		return
+		return ""
 	}
 	profiles := panelMustFindProfiles()
 	var target *platform.ProfileInfo
@@ -835,9 +850,13 @@ func doSwitchPanel(folder string) {
 		}
 	}
 	if target == nil {
-		return
+		return "Switch failed: account not found."
 	}
-	_ = panelSwitcher.SafeSwitch(panelSourceProfilePath(target.Path, profiles), target.Path)
+	if err := panelSwitcher.SafeSwitch(panelSourceProfilePath(target.Path, profiles), target.Path); err != nil {
+		log.Printf("switch to %s failed: %v", folder, err)
+		return "Switch failed: " + err.Error()
+	}
+	return "✓ Switched to " + core.DisplayName(folder) + "."
 }
 
 func panelSourceProfilePath(targetPath string, profiles []*platform.ProfileInfo) string {
