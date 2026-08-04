@@ -60,6 +60,22 @@ func TestIssueURL(t *testing.T) {
 		}
 	})
 
+	t.Run("an unregistered address and uuid are swept from the title", func(t *testing.T) {
+		// Round-2 finding 1: IssueURL only ran the comment through m.Apply, which
+		// masks registered values, never through Sweep, which catches what
+		// registration missed. A foreign email or a bare UUID in the comment
+		// reached the title verbatim, unmasked, and titles are indexed and
+		// mailed to watchers, worse than the clipboard body.
+		u := IssueURL("crashed for someone@example.com session 11112222-3333-4444-5555-666677778888", m)
+		got := titleOf(t, u)
+		if strings.Contains(got, "someone@example.com") || strings.Contains(got, "11112222-3333-4444-5555-666677778888") {
+			t.Errorf("an unregistered identifier reached the title: %q", got)
+		}
+		if !strings.Contains(got, UnregisteredMarker) {
+			t.Errorf("the title should carry the sweep marker: %q", got)
+		}
+	})
+
 	t.Run("punctuation cannot break the url", func(t *testing.T) {
 		u := IssueURL(`sync & switch: "why?" #3`, m)
 		parsed, err := url.Parse(u)

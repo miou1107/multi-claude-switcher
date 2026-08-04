@@ -258,3 +258,49 @@ func TestNewMaskerForMasksTheUsersOwnComment(t *testing.T) {
 		t.Errorf("the comment kept an identifier: %q", got)
 	}
 }
+
+// TestAppendCommentSweepsWhatRegistrationMissed is round-2 finding 1. Build
+// sweeps internally and returns, so a caller appending the comment to that
+// returned string afterwards put the comment outside Build's sweep entirely —
+// a foreign email or a bare UUID the masker never registered survived
+// verbatim, right beside the user's own account, which correctly collapsed to
+// its pseudonym and made the gap easy to miss. AppendComment is the one place
+// both hosts now go through, so this pins that it masks the registered value
+// and sweeps everything registration does not know about.
+func TestAppendCommentSweepsWhatRegistrationMissed(t *testing.T) {
+	in := fullInput(t)
+	m := NewMaskerFor(in)
+	comment := "crashed for someone@example.com session 11112222-3333-4444-5555-666677778888 and " + in.Profiles[0].Email
+	got := AppendComment("MCS report body", comment, m)
+
+	for _, leak := range []string{"someone@example.com", "11112222-3333-4444-5555-666677778888"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("%q, an unregistered identifier, survived AppendComment:\n%s", leak, got)
+		}
+	}
+	if !strings.Contains(got, UnregisteredMarker) {
+		t.Errorf("AppendComment must carry the sweep marker for what registration missed:\n%s", got)
+	}
+	if !strings.Contains(got, "account-1") {
+		t.Errorf("the user's own account must still collapse to its pseudonym:\n%s", got)
+	}
+}
+
+// TestNewMaskerForFallsBackToHomeBasenameWhenUserNameIsEmpty is round-2
+// finding 4. os.Getenv("USER")/"USERNAME" can come back empty from a launch
+// environment that never set it — internal/clip/clip_darwin.go documents the
+// same class of bug for a GUI-launched bundle. Unlike an email or a UUID, a
+// bare OS user name has no shape Sweep can catch, so with UserName empty
+// RegisterBoundedWord returns immediately and the name would flow through
+// every log line unmasked. filepath.Base(in.Home) recovers the same name from
+// the one field that stays populated.
+func TestNewMaskerForFallsBackToHomeBasenameWhenUserNameIsEmpty(t *testing.T) {
+	in := fullInput(t)
+	in.UserName = ""
+	base := filepath.Base(in.Home)
+	m := NewMaskerFor(in)
+	got := m.Apply("seen under /Volumes/Backup/" + base + "/data")
+	if strings.Contains(got, base) {
+		t.Errorf("an empty UserName must still be masked via the home directory's basename: %q", got)
+	}
+}

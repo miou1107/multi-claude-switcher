@@ -34,7 +34,12 @@ const issueBody = "Paste the report here (Cmd+V / Ctrl+V).\n"
 func IssueURL(comment string, m *Masker) string {
 	title := ""
 	if m != nil {
-		title = strings.TrimSpace(m.Apply(comment))
+		// Apply masks what was registered; Sweep catches what was not — a
+		// foreign email or a bare UUID a user pastes in, which no registration
+		// in this masker ever knew about. Without this the title carried
+		// exactly the class of leak the sweep exists for, worse than the
+		// clipboard body because a title is indexed and mailed to watchers.
+		title = strings.TrimSpace(Sweep(m.Apply(comment)))
 	}
 	if i := strings.IndexAny(title, "\r\n"); i >= 0 {
 		title = strings.TrimSpace(title[:i])
@@ -49,4 +54,22 @@ func IssueURL(comment string, m *Masker) string {
 	q.Set("title", title)
 	q.Set("body", issueBody)
 	return issueBase + "?" + q.Encode()
+}
+
+// AppendComment adds the user's comment to the report clipboard body, masked
+// with the same masker that produced report and then swept.
+//
+// Exported so both hosts go through one implementation rather than each
+// remembering the two steps separately. Build already sweeps, but it sweeps
+// internally and returns; a caller appending the comment to that returned
+// string afterwards puts the comment outside Build's sweep entirely — the gap
+// this closes. m.Apply alone only masks what was registered (this machine's
+// own accounts, home, user and host name); Sweep is what catches an address or
+// a UUID belonging to someone else that a user's own pasted comment can carry,
+// and which no registration here could ever have known about.
+func AppendComment(report, comment string, m *Masker) string {
+	if comment == "" {
+		return report
+	}
+	return report + "\n---\n" + Sweep(m.Apply(comment)) + "\n"
 }

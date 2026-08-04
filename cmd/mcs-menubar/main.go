@@ -49,6 +49,17 @@ var (
 	// pressing Copy wipes what the user just typed.
 	debugComment string
 
+	// debugReportCache and debugReportMasker are the report showDebug most
+	// recently built, reused by copyDebug, reportProblem and reloadPanel's own
+	// "debug" case rather than each rebuilding it. Building gathers every
+	// profile's leveldb identity and session tree plus every log file's tail —
+	// heavy enough that this repo already caches leveldb reads elsewhere — and
+	// without this cache a single Copy or Report click gathered it twice: once
+	// to act on, once again when the reload that follows redrew the same
+	// screen.
+	debugReportCache  string
+	debugReportMasker *diagnostics.Masker
+
 	// newProfileVM carries the pending name screen's context between the action
 	// that opened it and the render that draws it, including the validation error
 	// from a rejected attempt.
@@ -168,6 +179,22 @@ func getDebugComment() string {
 func debugReport() (string, *diagnostics.Masker) {
 	in := buildDiagnostics()
 	return diagnostics.Build(in), diagnostics.NewMaskerFor(in)
+}
+
+// setDebugReportCache and getDebugReportCache guard debugReportCache /
+// debugReportMasker with the same mutex as the comment they are cached
+// alongside.
+func setDebugReportCache(report string, m *diagnostics.Masker) {
+	mu.Lock()
+	debugReportCache = report
+	debugReportMasker = m
+	mu.Unlock()
+}
+
+func getDebugReportCache() (string, *diagnostics.Masker) {
+	mu.Lock()
+	defer mu.Unlock()
+	return debugReportCache, debugReportMasker
 }
 
 //export goPanelReady
@@ -409,33 +436,49 @@ func goPanelAction(caction, cfolder *C.char) {
 	case "showDebug":
 		setDebugComment("")
 		setView("debug")
-		go reloadPanel()
-	case "reportProblem":
-		setDebugComment(arg)
 		go func() {
 			report, m := debugReport()
-			if arg != "" {
-				report += "\n---\n" + m.Apply(arg) + "\n"
-			}
-			if err := clip.Set(report); err != nil {
+			setDebugReportCache(report, m)
+			reloadPanel()
+		}()
+	case "reportProblem":
+		// Guarded like backup, sync and merge. Without this, mashing the button
+		// stacked concurrent clip.Set/open calls; the cache below already stops
+		// each click from re-gathering the report, but a second click could
+		// still race the first one's clipboard write.
+		if getBusy() {
+			return
+		}
+		setDebugComment(arg)
+		setBusyStatus(true, "Copying report…")
+		reloadPanel()
+		go func() {
+			report, m := getDebugReportCache()
+			full := diagnostics.AppendComment(report, arg, m)
+			if err := clip.Set(full); err != nil {
 				// The browser is not opened: an issue form with nothing to paste is
 				// worse than no browser at all.
-				setStatus("Couldn't copy the report: " + err.Error())
+				setBusyStatus(false, "Couldn't copy the report: "+err.Error())
 				reloadPanel()
 				return
 			}
 			_ = exec.Command("open", diagnostics.IssueURL(arg, m)).Start()
-			setStatus("Report copied. Paste it into the issue.")
+			setBusyStatus(false, "Report copied. Paste it into the issue.")
 			reloadPanel()
 		}()
 	case "copyDebug":
+		if getBusy() {
+			return
+		}
 		setDebugComment(arg)
+		setBusyStatus(true, "Copying…")
+		reloadPanel()
 		go func() {
-			report, _ := debugReport()
+			report, _ := getDebugReportCache()
 			if err := clip.Set(report); err != nil {
-				setStatus("Couldn't copy: " + err.Error())
+				setBusyStatus(false, "Couldn't copy: "+err.Error())
 			} else {
-				setStatus("Copied.")
+				setBusyStatus(false, "Copied.")
 			}
 			reloadPanel()
 		}()
@@ -613,7 +656,11 @@ func reloadPanel() {
 			Busy:       getBusy(),
 		})
 	case "debug":
-		report, _ := debugReport()
+		// Reused, not rebuilt: showDebug is the only path into this view and it
+		// always primes the cache before switching here, so this always has a
+		// report to show. Rebuilding here as well as in copyDebug/reportProblem
+		// was the double gather; see the doc comment on debugReportCache.
+		report, _ := getDebugReportCache()
 		htmlStr = panelui.RenderDebug(panelui.DebugVM{
 			Report:  report,
 			Comment: getDebugComment(),

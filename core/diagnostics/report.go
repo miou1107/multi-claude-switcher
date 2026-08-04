@@ -78,9 +78,21 @@ func NewMaskerFor(in Input) *Masker {
 		m.RegisterAccount(p.AccountUUID, p.Email)
 		m.RegisterOrg(p.OrgUUID)
 	}
+	userName := in.UserName
+	if userName == "" {
+		// os.Getenv("USER")/"USERNAME") can come back empty from a launch
+		// environment that never set it — internal/clip/clip_darwin.go documents
+		// the same class of bug for a GUI-launched bundle. Unlike an email or a
+		// UUID, a bare OS user name has no shape Sweep can catch, so with
+		// UserName empty RegisterBoundedWord would return immediately below and
+		// the name would flow through every log line unmasked.
+		// filepath.Base(in.Home) recovers the same name from the one field that
+		// stays populated.
+		userName = filepath.Base(in.Home)
+	}
 	// After the accounts, so an address that is also a user name reads as the
 	// account it belongs to rather than as "user".
-	m.RegisterBoundedWord(in.UserName, "user")
+	m.RegisterBoundedWord(userName, "user")
 	m.RegisterBoundedWord(in.HostName, "host")
 	return m
 }

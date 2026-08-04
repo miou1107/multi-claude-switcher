@@ -89,7 +89,13 @@ func panelBuildDiagnostics() diagnostics.Input {
 // osVersion is best effort: an unknown OS version costs one line of a report,
 // so it is never worth failing the screen over.
 func osVersion() string {
-	out, err := exec.Command("cmd", "/c", "ver").Output()
+	cmd := exec.Command("cmd", "/c", "ver")
+	// mcs-tray is a -H=windowsgui exe with no console of its own (see
+	// hidewindow_windows.go); every other console spawn in this binary already
+	// calls hideConsole, and this one flashed a black window on every render of
+	// the Debug info screen without it.
+	hideConsole(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return "unknown"
 	}
