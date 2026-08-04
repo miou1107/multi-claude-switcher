@@ -225,44 +225,82 @@ func isDesktopProcess(p procInfo) bool {
 // (%APPDATA%\Claude) in the command line, which is NOT where its files actually
 // live (LocalCache). For the standalone target the reported path IS the real
 // path, so a direct match works.
+//
+// It reports the first profile found when several are running, so callers that
+// need all of them must use DetectRunningProfiles instead.
 func (w *WindowsPlatform) DetectRunningProfile() (string, error) {
+	running, err := w.DetectRunningProfiles()
+	if err != nil || len(running) == 0 {
+		return "", err
+	}
+	return running[0], nil
+}
+
+// DetectRunningProfiles returns every profile Claude Desktop is running on.
+//
+// On the Store build that is at most one: every profile shares a single slot
+// directory, so two of them cannot be live at the same time.
+//
+// The standalone build lists what carries a --user-data-dir it recognises. A
+// process without one is NOT assumed to be any particular profile here, unlike
+// macOS: the profiles are folders the user picked by hand, so there is no
+// "default" folder MCS can attribute an unflagged process to.
+func (w *WindowsPlatform) DetectRunningProfiles() ([]string, error) {
 	if w.isMSIX() {
 		// The Store build always runs out of the single slot dir; its identity is
 		// whichever profile MCS last swapped in (tracked in state). Return the slot
 		// path so it matches the current profile's ProfileInfo.Path.
 		running, _, err := w.IsAppRunning()
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if !running {
-			return "", nil
+			return nil, nil
 		}
-		return msixSlotDir(msixRoamingDir()), nil
+		return []string{msixSlotDir(msixRoamingDir())}, nil
 	}
 
 	running, procs, err := w.IsAppRunning()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if !running {
-		return "", nil
+		return nil, nil
 	}
 	profiles, err := w.FindProfiles()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
+	return runningProfilesInProcsWindows(procs, profiles), nil
+}
+
+// runningProfilesInProcsWindows returns every known profile named by a
+// --user-data-dir in the given command lines, in the order the processes appear
+// and without repeats. Pure so the matching is tested rather than assumed.
+func runningProfilesInProcsWindows(procs []string, profiles []*ProfileInfo) []string {
+	var out []string
 	for _, line := range procs {
 		udd := extractUserDataDir(line)
 		if udd == "" {
 			continue
 		}
 		for _, p := range profiles {
-			if sameWindowsPath(udd, p.Path) {
-				return p.Path, nil
+			if !sameWindowsPath(udd, p.Path) {
+				continue
+			}
+			already := false
+			for _, seen := range out {
+				if sameWindowsPath(seen, p.Path) {
+					already = true
+					break
+				}
+			}
+			if !already {
+				out = append(out, p.Path)
 			}
 		}
 	}
-	return "", nil
+	return out
 }
 
 // extractUserDataDir pulls the value of --user-data-dir= out of a command line.
@@ -294,7 +332,7 @@ func extractUserDataDir(cmdLine string) string {
 // sameWindowsPath compares two Windows paths case-insensitively after cleaning,
 // since NTFS is case-insensitive and separators/./ segments may differ.
 func sameWindowsPath(a, b string) bool {
-	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+	return SamePath(a, b)
 }
 
 // TerminateApp closes all Claude Desktop processes and confirms they are gone.

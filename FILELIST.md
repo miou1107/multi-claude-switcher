@@ -113,12 +113,12 @@
 - `core/syncmessage.go` — Turns a sync report or error into the sentence shown to the user, shared by both panel hosts so their wording cannot drift.
 - `core/sync_test.go` — Unit tests for session sync (copy, clash, identical, re-bucketing, union), including the regressions that a stat failure never becomes a write, a dangling symlink neither escapes the sessions directory nor aborts the run, and two-way sync reports only genuinely unsettled files.
 - `core/syncmessage_test.go` — Unit tests for the user-facing sync sentences (singular/plural, clash wording, which errors are translated).
-- `core/switch.go` — Safe Switch controller (Terminate -> Backup -> Sync -> Launch); session data only moves when the auto sync toggle is on (bidirectional align), otherwise a switch is a pure account change. Also tracks the relaunch owed to the user while Claude is closed, so quitting mid-operation still reopens it.
-- `core/switch_test.go` — Unit tests for Safe Switch (aborts on backup failure).
+- `core/switch.go` — Safe Switch controller (Terminate -> Backup -> Sync -> Launch); session data only moves when the auto sync toggle is on (bidirectional align), otherwise a switch is a pure account change. Also tracks the relaunches owed to the user while Claude is closed, so quitting mid-operation still reopens them: closing Claude closes every profile at once, so the debt covers the target plus any other account that was open, and never the profile being switched away from.
+- `core/switch_test.go` — Unit tests for Safe Switch (aborts on backup failure; reopens a bystander account but not the source).
 - `core/settings.go` — User settings store (~/.multi-claude-switcher/settings.json): auto sync toggle + warning-dismissed flag.
 - `core/settings_test.go` — Unit tests for settings round-trip, defaults, and no-clobber.
-- `core/align.go` — Manual directional align (ManualAlign): close → backup → sync → reopen the same account.
-- `core/align_test.go` — Unit tests for ManualAlign (returns to running profile; no relaunch when nothing ran).
+- `core/align.go` — Manual directional align (ManualAlign): close → backup → sync → reopen every account that was open, since an align changes no account.
+- `core/align_test.go` — Unit tests for ManualAlign (returns to running profile; reopens all of them when several were open; no relaunch when nothing ran).
 - `cmd/mcs-tray/autosync.go` — Tray Auto Sync toggle: enable-time warning dialog and choice parsing.
 - `cmd/mcs-tray/autosync_test.go` — Unit tests for the auto-sync warning-gating helper.
 - `cmd/mcs-tray/dialog_darwin.go` — macOS tray dialogs / notifications (osascript).
@@ -131,16 +131,17 @@
 - `cmd/mcs-tray/managedfilter.go` — Decides whether a profile folder appears in the tray menu: the managed registry is authoritative when present, else a first-run heuristic (live login or MSIX-parked).
 - `cmd/mcs-tray/managedfilter_test.go` — Unit tests for the menu-inclusion filter (managed registry vs first-run fallback).
 - `cmd/mcs-tray/rescan.go` — "Rescan accounts…" handler: scan → review/pick via the browser web UI → persist to the managed registry → relaunch.
-- `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch.
+- `platform/platform.go` — Cross-platform interface for process detection, profile inspection, and launch, including `DetectRunningProfiles` (every profile currently running, not just the first) and `SamePath`, the one rule for deciding that two spellings name the same profile directory (case-insensitive on Windows).
 - `platform/darwin.go` — macOS implementation for platform interface.
-- `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing).
+- `platform/samepath_test.go` — Tests for `SamePath` across the spellings a profile path actually arrives in (trailing separator, `.` segment) and for the host's own casing rule.
+- `platform/darwin_test.go` — Unit tests for macOS process/profile matching (`--user-data-dir` parsing, and listing every running profile including the default one, which runs with no such flag).
 - `platform/windows.go` — Windows implementation for platform interface (process detection via Win32_Process, profile discovery, terminate-by-PID, launch; auto-detects standalone vs Store/MSIX build and branches accordingly).
 - `platform/windows_msix.go` — Windows Store/MSIX support: switch accounts by swapping the live data dir in place (park/activate via same-volume renames) and launch via AppUserModelID; testable move core plus `MSIXAvailable`/`MSIXCurrentName`/`MSIXNewProfile`.
 - `platform/windows_msix_test.go` — Unit tests for the MSIX create→switch lifecycle, rollback, and name validation (temp-dir driven, no real Claude).
 - `platform/windows_msix_blockers.go` — Windows Store/MSIX: finds and closes whatever is still running out of the live slot before it is renamed, identified by where it runs from rather than by image name, so the Chrome bridge helper and the Claude Code CLI are both caught. Covers the virtualized `%APPDATA%\Claude` spelling the MSIX runtime redirects into the slot (confirmed with `os.SameFile`, never assumed), excludes MCS's own parent chain so a switch cannot terminate itself mid-swap, and names the holders for the message shown when a rename gives up.
 - `platform/windows_msix_blockers_test.go` — Unit tests for the blocker logic: whole-segment path containment, the `%APPDATA%` alias accept and reject cases, parent-chain protection including a cycle guard, and process-table parsing (temp-dir driven, no real Claude).
 - `platform/hidewindow_windows.go` — Windows helper: run the spawned `powershell`/`taskkill` helpers with CREATE_NO_WINDOW so no console window flashes.
-- `platform/windows_test.go` — Unit tests for Windows `--user-data-dir` parsing, desktop-vs-CLI process detection, and path matching.
+- `platform/windows_test.go` — Unit tests for Windows `--user-data-dir` parsing, desktop-vs-CLI process detection, path matching, and listing every running profile from a set of command lines.
 - `platform/copydir.go` — One hardened directory-copy helper shared by both platforms: stages into a temp sibling and renames into place so an interrupted copy never leaves a half-written profile, and refuses to follow a symlink out of the tree.
 - `platform/copydir_test.go` — Unit tests for the copy helper (atomic replace, interrupted copy leaves the destination intact, symlink refusal).
 - `platform/newprofile_test.go` — Unit tests for each platform's `CreateProfile`/`ArchiveDir` (the identity and data dir it returns, where archives are parked).

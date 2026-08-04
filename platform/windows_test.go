@@ -132,3 +132,71 @@ func TestSameWindowsPath(t *testing.T) {
 		})
 	}
 }
+
+// TestRunningProfilesInProcsWindows covers the standalone build's answer to
+// "which accounts are open", which decides what gets reopened after MCS closes
+// Claude Desktop. Command lines are the shape wmic/tasklist report: one main
+// process per profile plus Electron helpers repeating the same path.
+func TestRunningProfilesInProcsWindows(t *testing.T) {
+	const (
+		work     = `C:\Users\Example\AppData\Roaming\Claude`
+		personal = `C:\Users\Example\AppData\Roaming\ClaudePersonal`
+	)
+	profiles := []*ProfileInfo{
+		{Name: "Claude", Path: work},
+		{Name: "ClaudePersonal", Path: personal},
+	}
+
+	cases := []struct {
+		name  string
+		procs []string
+		want  []string
+	}{
+		{
+			name: "one profile, counted once despite its helpers",
+			procs: []string{
+				`"C:\Program Files\Claude\Claude.exe" --user-data-dir="` + work + `"`,
+				`"C:\Program Files\Claude\Claude.exe" --type=gpu-process --user-data-dir="` + work + `"`,
+			},
+			want: []string{work},
+		},
+		{
+			name: "both profiles are reported",
+			procs: []string{
+				`"C:\Program Files\Claude\Claude.exe" --user-data-dir="` + personal + `"`,
+				`"C:\Program Files\Claude\Claude.exe" --user-data-dir="` + work + `"`,
+			},
+			want: []string{personal, work},
+		},
+		{
+			name: "casing and trailing separator still name the same profile",
+			procs: []string{
+				`"C:\Program Files\Claude\Claude.exe" --user-data-dir="c:\users\example\appdata\roaming\claude\"`,
+			},
+			want: []string{work},
+		},
+		{
+			name:  "a process with no profile path is not attributed to one",
+			procs: []string{`"C:\Program Files\Claude\Claude.exe"`},
+			want:  nil,
+		},
+		{
+			name:  "nothing running",
+			procs: nil,
+			want:  nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := runningProfilesInProcsWindows(tc.procs, profiles)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("got %q, want %q", got, tc.want)
+				}
+			}
+		})
+	}
+}

@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed
+- **An account you had open no longer disappears when you switch or sync.**
+  Closing Claude Desktop closes every account at once, but only one was ever
+  reopened, so a second account you had open was taken away without a word. Every
+  account that was open is now put back, except the one you switched away from.
+- **The account you are on is recognised even when you did not open it from the
+  switcher (macOS).** Claude Desktop only carries the marker the switcher matches
+  on when the switcher itself launched it. Opened from the Dock, from Spotlight,
+  from a login item, or relaunched by its own updater, your main account was
+  invisible: the switcher reported whichever *other* account was running as the
+  one you were on, showed that account as current, and reopened that one after a
+  sync. This is why a sync could leave you sitting in the wrong account.
+
 ## [0.11.1] - 2026-07-31
 
 ### Fixed

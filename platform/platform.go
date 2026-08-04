@@ -5,7 +5,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 )
+
+// SamePath reports whether two paths name the same profile directory.
+//
+// Profile paths reach MCS from two directions that spell them differently: the
+// platform reports the canonical path it discovered, while a caller may pass
+// whatever the user typed (`mcs switch <path>`), trailing separator and all. On
+// Windows the same directory is also routinely spelled with different casing.
+// Comparing raw strings there makes one directory look like two, which is how a
+// profile gets launched twice or excluded from a set it belongs to.
+func SamePath(a, b string) bool {
+	if a == "" || b == "" {
+		return a == b
+	}
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
 
 // ProfileInfo holds basic information about a detected Claude Desktop profile.
 type ProfileInfo struct {
@@ -41,6 +62,15 @@ type Platform interface {
 	// DetectRunningProfile returns the --user-data-dir path of the currently
 	// running Claude Desktop process, or "" if none / not detectable.
 	DetectRunningProfile() (string, error)
+
+	// DetectRunningProfiles returns every profile Claude Desktop is currently
+	// running on, or nil if none / not detectable. More than one is normal: each
+	// profile runs as its own instance and opening one does not close another.
+	//
+	// Callers that are about to close Claude Desktop must use this rather than
+	// DetectRunningProfile. Closing it closes every profile at once, so an
+	// operation that reopens only one leaves the user's other accounts shut.
+	DetectRunningProfiles() ([]string, error)
 
 	// TerminateApp cleanly closes or terminates all running Claude Desktop processes.
 	TerminateApp() error

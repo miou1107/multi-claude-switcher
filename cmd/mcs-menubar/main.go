@@ -420,12 +420,14 @@ func goPanelAction(caction, cfolder *C.char) {
 // second window.
 func reopenClaudeIfWeOweIt() {
 	owed := switcher.ClaimPendingRelaunch()
-	if owed == "" {
+	if len(owed) == 0 {
 		return
 	}
-	log.Printf("quit while Claude was closed for an operation; reopening %s first", owed)
-	if err := plat.LaunchProfile(owed); err != nil {
-		log.Printf("could not reopen Claude Desktop on the way out: %v", err)
+	for _, p := range owed {
+		log.Printf("quit while Claude was closed for an operation; reopening %s first", p)
+		if err := plat.LaunchProfile(p); err != nil {
+			log.Printf("could not reopen Claude Desktop on %s on the way out: %v", p, err)
+		}
 	}
 }
 
