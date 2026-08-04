@@ -4,7 +4,7 @@
 
 **Goal:** Let the user take an account off the switcher, archiving its profile folder instead of deleting it.
 
-**Architecture:** A new `core.RemoveProfile` runs the tail of the merge path that is already in production: resolve, refuse, archive by rename, then clean the registries. A new `platform.PrepareDelete` puts the one platform-specific refusal (the Windows Store shared slot) in the platform layer. The panel's Rename screen becomes an Account settings screen carrying the red remove button, and a dedicated result screen reports where the folder went or that nothing moved.
+**Architecture:** A new `core.RemoveProfile` runs the tail of the merge path that is already in production: resolve, refuse, archive by rename, then clean the registries. A new `platform.PrepareRemove` puts the platform-specific refusals (the Windows Store shared slot) in the platform layer. The panel's Rename screen becomes an Account settings screen carrying the red remove button, and a dedicated result screen reports where the folder went or that nothing moved.
 
 **Tech Stack:** Go 1.x, no new dependencies. macOS WKWebView host (`cmd/mcs-menubar`) and Windows WebView2 host (`cmd/mcs-tray`) both render `internal/panelui`.
 
@@ -13,7 +13,8 @@
 ## Global Constraints
 
 - Nothing is ever deleted. No `os.RemoveAll` on a profile directory anywhere in this work.
-- Registries (`managed.json`, `names.json`, `pending.json`) are written **after** the folder has moved, never before.
+- Registries (`managed.json`, `names.json`, `pending.json`, `active.json`) are written **after** the folder has moved, never before.
+- The guard against renaming a live directory comes from `DetectRunningProfiles`, never from `LoadActiveProfile`. An earlier draft used the latter; it returns `""` on every failure and on any machine where MCS has not switched anything, so it is absent exactly where it is needed. The spec records this at length. Do not reintroduce it.
 - No em dash (`—`) in any user-facing string. `internal/panelui/emdash_test.go` enforces this over the rendered HTML; it does not cover Go error strings, so watch those by hand.
 - Repo output is English. Comments explain *why*, matching the density of the surrounding file.
 - Both hosts must stay in step. Every renderer change lands in `cmd/mcs-menubar/main.go` and `cmd/mcs-tray/panel_windows.go` in the same task, or the Windows build breaks.
@@ -23,7 +24,7 @@
 
 ---
 
-### Task 1: `PrepareDelete` on the platform layer
+### Task 1: `PrepareRemove` on the platform layer
 
 Resolves an identity to the directory to archive, and refuses when that directory may not be renamed away. Separate from `PrepareArchive`, which takes a *keeper* to swap into the Store slot; a removal has no keeper.
 
@@ -31,47 +32,49 @@ Resolves an identity to the directory to archive, and refuses when that director
 - Modify: `platform/platform.go` (the `Platform` interface, beside `PrepareArchive`)
 - Modify: `platform/darwin.go`
 - Modify: `platform/windows.go`
+- Modify: `platform/windows_msix.go` (extract `msixIsSlotOccupant`)
 - Modify: `platform/unsupported.go`
 - Modify: `core/switch_test.go` (`mockPlatform`)
 - Test: `platform/darwin_test.go`, `platform/windows_msix_test.go`
 
 **Interfaces:**
-- Produces: `PrepareDelete(identity string) (path string, err error)` on `platform.Platform`.
+- Produces: `PrepareRemove(identity string) (path string, err error)` on `platform.Platform`.
+- Produces: `msixIsSlotOccupant(roaming, identity string) bool` inside `platform`.
 
 - [ ] **Step 1: Write the failing macOS test**
 
-Append to `platform/darwin_test.go`:
+Append to `platform/darwin_test.go`. Read the top of that file first: if it already has a helper that redirects `HOME`, use it and match the surrounding style instead of `t.Setenv`.
 
 ```go
-func TestPrepareDeleteResolvesUnderAppSupport(t *testing.T) {
+func TestPrepareRemoveResolvesUnderAppSupport(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	d := &DarwinPlatform{}
-	got, err := d.PrepareDelete("Claude_Work")
+	got, err := d.PrepareRemove("Claude_Work")
 	if err != nil {
-		t.Fatalf("PrepareDelete: %v", err)
+		t.Fatalf("PrepareRemove: %v", err)
 	}
 	want := filepath.Join(home, "Library", "Application Support", "Claude_Work")
 	if got != want {
-		t.Fatalf("PrepareDelete = %q, want %q", got, want)
+		t.Fatalf("PrepareRemove = %q, want %q", got, want)
 	}
 }
 ```
 
-If `darwin_test.go` already has a helper that redirects `HOME`, use it instead of `t.Setenv` and match the existing test's style. Read the top of the file first.
-
 - [ ] **Step 2: Run it and watch it fail**
 
-Run: `go test ./platform/ -run TestPrepareDelete -v`
-Expected: FAIL, `d.PrepareDelete undefined`.
+Run: `go test ./platform/ -run TestPrepareRemove -v`
+Expected: FAIL, `d.PrepareRemove undefined`.
 
 - [ ] **Step 3: Add the interface method**
 
 In `platform/platform.go`, directly below the `PrepareArchive` declaration and its comment:
 
 ```go
-	// PrepareDelete resolves an identity to the directory that would be archived
-	// by a removal, and refuses when that directory may not be renamed away.
+	// PrepareRemove resolves an identity to the directory a removal would archive,
+	// and refuses when that directory may not be renamed away. It reads only; it
+	// never moves anything, which is what lets a caller refuse afterwards and leave
+	// the disk as it found it.
 	//
 	// It is not PrepareArchive with one argument. PrepareArchive takes a KEEPER to
 	// swap into the Store build's shared slot; a removal has no keeper, so there is
@@ -79,19 +82,38 @@ In `platform/platform.go`, directly below the `PrepareArchive` declaration and i
 	// refusal. Passing the active identity as a stand-in would read as a swap that
 	// never happens.
 	//
-	// Caller need not have terminated Claude: a removal may not target the profile
-	// in use, so the directory this returns is never open.
-	PrepareDelete(identity string) (path string, err error)
+	// It does NOT check whether Claude is running: that is the caller's job,
+	// because the answer changes between this call and the rename.
+	PrepareRemove(identity string) (path string, err error)
 ```
 
-- [ ] **Step 4: Implement it on all four platforms**
+- [ ] **Step 4: Extract the Store occupant test**
+
+In `platform/windows_msix.go`, add beside `msixProfilePath`:
+
+```go
+// msixIsSlotOccupant reports whether identity is the profile currently living in
+// the shared slot. Extracted so PrepareArchive and PrepareRemove cannot come to
+// disagree about what "the occupant" means.
+//
+// Case-folded for the same reason msixProfilePath folds: Store profiles cannot
+// differ only in case, and exact matching would treat a differently-cased current
+// name as a parked profile.
+func msixIsSlotOccupant(roaming, identity string) bool {
+	return strings.EqualFold(readMSIXStateIn(roaming).Current, identity)
+}
+```
+
+Then rewrite the occupant test inside `WindowsPlatform.PrepareArchive` (`platform/windows.go`) to call it, changing nothing else about that function.
+
+- [ ] **Step 5: Implement `PrepareRemove` on all four platforms**
 
 `platform/darwin.go`, below `PrepareArchive`:
 
 ```go
-// PrepareDelete has nothing to refuse here: every profile is its own directory,
+// PrepareRemove has nothing to refuse here: every profile is its own directory,
 // so any of them can be renamed away without disturbing the others.
-func (d *DarwinPlatform) PrepareDelete(identity string) (string, error) {
+func (d *DarwinPlatform) PrepareRemove(identity string) (string, error) {
 	appSup := d.AppSupportDir()
 	if appSup == "" {
 		return "", fmt.Errorf("could not determine user home directory")
@@ -103,12 +125,22 @@ func (d *DarwinPlatform) PrepareDelete(identity string) (string, error) {
 `platform/windows.go`, below `PrepareArchive`:
 
 ```go
-// PrepareDelete refuses the Store build's slot occupant. The active profile is
-// addressed through one shared directory that state.json names; renaming it away
-// would leave state.json pointing at nothing, and unlike a merge there is no
-// keeper to swap in first. The standalone build has no shared slot, so it only
-// resolves.
-func (w *WindowsPlatform) PrepareDelete(identity string) (string, error) {
+// PrepareRemove refuses three things on the Store build, and nothing on the
+// standalone one, which has no shared slot.
+//
+// The slot occupant, because the active profile is addressed through one shared
+// directory that state.json names; renaming it away would leave state.json
+// pointing at nothing, and unlike a merge there is no keeper to swap in first.
+//
+// An install with no recorded state, because readMSIXStateIn substitutes the
+// default name when there is no file: "the occupant is Claude" and "MCS has never
+// run here" come back identical, so the occupant is not knowable and a guess here
+// archives the wrong directory.
+//
+// The pending-migration source, because msixAttemptMigrationIn stats that folder
+// and, finding it gone, copies nothing and clears the flag without a word. The
+// conversations would survive in the archive and simply never arrive.
+func (w *WindowsPlatform) PrepareRemove(identity string) (string, error) {
 	if !w.isMSIX() {
 		root := w.AppSupportDir()
 		if root == "" {
@@ -120,95 +152,119 @@ func (w *WindowsPlatform) PrepareDelete(identity string) (string, error) {
 	if roaming == "" {
 		return "", fmt.Errorf("Store Claude Desktop data directory not found")
 	}
-	if strings.EqualFold(readMSIXStateIn(roaming).Current, identity) {
-		return "", fmt.Errorf("%s is the account in use. Switch to another account first, then remove it", DisplayNameOf(identity))
+	if !msixStateRecorded(roaming) {
+		return "", fmt.Errorf("MCS has not set up switching on this install yet, so it cannot tell which account is in use. Run Rescan first")
+	}
+	if msixIsSlotOccupant(roaming, identity) {
+		return "", fmt.Errorf("%q is the account in use. Switch to another account first, then remove it", identity)
+	}
+	if strings.EqualFold(readMSIXStateIn(roaming).PendingMigrateFrom, identity) {
+		return "", fmt.Errorf("%q still has conversations waiting to move into the account you just added. Sign in to that account first, then remove this one", identity)
 	}
 	return msixProfilePath(roaming, identity), nil
 }
 ```
 
-`DisplayNameOf` does not exist in `platform`; `core.DisplayName` does, and `platform` must not import `core`. Use the raw identity instead and let the caller phrase it:
-
-```go
-		return "", fmt.Errorf("%q is the account in use. Switch to another account first, then remove it", identity)
-```
+`platform` must not import `core`, so the messages carry the raw identity rather than a display name. The caller phrases nothing; these strings reach the user as they are.
 
 `platform/unsupported.go`:
 
 ```go
-func (p *unsupportedPlatform) PrepareDelete(identity string) (string, error) {
+func (p *unsupportedPlatform) PrepareRemove(identity string) (string, error) {
 	return "", notSupported()
 }
 ```
 
-`core/switch_test.go`, on `mockPlatform`, following the `prepareArchive` field pattern already there. Add a field:
+`core/switch_test.go`, on `mockPlatform`. Read it first and match how `PrepareArchive` is done there, including whatever field actually holds the app-support root. Add a field beside `prepareArchive`:
 
 ```go
-	// prepareDelete lets a test decide what PrepareDelete hands back, which is how
-	// the Store build's refusal of the slot occupant gets represented.
-	prepareDelete func(identity string) (string, error)
+	// prepareRemove lets a test decide what PrepareRemove hands back, which is how
+	// the Store build's refusals get represented.
+	prepareRemove func(identity string) (string, error)
 ```
 
-and the method beside `PrepareArchive`:
+and the method:
 
 ```go
-func (m *mockPlatform) PrepareDelete(identity string) (string, error) {
-	if m.prepareDelete != nil {
-		return m.prepareDelete(identity)
+func (m *mockPlatform) PrepareRemove(identity string) (string, error) {
+	if m.prepareRemove != nil {
+		return m.prepareRemove(identity)
 	}
 	return filepath.Join(m.appSupport, identity), nil
 }
 ```
 
-Read `mockPlatform` first: use whatever field it actually holds for the app-support root rather than assuming `m.appSupport`, and match how `PrepareArchive` builds its default.
+- [ ] **Step 6: Run the macOS tests**
 
-- [ ] **Step 5: Run the macOS test**
+Run: `go test ./platform/ ./core/ -v`
+Expected: PASS. `PrepareArchive`'s existing tests must still pass after the extraction in Step 4; if any fail, the helper changed behaviour and that is the bug.
 
-Run: `go test ./platform/ ./core/ -run 'TestPrepareDelete|TestSwitch' -v`
-Expected: PASS.
+- [ ] **Step 7: Write the Windows Store tests**
 
-- [ ] **Step 6: Write the Windows Store test**
-
-Append to `platform/windows_msix_test.go`. Read the file first and reuse its existing fixture helper for writing a `state.json` under a temp roaming dir rather than writing one by hand.
+Append to `platform/windows_msix_test.go`. Read the file first and reuse its existing fixture helpers for a temp roaming dir and a written `state.json`; the names below are placeholders for whatever that file actually provides.
 
 ```go
-func TestPrepareDeleteRefusesSlotOccupant(t *testing.T) {
-	roaming := msixFixture(t, "Work") // whatever the file's helper is called
+func TestPrepareRemoveRefusesSlotOccupant(t *testing.T) {
+	roaming := msixFixture(t, msixState{Current: "Work"})
 	w := &WindowsPlatform{}
-	if _, err := w.PrepareDelete("Work"); err == nil {
-		t.Fatal("PrepareDelete accepted the slot occupant; it must refuse")
+	if _, err := w.PrepareRemove("Work"); err == nil {
+		t.Fatal("PrepareRemove accepted the slot occupant; it must refuse")
 	}
-	got, err := w.PrepareDelete("Personal")
+	got, err := w.PrepareRemove("Personal")
 	if err != nil {
-		t.Fatalf("PrepareDelete on a parked profile: %v", err)
+		t.Fatalf("PrepareRemove on a parked profile: %v", err)
 	}
 	want := filepath.Join(msixContainerDir(roaming), "Personal")
 	if got != want {
-		t.Fatalf("PrepareDelete = %q, want %q", got, want)
+		t.Fatalf("PrepareRemove = %q, want %q", got, want)
+	}
+}
+
+// With no state file, readMSIXStateIn answers "Claude" for the occupant, which is
+// indistinguishable from a real occupant called Claude. Accepting anything here
+// archives a parked folder while the live account stays in the slot.
+func TestPrepareRemoveRefusesWhenNoStateRecorded(t *testing.T) {
+	msixFixtureWithoutState(t)
+	w := &WindowsPlatform{}
+	if _, err := w.PrepareRemove("Work"); err == nil {
+		t.Fatal("PrepareRemove answered for an install whose occupant is unknowable")
+	}
+}
+
+// Removing the source of a queued migration loses it silently: the copy stats the
+// folder, finds it gone, copies nothing and clears the flag.
+func TestPrepareRemoveRefusesPendingMigrationSource(t *testing.T) {
+	msixFixture(t, msixState{Current: "New", PendingMigrateFrom: "Old"})
+	w := &WindowsPlatform{}
+	if _, err := w.PrepareRemove("Old"); err == nil {
+		t.Fatal("PrepareRemove accepted the profile a queued migration reads from")
 	}
 }
 ```
 
-The Store fixture may need `msixRoamingDir` redirected; follow exactly what the neighbouring tests in that file do.
-
-- [ ] **Step 7: Verify the Windows build compiles**
+- [ ] **Step 8: Verify the Windows build compiles**
 
 Run: `GOOS=windows go build ./... && GOOS=windows go vet ./...`
 Expected: no output.
 
-This is the only check available here. Record in the commit message that the Store refusal is unverified on a real machine.
+This is the only check available here. Record in the commit message that none of the Store behaviour has run on a real machine.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add platform/ core/switch_test.go
-git commit -m "feat(platform): PrepareDelete resolves a profile for removal
+git commit -m "feat(platform): PrepareRemove resolves a profile for removal
 
 Separate from PrepareArchive, which takes a keeper to swap into the Store
 build's shared slot. A removal has no keeper, so for the slot occupant the
 only honest answer is a refusal rather than a swap that never happens.
 
-The Store refusal is compile-checked only; it needs a real Windows run."
+Two refusals beyond the occupant, both found by review of the Store code
+rather than by testing it: an install with no recorded state cannot tell its
+occupant from the default name, and removing a queued migration's source
+makes those conversations never arrive, silently.
+
+Store behaviour is compile-checked only."
 ```
 
 ---
@@ -220,20 +276,22 @@ The Store refusal is compile-checked only; it needs a real Windows run."
 - Create: `core/removeprofile_test.go`
 
 **Interfaces:**
-- Consumes: `platform.Platform.PrepareDelete` (Task 1), `ArchiveProfile(identity, profilePath, archiveRoot string) (string, error)`, `RemoveManaged(identity string) error`, `SetProfileName(identity, name string) error`, `RemovePending(folder string) error`, `LoadActiveProfile() string`.
+- Consumes: `platform.Platform.PrepareRemove` (Task 1), `platform.Platform.DetectRunningProfiles() ([]string, error)`, `platform.SamePath`, `ArchiveProfile(identity, profilePath, archiveRoot string) (string, error)`, `RemoveManaged`, `SetProfileName`, `RemovePending`, `LoadActiveProfile`, `SaveActiveProfile`.
 - Produces: `RemoveProfile(plat platform.Platform, identity string) (archivedTo string, err error)`. `archivedTo` is the full path the folder landed at.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `core/removeprofile_test.go`. Reuse `withStubbedNames` from `core/merge_test.go` (same package) and follow `mergePlatform` for the fake. Read `core/merge_test.go` first — the fake platform there is the model to copy.
+Create `core/removeprofile_test.go`. Read `core/merge_test.go` first: `withStubbedNames` and `mergePlatform` are the models to copy.
 
 ```go
 package core
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // removeFixture builds one profile directory holding a session file, and returns
@@ -253,14 +311,41 @@ func removeFixture(t *testing.T, identity string) (root, profilePath, archiveRoo
 	return root, profilePath, archiveRoot
 }
 
+// removePlatform resolves the identity back to the fixture's directory and
+// answers what is running. Modelled on mergePlatform in merge_test.go: enough of
+// a platform to exercise the order of operations, without pretending to be an OS.
+type removePlatform struct {
+	*mockPlatform
+	root, archiveRoot string
+	refuse            error
+	running           []string
+	runningErr        error
+}
+
+func (p *removePlatform) PrepareRemove(identity string) (string, error) {
+	if p.refuse != nil {
+		return "", p.refuse
+	}
+	return filepath.Join(p.root, identity), nil
+}
+func (p *removePlatform) DetectRunningProfiles() ([]string, error) {
+	return p.running, p.runningErr
+}
+func (p *removePlatform) ArchiveDir() string { return p.archiveRoot }
+
+func newRemovePlatform(t *testing.T, root, archiveRoot string) *removePlatform {
+	t.Helper()
+	return &removePlatform{mockPlatform: &mockPlatform{}, root: root, archiveRoot: archiveRoot}
+}
+
 func TestRemoveProfileArchivesAndClearsRegistries(t *testing.T) {
 	withStubbedNames(t)
-	withStubbedManaged(t) // add this helper if core has none; see step 2
+	withStubbedManaged(t)
 	withStubbedPending(t)
 	withStubbedActive(t)
 
 	root, profilePath, archiveRoot := removeFixture(t, "Claude_Old")
-	plat := newRemovePlatform(t, root, archiveRoot, "Claude_Old")
+	plat := newRemovePlatform(t, root, archiveRoot)
 
 	if err := SetManaged([]string{"Claude_Old", "Claude_Keep"}); err != nil {
 		t.Fatal(err)
@@ -271,6 +356,9 @@ func TestRemoveProfileArchivesAndClearsRegistries(t *testing.T) {
 	if err := AddPending("Claude_Old", ""); err != nil {
 		t.Fatal(err)
 	}
+	if err := SaveActiveProfile("Claude_Old"); err != nil {
+		t.Fatal(err)
+	}
 
 	dest, err := RemoveProfile(plat, "Claude_Old")
 	if err != nil {
@@ -278,9 +366,6 @@ func TestRemoveProfileArchivesAndClearsRegistries(t *testing.T) {
 	}
 	if _, err := os.Stat(profilePath); !os.IsNotExist(err) {
 		t.Fatal("the profile directory is still in the scan path")
-	}
-	if _, err := os.Stat(dest); err != nil {
-		t.Fatalf("archived copy is not at %s: %v", dest, err)
 	}
 	if _, err := os.Stat(filepath.Join(dest, "claude-code-sessions", "uuid-1", "local_x.json")); err != nil {
 		t.Fatalf("the conversation did not travel with the folder: %v", err)
@@ -294,19 +379,17 @@ func TestRemoveProfileArchivesAndClearsRegistries(t *testing.T) {
 	if n := DisplayName("Claude_Old"); n != "Claude_Old" {
 		t.Fatalf("display name survived removal: %q", n)
 	}
-	for _, p := range LoadPending() {
-		if p == "Claude_Old" {
-			t.Fatal("pending.json still lists the removed profile")
-		}
+	if a := LoadActiveProfile(); a == "Claude_Old" {
+		t.Fatal("active.json still points at the removed profile")
 	}
 }
 ```
 
-`LoadPending`'s return type must be checked before writing that loop; `core/pending.go` is the reference. Adjust the assertion to whatever it actually returns.
+`AddPending`'s signature and the shape `LoadPending` returns must be checked against `core/pending.go` before relying on them; adjust the calls to what is actually there, and add an assertion that the pending entry is gone in whatever form that file uses.
 
 - [ ] **Step 2: Add the missing test helpers**
 
-`core/merge_test.go` has `withStubbedNames`. `core/managed_test.go` and `core/activeprofile_test.go` redirect their own paths inline. Rather than duplicating, add the three missing helpers to `core/removeprofile_test.go` in the same shape as `withStubbedNames`:
+`core/merge_test.go` has `withStubbedNames`. Add the three missing ones in the same shape, confirming the real var names in `core/managed.go`, `core/pending.go` and `core/activeprofile.go` first. If a helper of the same name already exists anywhere in package `core`, use that one; a duplicate will not compile.
 
 ```go
 func withStubbedManaged(t *testing.T) {
@@ -334,38 +417,7 @@ func withStubbedActive(t *testing.T) {
 }
 ```
 
-Confirm the real var names in `core/managed.go` and `core/pending.go` before writing these. If a helper of the same name already exists elsewhere in package `core`, use that one — a duplicate will not compile.
-
 **This matters beyond tidiness.** A test in this package once wrote to the user's real home directory and renamed a live profile. Every registry a test touches must be redirected, or the test damages the machine it runs on.
-
-Also add the fake platform:
-
-```go
-// removePlatform resolves the identity back to the fixture's directory. Modelled
-// on mergePlatform in merge_test.go: enough of a platform to exercise the order
-// of operations, without pretending to be an OS.
-type removePlatform struct {
-	*mockPlatform
-	root, archiveRoot string
-	refuse            error
-}
-
-func newRemovePlatform(t *testing.T, root, archiveRoot, identity string) *removePlatform {
-	t.Helper()
-	return &removePlatform{mockPlatform: &mockPlatform{}, root: root, archiveRoot: archiveRoot}
-}
-
-func (p *removePlatform) PrepareDelete(identity string) (string, error) {
-	if p.refuse != nil {
-		return "", p.refuse
-	}
-	return filepath.Join(p.root, identity), nil
-}
-
-func (p *removePlatform) ArchiveDir() string { return p.archiveRoot }
-```
-
-`mockPlatform`'s zero value may not be usable directly. Read `core/switch_test.go` and construct it the way `mergePlatform` does.
 
 - [ ] **Step 3: Run it and watch it fail**
 
@@ -380,6 +432,7 @@ Create `core/removeprofile.go`:
 package core
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -394,28 +447,39 @@ import (
 // is taken: a merge snapshots the profile it keeps because a merge writes into
 // it, and this writes nothing.
 //
-// Order is refuse, resolve, move, then update state. The registries are written
+// Order is resolve, refuse, move, then update state. The registries are written
 // only once the folder has really left the scan path: a folder unmanaged while
 // still in place is hidden from the panel and back on the next Rescan, so
 // "removed" would not stay removed.
 func RemoveProfile(plat platform.Platform, identity string) (string, error) {
 	name := DisplayName(identity)
 
-	// The account in use, whether or not Claude is running. A check against the
-	// running process would open the moment Claude is closed, and renaming the
-	// directory the user is about to reopen is exactly what must not happen.
-	// Refusing this is also what buys not having to quit Claude for a removal:
-	// no other profile's directory is held by anything.
-	if identity == LoadActiveProfile() {
-		return "", fmt.Errorf("%s is the account you are using. Switch to another account first, then remove it", name)
-	}
-
-	path, err := plat.PrepareDelete(identity)
+	// Platform refusals first, and the path they resolve to. This reads only, so a
+	// refusal below still leaves the disk exactly as it was found.
+	path, err := plat.PrepareRemove(identity)
 	if err != nil {
 		return "", err
 	}
 	if fi, statErr := os.Stat(path); statErr != nil || !fi.IsDir() {
 		return "", fmt.Errorf("%s is no longer there. Run Rescan", name)
+	}
+
+	// Renaming a directory Claude has open is the one way this can corrupt data,
+	// and POSIX rename will do it without complaint. Ask what is running rather
+	// than consulting active.json: that record is empty on any machine where MCS
+	// has not switched anything, which is exactly where a user who launched Claude
+	// themselves would need the guard. Asking here, last before the rename, also
+	// catches the panel that was drawn while Claude was closed.
+	running, err := plat.DetectRunningProfiles()
+	if err != nil {
+		// Not knowing whether Claude holds the directory is not permission to
+		// rename it, and a removal is never urgent enough to guess.
+		return "", fmt.Errorf("could not check whether Claude is running, so %s was left alone: %w", name, err)
+	}
+	for _, r := range running {
+		if platform.SamePath(r, path) {
+			return "", fmt.Errorf("Claude is open on %s. Switch to another account or quit Claude, then remove it", name)
+		}
 	}
 
 	dest, err := ArchiveProfile(identity, path, plat.ArchiveDir())
@@ -426,26 +490,37 @@ func RemoveProfile(plat platform.Platform, identity string) (string, error) {
 	}
 
 	// From here the folder is gone from the scan path, so every registry naming it
-	// is now wrong. Report the first failure but keep going: stopping at one would
-	// leave the others describing a profile that no longer exists, which is worse
-	// than the failure being reported.
-	var registryErr error
+	// is now wrong. Keep going past a failure: stopping at one would leave the
+	// others describing a profile that no longer exists, which is worse than the
+	// failure being reported. Every failure is returned, not merely logged, because
+	// a display name left behind is silently inherited by any later profile that
+	// reuses the identity and the user is the only one who can notice.
+	var errs []error
 	if err := RemoveManaged(identity); err != nil {
-		registryErr = fmt.Errorf("removed, but the managed list still lists it: %w", err)
-		log.Printf("remove: %v", registryErr)
+		errs = append(errs, fmt.Errorf("the managed list still lists it: %w", err))
 	}
-	// The display name goes with the profile. Left behind, it would be inherited by
-	// any later profile that happened to reuse the identity.
 	if err := SetProfileName(identity, ""); err != nil {
-		log.Printf("remove: could not clear the display name for %q: %v", identity, err)
+		errs = append(errs, fmt.Errorf("its display name is still recorded, and a later profile reusing the name %q would inherit it: %w", identity, err))
 	}
-	// And its pending entry. Pending entries are pruned only on sign-in, and a
-	// removed profile never appears in FindProfiles again, so an entry left here
-	// would render a sign-in prompt the user could never clear.
+	// Pending entries are pruned only on sign-in, and a removed profile never
+	// appears in FindProfiles again, so an entry left here would render a sign-in
+	// prompt the user could never clear.
 	if err := RemovePending(identity); err != nil {
-		log.Printf("remove: could not clear the pending entry for %q: %v", identity, err)
+		errs = append(errs, fmt.Errorf("its pending sign-in entry is still recorded: %w", err))
 	}
-	return dest, registryErr
+	// A stale active.json resolves to "" through lastActivatedPath and is harmless,
+	// but it is one more record naming something that is gone.
+	if LoadActiveProfile() == identity {
+		if err := SaveActiveProfile(""); err != nil {
+			errs = append(errs, fmt.Errorf("it is still recorded as the last account used: %w", err))
+		}
+	}
+	if len(errs) > 0 {
+		joined := fmt.Errorf("%s was removed, but %w", name, errors.Join(errs...))
+		log.Printf("remove: %v", joined)
+		return dest, joined
+	}
+	return dest, nil
 }
 ```
 
@@ -464,6 +539,13 @@ Reuses the tail of the merge path that is already in production. Registries
 are written only after the folder has left the scan path: unmanaging a folder
 still in place hides it and it returns on the next Rescan.
 
+The live-directory guard asks DetectRunningProfiles rather than reading
+active.json. active.json is empty on any machine where MCS has not switched
+anything, which is exactly where a user who opened Claude themselves needs the
+guard, and it names the last account even when nothing is running, which
+refused removals for no reason. Asking last, just before the rename, also
+catches a panel drawn while Claude was closed.
+
 No backup is taken. The archive is the backup, because the directory moves
 untouched; a merge snapshots only because a merge writes into what it keeps."
 ```
@@ -472,43 +554,86 @@ untouched; a merge snapshots only because a merge writes into what it keeps."
 
 ### Task 3: `core.RemoveProfile` — refusals, and a failed move leaving state intact
 
-The part a real filesystem will not produce on demand, and the part where a wrong order does permanent damage.
+The cases a real filesystem will not produce on demand, and the ones where getting it wrong does permanent damage.
 
 **Files:**
 - Modify: `core/removeprofile_test.go`
 
 **Interfaces:**
-- Consumes: `RemoveProfile` (Task 2), `renameProfile` (the injectable `os.Rename` var in `core/archive.go`), `archiveRenameDelay`.
+- Consumes: `RemoveProfile` (Task 2), `renameProfile` and `archiveRenameDelay` (the injectable vars in `core/archive.go`), `setProfileNameErr` if one is added (see Step 1).
 
 - [ ] **Step 1: Write the failing tests**
 
 Append to `core/removeprofile_test.go`:
 
 ```go
-func TestRemoveProfileRefusesTheAccountInUse(t *testing.T) {
+// The guard must come from detection, not from a record. active.json is
+// deliberately left empty here: that is the state of every machine where the
+// user opened Claude themselves instead of switching with MCS, and the earlier
+// draft of this guard was absent in exactly that case.
+func TestRemoveProfileRefusesAProfileClaudeHasOpen(t *testing.T) {
 	withStubbedNames(t)
 	withStubbedManaged(t)
 	withStubbedPending(t)
 	withStubbedActive(t)
 
 	root, profilePath, archiveRoot := removeFixture(t, "Claude_Live")
-	plat := newRemovePlatform(t, root, archiveRoot, "Claude_Live")
-	if err := SaveActiveProfile("Claude_Live"); err != nil {
+	plat := newRemovePlatform(t, root, archiveRoot)
+	plat.running = []string{profilePath}
+	if err := SetManaged([]string{"Claude_Live", "Claude_Other"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetManaged([]string{"Claude_Live"}); err != nil {
-		t.Fatal(err)
+	if a := LoadActiveProfile(); a != "" {
+		t.Fatalf("precondition: active.json should be empty, got %q", a)
 	}
 
 	if _, err := RemoveProfile(plat, "Claude_Live"); err == nil {
-		t.Fatal("RemoveProfile removed the account in use")
+		t.Fatal("RemoveProfile renamed a directory Claude has open")
 	}
 	if _, err := os.Stat(profilePath); err != nil {
 		t.Fatalf("the profile directory was disturbed by a refused removal: %v", err)
 	}
 	managed, _ := LoadManaged()
-	if len(managed) != 1 || managed[0] != "Claude_Live" {
+	if len(managed) != 2 {
 		t.Fatalf("a refused removal changed the managed list: %v", managed)
+	}
+}
+
+// Not knowing is not permission.
+func TestRemoveProfileRefusesWhenDetectionFails(t *testing.T) {
+	withStubbedNames(t)
+	withStubbedManaged(t)
+	withStubbedPending(t)
+	withStubbedActive(t)
+
+	root, profilePath, archiveRoot := removeFixture(t, "Claude_Unknown")
+	plat := newRemovePlatform(t, root, archiveRoot)
+	plat.runningErr = errors.New("process list unavailable")
+
+	if _, err := RemoveProfile(plat, "Claude_Unknown"); err == nil {
+		t.Fatal("RemoveProfile proceeded without knowing what Claude has open")
+	}
+	if _, err := os.Stat(profilePath); err != nil {
+		t.Fatalf("the profile directory was disturbed: %v", err)
+	}
+}
+
+// Removing the last account MCS switched to, with nothing running, must work.
+// The earlier draft refused this and told the user to switch away from an
+// account that was not open.
+func TestRemoveProfileAllowsTheLastActiveWhenNothingIsRunning(t *testing.T) {
+	withStubbedNames(t)
+	withStubbedManaged(t)
+	withStubbedPending(t)
+	withStubbedActive(t)
+
+	root, _, archiveRoot := removeFixture(t, "Claude_Closed")
+	plat := newRemovePlatform(t, root, archiveRoot)
+	if err := SaveActiveProfile("Claude_Closed"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RemoveProfile(plat, "Claude_Closed"); err != nil {
+		t.Fatalf("refused a profile nothing has open: %v", err)
 	}
 }
 
@@ -519,7 +644,7 @@ func TestRemoveProfileRefusesAProfileThatIsGone(t *testing.T) {
 	withStubbedActive(t)
 
 	root := t.TempDir()
-	plat := newRemovePlatform(t, root, filepath.Join(root, "archive"), "Claude_Ghost")
+	plat := newRemovePlatform(t, root, filepath.Join(root, "archive"))
 	if _, err := RemoveProfile(plat, "Claude_Ghost"); err == nil {
 		t.Fatal("RemoveProfile accepted an identity with no directory behind it")
 	}
@@ -535,7 +660,7 @@ func TestRemoveProfileKeepsRegistriesWhenTheMoveFails(t *testing.T) {
 	withStubbedActive(t)
 
 	root, profilePath, archiveRoot := removeFixture(t, "Claude_Stuck")
-	plat := newRemovePlatform(t, root, archiveRoot, "Claude_Stuck")
+	plat := newRemovePlatform(t, root, archiveRoot)
 	if err := SetManaged([]string{"Claude_Stuck", "Claude_Keep"}); err != nil {
 		t.Fatal(err)
 	}
@@ -568,30 +693,70 @@ func TestRemoveProfileKeepsRegistriesWhenTheMoveFails(t *testing.T) {
 		t.Fatalf("a failed move cleared the display name: %q", n)
 	}
 }
+
+// A registry that cannot be written is reported, not swallowed. The display name
+// is the one whose loss the user feels: a later profile reusing the identity
+// silently inherits it.
+func TestRemoveProfileReportsARegistryThatCannotBeWritten(t *testing.T) {
+	withStubbedNames(t)
+	withStubbedManaged(t)
+	withStubbedPending(t)
+	withStubbedActive(t)
+
+	root, _, archiveRoot := removeFixture(t, "Claude_Old")
+	plat := newRemovePlatform(t, root, archiveRoot)
+	if err := SetProfileName("Claude_Old", "Old one"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Point names.json at a path that cannot be written: a directory where the
+	// file should be. Nothing else is disturbed.
+	orig := namesPath
+	dir := t.TempDir()
+	blocked := filepath.Join(dir, "names.json")
+	if err := os.MkdirAll(blocked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	namesPath = func() string { return blocked }
+	t.Cleanup(func() { namesPath = orig })
+
+	dest, err := RemoveProfile(plat, "Claude_Old")
+	if err == nil {
+		t.Fatal("a registry write failure was swallowed")
+	}
+	if dest == "" {
+		t.Fatal("the archive path was not returned; the folder did move and the caller needs to know where")
+	}
+}
 ```
 
-Add `errors` and `time` to the test file's imports.
+The blocked-`names.json` trick depends on how `writeRegistryFile` stages its write. Read `core/registryfile.go` first and pick a failure the code will actually hit; if a directory in place of the file does not fail, make the parent directory unwritable instead, and skip the test on a root-running CI where permissions do not bite.
 
 - [ ] **Step 2: Run them**
 
 Run: `go test ./core/ -run TestRemoveProfile -v`
-Expected: PASS, all four. They test the implementation from Task 2 and should need no production change. If one fails, the order of operations in `RemoveProfile` is wrong — fix `removeprofile.go`, not the test.
+Expected: PASS, all seven. They test the implementation from Task 2 and should need no production change. If one fails, the order or the error handling in `RemoveProfile` is wrong; fix `removeprofile.go`, not the test.
 
 - [ ] **Step 3: Run the whole suite**
 
 Run: `go test ./...`
-Expected: PASS. `archiveRenameDelay` and `renameProfile` are package-level vars; confirm no other test in `core` runs in parallel with these and reads them.
+Expected: PASS. `renameProfile`, `archiveRenameDelay` and `namesPath` are package-level vars; confirm no other test in `core` runs in parallel with these.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add core/removeprofile_test.go
-git commit -m "test(core): removal refuses the live account and survives a failed move
+git commit -m "test(core): the refusals, and a failed move that changes nothing
+
+The open-profile test deliberately leaves active.json empty: that is the state
+of every machine where the user opened Claude themselves, and it is where the
+first draft of this guard was absent. A test that seeds active.json first
+proves nothing about it.
 
 The failed-move case is the one a real filesystem will not produce on demand
 and the one where a wrong order does permanent damage: registries written
-first would leave the folder in place and unlisted, invisible in the panel
-but back on the next Rescan."
+first would leave the folder in place and unlisted, invisible in the panel but
+back on the next Rescan."
 ```
 
 ---
@@ -613,7 +778,7 @@ The Rename screen becomes the per-account screen and gains the red section.
       Folder  string // the identity, the key every action carries
       Name    string // display name
       Convos  int    // conversations in its own account bucket
-      Current bool   // the account in use: remove is disabled
+      Current bool   // Claude is running on it: remove is disabled
       OnlyOne bool   // the only profile listed: remove is hidden
   }
   func RenderAccount(vm AccountVM) string
@@ -682,6 +847,10 @@ type AccountVM struct {
 // It was the Rename screen; removal lives at the bottom of it rather than as a bin
 // icon beside the pencil, because two small adjacent icons is the arrangement most
 // likely to be mis-tapped, and the delete-button rule is red and away from edit.
+//
+// Disabling for Current is a courtesy, not the guard. core.RemoveProfile asks what
+// Claude has open at the moment of the action, because this screen may have been
+// drawn before the user opened Claude on the account it is about.
 func RenderAccount(vm AccountVM) string {
 	esc := html.EscapeString
 
@@ -781,8 +950,10 @@ The Rename screen becomes Account settings and gains a red remove section
 below a rule, rather than a bin icon beside the pencil: two small adjacent
 icons is the arrangement most likely to be mis-tapped.
 
-Disabled with a reason for the account in use, absent entirely when it is the
-only profile listed, which would otherwise leave an empty panel."
+Disabled with a reason when Claude is on the account, absent entirely when it
+is the only profile listed. Neither is the real guard; core asks what Claude
+has open at the moment of the action, because this screen can be older than
+the answer."
 ```
 
 ---
@@ -893,12 +1064,14 @@ func RenderRemoved(vm RemovedVM) string {
 }
 ```
 
-Check `.errbox` and `.hint` exist in the stylesheet; both are used by `RenderNewProfile` already. If the header without a back button looks wrong against the other screens, keep the back button on the success screen too.
+A partial failure returns both an archive path and an error: the folder moved but a registry did not. `Err` wins, and the failure copy above says nothing moved, which would be wrong. Handle it in the hosts (Task 6, Step 2) by treating a non-empty `dest` as success and appending the registry complaint to the success screen, or by giving `RemovedVM` a third state. Pick one and say which in the commit message.
+
+Check `.errbox` and `.hint` exist in the stylesheet; both are used by `RenderNewProfile` already.
 
 - [ ] **Step 4: Run the tests**
 
 Run: `go test ./internal/panelui/ -v`
-Expected: PASS, including `TestNoEmDash`.
+Expected: PASS, including the em dash test.
 
 - [ ] **Step 5: Commit**
 
@@ -942,16 +1115,25 @@ In `goPanelAction`'s switch, beside `mergeConfirm`. Copy the busy guard and goro
 			return
 		}
 		folder := arg
-		vm := accountVM(folder)
+		// Read before the goroutine starts: after the removal the profile is gone
+		// and neither its name nor its conversation count is resolvable.
+		before := accountVM(folder)
 		setBusy(true)
 		go func() {
 			defer setBusy(false)
-			out := panelui.RemovedVM{Folder: folder, Name: vm.Name, Convos: vm.Convos}
+			out := panelui.RemovedVM{Folder: folder, Name: before.Name, Convos: before.Convos}
 			dest, err := core.RemoveProfile(plat, folder)
-			if err != nil {
-				out.Err = err.Error()
-			} else {
+			switch {
+			case dest != "":
+				// The folder moved. A non-nil err here is a registry that could not
+				// be written, which is not "nothing happened" and must not be shown
+				// as such.
 				out.ArchiveDir = filepath.Base(dest)
+				if err != nil {
+					setStatus(err.Error())
+				}
+			default:
+				out.Err = err.Error()
 			}
 			mu.Lock()
 			removedVM = out
@@ -960,8 +1142,6 @@ In `goPanelAction`'s switch, beside `mergeConfirm`. Copy the busy guard and goro
 			reloadPanel()
 		}()
 ```
-
-`accountVM` is read before the goroutine starts, because after the removal the profile is gone and its name and count are no longer resolvable.
 
 - [ ] **Step 3: Add the view case**
 
@@ -978,9 +1158,15 @@ In `goPanelAction`'s switch, beside `mergeConfirm`. Copy the busy guard and goro
 Run: `go build ./... && go test ./...`
 Expected: PASS.
 
-Then build the app bundle the way the repo already does (check `Makefile` or the release workflow for the exact target) and click through: pencil on a non-current account, Remove, confirm, read the result screen, open the archive folder and see the directory. Then Rescan and confirm the account does not come back.
+Then build the app bundle the way the repo already does (check the `Makefile` or the release workflow for the exact target) and click through:
 
-`LSUIElement` menu-bar apps cannot be driven by the screenshot tooling. This step is done by hand and the result recorded in the commit message.
+1. Pencil on a non-current account, Remove, confirm, read the result screen.
+2. Open the archive folder from that screen and see the directory.
+3. Rescan and confirm the account does not come back.
+4. **With Claude open on an account, reach its account screen and confirm remove is disabled.**
+5. **Open the panel with Claude closed, then launch Claude on that account, then press Remove.** The button was enabled when the screen was drawn; the refusal must come from core, and the failure screen must say nothing moved. This is the race the guard exists for and it cannot be reached from a unit test.
+
+`LSUIElement` menu-bar apps cannot be driven by the screenshot tooling. These steps are done by hand and the results recorded in the commit message.
 
 - [ ] **Step 5: Commit**
 
@@ -991,8 +1177,12 @@ git commit -m "feat(macos): wire up account removal
 The account's name and conversation count are read before the goroutine
 starts: after the removal the profile is gone and neither is resolvable.
 
-Verified by hand on a real profile: removed, archive folder holds the
-directory, Rescan does not bring it back."
+A partial failure (folder moved, registry not written) is shown as a success
+with the complaint in the status line, not as 'nothing was moved'.
+
+Verified by hand, including the stale-panel race: panel drawn with Claude
+closed, Claude then opened on that account, Remove pressed, refused with
+nothing moved."
 ```
 
 ---
@@ -1021,8 +1211,9 @@ git add cmd/mcs-tray/
 git commit -m "feat(windows): wire up account removal
 
 Compile-checked only. Both the standalone and Store paths need a real
-Windows run, and the Store build's refusal of the slot occupant is the part
-with no coverage here at all."
+Windows run. The Store build has three refusals with no coverage here at all:
+the slot occupant, an install with no recorded state, and the source of a
+queued first-sign-in migration."
 ```
 
 ---
@@ -1035,7 +1226,7 @@ with no coverage here at all."
 
 - [ ] **Step 1: Document the feature**
 
-In both READMEs, beside however renaming and merging are described today, add what removal does and what it refuses. Say plainly that the folder is archived rather than deleted, that the archive folder is reachable from Settings, and that the account in use cannot be removed. Keep the zh-TW file in step: it is a translation, not a shorter version.
+In both READMEs, beside however renaming and merging are described today, add what removal does and what it refuses. Say plainly that the folder is archived rather than deleted, that the archive folder is reachable from Settings, and that an account Claude currently has open cannot be removed. Keep the zh-TW file in step: it is a translation, not a shorter version.
 
 - [ ] **Step 2: FILELIST**
 
@@ -1065,6 +1256,7 @@ git commit -m "docs: remove-an-account, and 0.13.0"
 - [ ] `go build ./...` and `GOOS=windows go build ./...` both succeed.
 - [ ] `go vet ./...` and `GOOS=windows go vet ./...` are clean.
 - [ ] No `os.RemoveAll` was added against a profile directory.
-- [ ] The macOS flow was clicked through by hand, including the archive folder and a Rescan afterwards.
-- [ ] The Windows flow is filed as an issue for a real-machine check, naming both the standalone and Store builds.
+- [ ] `grep -rn "LoadActiveProfile" core/removeprofile.go` returns only the line that CLEARS a stale record, never a guard.
+- [ ] The macOS flow was clicked through by hand, including the archive folder, a Rescan afterwards, and the stale-panel race in Task 6 Step 4.
+- [ ] The Windows flow is filed as an issue for a real-machine check, naming the standalone build and all three Store refusals.
 - [ ] `superpowers:verification-before-completion`, then `superpowers:requesting-code-review`, then `superpowers:receiving-code-review`. These are not optional.

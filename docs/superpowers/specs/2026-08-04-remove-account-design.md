@@ -27,27 +27,53 @@ Nothing is deleted, ever. No `os.RemoveAll` path is added by this work.
 
 ## What it refuses
 
-Two refusals, at two layers, because the reasons are different.
+Four refusals, at three layers, because the reasons are different.
 
-**The account in use** — `core` refuses when the identity matches
-`core.LoadActiveProfile()`. On macOS and the Windows standalone build this stops a
-rename out from under a running Claude. It holds whether or not Claude is
-running, which a check against the running path would not: with Claude closed,
-no profile is "current" and every guard based on that would open.
+**A profile Claude has open** — `core` refuses when `DetectRunningProfiles`
+reports the target's directory. Renaming a directory out from under a running
+Claude is the one way this operation can corrupt data, and POSIX `rename` will
+do it without complaint.
 
-**The Store slot occupant** — the Windows Store build addresses the active
-profile through one shared directory that `state.json` names. Renaming that
-directory away leaves `state.json` pointing at nothing. The platform layer
-refuses it, because the rule belongs to the platform that has it.
+An earlier draft compared the identity against `LoadActiveProfile()` instead.
+That was wrong in both directions and the reasoning is recorded here so it is
+not reintroduced. `LoadActiveProfile` returns `""` for any failure *and* for a
+machine where MCS has never switched anything, so a user who launched Claude
+themselves got no guard at all. In the other direction, with Claude closed it
+still names the last account activated, so removing a profile nothing has open
+was refused with "this is the account you are using" while no Claude was
+running. Same cause, opposite symptoms.
+
+It also closes a race the identity check could not see: the panel is rendered
+with Claude closed, the user then opens Claude on that account, and the button
+they were already looking at is still enabled. Detection at the moment of the
+action is the only thing that catches it.
+
+A detector error refuses too. Not knowing whether Claude holds the directory is
+not permission to rename it, and a removal is never urgent enough to guess.
+
+**The Store slot occupant, and a Store install with no recorded state** — the
+Windows Store build addresses the active profile through one shared directory
+that `state.json` names, and renaming that away leaves `state.json` pointing at
+nothing. `readMSIXStateIn` substitutes the default name when there is no file,
+so "the occupant is Claude" and "MCS has never run here" come back identical;
+`msixStateRecorded` is the existing helper that tells them apart, and its own
+comment says why the returned value cannot. With no recorded state the
+occupant is unknown, so the removal is refused rather than guessed.
+
+**The Store pending-migration source** — after a Store profile is created,
+`state.json` carries `PendingMigrateFrom` naming the parked profile whose
+conversations are queued to copy in once the user signs in.
+`msixAttemptMigrationIn` stats that source and, finding it gone, copies nothing
+and clears the flag without a word. Removing the source before signing in would
+therefore lose the migration silently, so it is refused while one is queued.
 
 **The last account on the list** — the UI hides the button when only one
 profile is listed. Removing it would leave a panel with nothing in it and no
 obvious way back, and the value of allowing it is nil.
 
-Because the account in use can never be the target, **Claude does not have to be
-quit**. No other slot's directory is open by anything, so the rename succeeds
-immediately. This is the one user-visible payoff of the first refusal, and it is
-the reason not to relax it later.
+Because a profile Claude has open can never be the target, **Claude does not
+have to be quit** to remove a different one. That is the user-visible payoff of
+the first refusal and the reason not to relax it.
 
 ## No backup
 
@@ -59,43 +85,66 @@ whole safety story is that it does not modify anything.
 
 ## Order of operations
 
-1. Resolve the identity to a path, read-only.
-2. Refuse per the rules above.
-3. `PrepareDelete` — platform-specific, see below.
+1. `PrepareRemove` — resolve the identity to a path, and the platform's own
+   refusals. Read-only; it moves nothing, unlike `PrepareArchive`.
+2. Refuse if there is no directory there.
+3. Refuse if `DetectRunningProfiles` reports that path, or errors.
 4. `ArchiveProfile` — the rename.
 5. Only now, the registries: `RemoveManaged`, `SetProfileName(identity, "")`,
-   `RemovePending`.
+   `RemovePending`, and `active.json` if it names this identity.
 
 Registries last is not a preference. A folder unmanaged while still in place is
 hidden from the panel and back on the next Rescan, so "removed" would not stay
 removed. The display name goes with the profile or it is inherited by any later
 profile that reuses the identity — the same reasoning `MergeDuplicates` records.
 
+The running check is step 3 rather than step 1 because it needs the resolved
+path, and it is the last check before the rename so the window between deciding
+and acting is as small as it can be.
+
 A failure at step 4 leaves the disk and every registry exactly as they were, so
-the account is still on the list and a retry is safe. Failures at step 5 are
-logged and reported but do not stop the remaining cleanup: stopping at the first
-would leave the others describing a folder that no longer exists.
+the account is still on the list and a retry is safe. Every failure at step 5 is
+logged, joined, and returned: they do not stop the remaining cleanup, because
+stopping at the first would leave the others describing a folder that no longer
+exists. Returning them rather than only logging matters for the display name in
+particular, since a name left behind is silently inherited by any later profile
+that reuses the identity, and the user is the only one who can notice.
+
+A crash between steps 4 and 5 leaves entries naming a folder that is gone. This
+needs no repair mechanism: `BuildProfiles` walks the folders that exist and
+consults `managed.json` about them, so an entry for a folder that is not there
+is never rendered. The only residue that can be felt is the display name, and
+that is the one the returned error is about.
 
 ## Platform layer
 
 New method on `platform.Platform`:
 
 ```go
-// PrepareDelete resolves an identity to the directory to archive, and refuses
-// when that directory may not be renamed away.
-PrepareDelete(identity string) (path string, err error)
+// PrepareRemove resolves an identity to the directory a removal would archive,
+// and refuses when that directory may not be renamed away.
+PrepareRemove(identity string) (path string, err error)
 ```
+
+Named for what the feature does. `PrepareDelete` was the first name and it
+contradicts the one rule this whole design rests on, which is that nothing is
+deleted.
 
 - `DarwinPlatform` — joins the app-support dir; every profile is its own
   directory and nothing is shared.
 - `WindowsPlatform`, standalone — the same, under `%APPDATA%`.
-- `WindowsPlatform`, MSIX — refuses when the identity is `state.json`'s
-  `Current`; otherwise resolves through `msixProfilePath`, where parked profiles
-  live under `.mcs-profiles`.
+- `WindowsPlatform`, MSIX — refuses when `msixStateRecorded` is false (the
+  occupant is unknowable), when the identity is the slot occupant, and when it
+  is `state.json`'s `PendingMigrateFrom`. Otherwise resolves through
+  `msixProfilePath`, where parked profiles live under `.mcs-profiles`.
 - `unsupportedPlatform` — the existing not-supported error.
 
-It is a separate method rather than a reuse of `PrepareArchive`, which takes a
-*keeper* to swap into the slot. A removal has no keeper. Passing the active
+The occupant test is extracted as `msixIsSlotOccupant(roaming, identity) bool`
+and used by both `PrepareArchive` and `PrepareRemove`, so the two cannot come to
+disagree about what "the occupant" means.
+
+It stays a separate method rather than a reuse of `PrepareArchive`, which takes
+a *keeper* to swap into the slot. A removal has no keeper. Passing the active
 identity as a stand-in would work today and read as a swap that never happens,
 which is the kind of thing that is wrong the first time someone changes it.
 
@@ -152,9 +201,16 @@ across the rendered HTML.
 - **A failed rename leaves every registry intact.** `renameProfile` is already a
   var for injection; this is the path a real filesystem will not produce on
   demand and the one where a wrong order does permanent damage.
-- Refuses the active identity, and does not touch the disk when it does.
+- **Refuses a profile Claude has open, with no `active.json` present.** The
+  guard must come from detection, not from a record that is empty on exactly the
+  machines where nobody has used MCS to switch. A test that first calls
+  `SaveActiveProfile` proves nothing about that case.
+- Refuses when the detector errors, and does not touch the disk when it does.
 - Refuses an identity that is no longer there.
-- MSIX `PrepareDelete` refuses the slot occupant and resolves a parked profile.
+- A registry write that fails is reported to the caller, not only logged.
+- MSIX `PrepareRemove`: refuses the slot occupant, refuses when no state has
+  ever been recorded, refuses the pending-migration source, and resolves a
+  parked profile.
 - Renderer: the button appears on the account screen, is disabled for the
   account in use, and is absent when only one profile is listed.
 
@@ -163,6 +219,13 @@ across the rendered HTML.
 **Deleting the files.** Anyone who wants the disk space back can empty the
 archive folder in Finder or Explorer. It is the only irreversible operation in
 reach, and a menu entry for it will eventually be hit by a slip.
+
+**Sweeping orphaned registry entries at startup.** Proposed as a repair for a
+crash between the rename and the registry writes, and rejected: a `managed.json`
+entry for a folder that is not there is inert, because the panel walks the
+folders that exist and asks the list about them rather than the reverse. Adding
+a background mutation of the user's registries to tidy an entry nothing reads
+buys nothing and puts a writer where there was none.
 
 **Blocking duplicates at scan time.** Considered and rejected. Two folders on
 one account each hold their own conversations, possibly under different
