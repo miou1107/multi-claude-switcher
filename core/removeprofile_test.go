@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -172,6 +173,12 @@ func TestRemoveProfileAllowsTheLastActiveWhenNothingIsRunning(t *testing.T) {
 	}
 }
 
+// The message is asserted, not merely the failure. RemoveProfile's own os.Stat
+// guard and ArchiveProfile's identical check both refuse this, so "err != nil"
+// stays green with the guard this test is named for deleted, and the refusal
+// would then arrive only after the running check had run and from a function
+// whose wording ("nothing to archive at <path>") names a path rather than the
+// account and offers no Rescan.
 func TestRemoveProfileRefusesAProfileThatIsGone(t *testing.T) {
 	withStubbedNames(t)
 	withStubbedManaged(t)
@@ -180,8 +187,12 @@ func TestRemoveProfileRefusesAProfileThatIsGone(t *testing.T) {
 
 	root := t.TempDir()
 	plat := newRemovePlatform(t, root, filepath.Join(root, "archive"))
-	if _, err := RemoveProfile(plat, "Claude_Ghost"); err == nil {
+	_, err := RemoveProfile(plat, "Claude_Ghost")
+	if err == nil {
 		t.Fatal("RemoveProfile accepted an identity with no directory behind it")
+	}
+	if want := "Claude_Ghost is no longer there. Run Rescan"; err.Error() != want {
+		t.Fatalf("the refusal did not come from RemoveProfile's own guard:\ngot  %q\nwant %q", err, want)
 	}
 }
 
@@ -240,23 +251,23 @@ func TestRemoveProfileReportsARegistryThatCannotBeWritten(t *testing.T) {
 
 	root, _, archiveRoot := removeFixture(t, "Claude_Old")
 	plat := newRemovePlatform(t, root, archiveRoot)
+
+	// names.json is written by SetProfileName's own staging file plus rename, not
+	// writeRegistryFile. Put a DIRECTORY where the staging file goes: os.WriteFile
+	// can never open it, so the write fails for certain, without depending on
+	// filesystem permission semantics. names.json itself stays a real, readable
+	// file, which matters here because the complaint has to name the account the
+	// way the user knows it, and that name is read back out of this file.
+	orig := namesPath
+	names := filepath.Join(t.TempDir(), "names.json")
+	namesPath = func() string { return names }
+	t.Cleanup(func() { namesPath = orig })
 	if err := SetProfileName("Claude_Old", "Old one"); err != nil {
 		t.Fatal(err)
 	}
-
-	// Point names.json at a path that cannot be written: a directory where the
-	// file should be. names.json is written by SetProfileName's own atomic
-	// rename (not writeRegistryFile), and a file can never rename onto an
-	// existing directory, so this reliably fails the final step of that write
-	// without depending on filesystem permission semantics.
-	orig := namesPath
-	dir := t.TempDir()
-	blocked := filepath.Join(dir, "names.json")
-	if err := os.MkdirAll(blocked, 0o755); err != nil {
+	if err := os.MkdirAll(names+".tmp", 0o755); err != nil {
 		t.Fatal(err)
 	}
-	namesPath = func() string { return blocked }
-	t.Cleanup(func() { namesPath = orig })
 
 	dest, err := RemoveProfile(plat, "Claude_Old")
 	if err == nil {
@@ -264,5 +275,20 @@ func TestRemoveProfileReportsARegistryThatCannotBeWritten(t *testing.T) {
 	}
 	if dest == "" {
 		t.Fatal("the archive path was not returned; the folder did move and the caller needs to know where")
+	}
+	// Which registry complained, not merely that something did. Only names.json
+	// was blocked here, so any other complaint means the test is being satisfied
+	// by a failure it did not arrange, and the display name is the one whose loss
+	// the user actually feels.
+	if !strings.Contains(err.Error(), `Its name is still recorded as "Old one"`) {
+		t.Fatalf("the display name is not what was reported as unclearable: %v", err)
+	}
+	// It also has to be readable on the screen it lands on: a whole sentence
+	// naming the account, with the joined entries on their own lines.
+	if !strings.HasPrefix(err.Error(), "Old one was removed, but ") {
+		t.Fatalf("the complaint does not open by saying the removal did happen: %v", err)
+	}
+	if !strings.Contains(err.Error(), "\n") {
+		t.Fatalf("the summary and the complaint must be separate lines: %v", err)
 	}
 }

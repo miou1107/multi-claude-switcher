@@ -119,10 +119,13 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 	// folder moved (ArchiveDir is set) but a registry write afterward did not.
 	// The plain fixture above never sets RegistryNote, so this is the only call
 	// that reaches the hintw block this test is here to cover.
+	// Two entries, newline-separated, as errors.Join really hands them over: the
+	// multi-line branch is the one that draws a line per complaint.
 	removedWithRegistryNote := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34,
 		ArchiveDir: "Claude_Old-20260804-142233",
-		RegistryNote: "Its display name could not be cleared from the switcher's records. " +
-			"If a later account reuses this identity, rename it if the old name reappears."})
+		RegistryNote: "Old one was removed, but some of what the switcher had recorded about it could not be cleared.\n" +
+			"The switcher's own account list still mentions it. Nothing needs doing: the panel only shows accounts whose folder is still there. (write managed.json: permission denied)\n" +
+			"Its name is still recorded as \"Old one\". If you sign in to this account again later it will come back under that name, which you can change with Rename. (write names.json: permission denied)"})
 
 	views := map[string]string{
 		"debug":                 RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "typed", Status: "Copied"}),

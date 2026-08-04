@@ -142,6 +142,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .hint{font-size:12px;color:#6b6580;line-height:1.5;margin-top:11px}
 .dangerzone{border-top:1px solid #ece9f4;margin-top:18px;padding-top:14px}
 .hintw{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-top:10px}
+.hintw .noteline+.noteline{margin-top:7px}
 .dbgnote{background:#e9f5ee;color:#1a7a3d;font-size:11.5px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-bottom:9px}
 .dbgbox{background:#fff;border-radius:12px;padding:11px 12px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:10.5px;line-height:1.65;color:#514b66;max-height:210px;overflow:auto;white-space:pre-wrap;word-break:break-word}
 .dbgarea{width:100%;height:60px;font:inherit;font-size:12px;padding:10px 12px;border:2px solid #e0dcf3;border-radius:12px;background:#fff;color:#241f38;outline:none;resize:none}
@@ -936,9 +937,19 @@ func RenderRemoved(vm RemovedVM) string {
 	// cannot be silent either — a display name left behind is inherited, without
 	// warning, by any later account that reuses this identity, and this screen is
 	// the only place that will ever say so.
+	// One line per complaint. The note carries errors.Join output, whose entries
+	// are separated by newlines, and HTML collapses those: two separate things
+	// that could not be cleared ran together into one sentence that read as
+	// neither of them.
 	registryNote := ""
 	if vm.RegistryNote != "" {
-		registryNote = `<div class="hintw">` + esc(vm.RegistryNote) + `</div>`
+		var lines strings.Builder
+		for _, line := range strings.Split(vm.RegistryNote, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				lines.WriteString(`<div class="noteline">` + esc(line) + `</div>`)
+			}
+		}
+		registryNote = `<div class="hintw">` + lines.String() + `</div>`
 	}
 	body := `<div class="header">
   <div class="htext"><h1>` + esc(vm.Name) + ` removed</h1><p>It is off the switcher</p></div>

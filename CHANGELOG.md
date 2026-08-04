@@ -27,6 +27,12 @@
   therefore closed that window without putting it back, and the removal guard
   had nothing to guard on. It is now recognised, the way it already was on
   macOS.
+- **A removal that could not tidy up afterwards says so readably.** When the
+  folder moves but something the switcher had recorded about the account
+  cannot be cleared, the result screen now puts each thing on its own line and
+  says, in plain words, what it means and whether you need to do anything.
+  Previously two of them ran together into one sentence, and the wording spoke
+  about "profiles" rather than accounts.
 - **macOS ignores a second click while it is busy switching.** Picking an
   account while a switch, sync, backup, merge or removal was already running
   started a second operation on top of the first. Windows has refused that

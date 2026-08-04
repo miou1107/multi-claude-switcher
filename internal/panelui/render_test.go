@@ -812,6 +812,27 @@ func TestRenderRemovedShowsARegistryComplaintOnSuccess(t *testing.T) {
 	}
 }
 
+// TestRenderRemovedSplitsARegistryComplaintIntoLines pins the shape
+// errors.Join really produces: entries separated by newlines. HTML collapses a
+// newline to a space, so rendered into one div two separate things that could
+// not be cleared read as a single run-on sentence, and the reader cannot tell
+// where one ends.
+func TestRenderRemovedSplitsARegistryComplaintIntoLines(t *testing.T) {
+	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 3, ArchiveDir: "Claude_Old-1",
+		RegistryNote: "Old one was removed, but some of it could not be cleared.\n" +
+			"The switcher's own account list still mentions it.\n" +
+			"Its name is still recorded as \"Old one\"."})
+	if n := strings.Count(h, `class="noteline"`); n != 3 {
+		t.Fatalf("want one line per joined entry, got %d:\n%s", n, h)
+	}
+	// A blank entry (a trailing newline, say) must not draw an empty line.
+	h = RenderRemoved(RemovedVM{Name: "Old one", ArchiveDir: "Claude_Old-1",
+		RegistryNote: "Only one thing went wrong.\n"})
+	if n := strings.Count(h, `class="noteline"`); n != 1 {
+		t.Fatalf("a trailing newline must not draw an empty line, got %d:\n%s", n, h)
+	}
+}
+
 // TestRenderRemovedHasNoRegistryComplaintByDefault guards against the note
 // leaking onto the ordinary, clean success screen it is absent from.
 func TestRenderRemovedHasNoRegistryComplaintByDefault(t *testing.T) {

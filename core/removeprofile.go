@@ -64,28 +64,39 @@ func RemoveProfile(plat platform.Platform, identity string) (string, error) {
 	// failure being reported. Every failure is returned, not merely logged, because
 	// a display name left behind is silently inherited by any later profile that
 	// reuses the identity and the user is the only one who can notice.
+	// Each of these is written as a whole sentence, and says what the user has to
+	// do about it, because errors.Join puts them on the screen one per line and
+	// each one is read on its own. Three of the four need nothing done, and saying
+	// so is the point: the panel lists the folders that exist and asks the
+	// registries about those, so an entry naming a folder that is gone is never
+	// drawn. The display name is the exception, and the only one worth an action.
+	//
+	// "Account", not "profile": a profile is the folder, and the user was never
+	// shown that word anywhere else in the app.
 	var errs []error
 	if err := RemoveManaged(identity); err != nil {
-		errs = append(errs, fmt.Errorf("the managed list still lists it: %w", err))
+		errs = append(errs, fmt.Errorf("The switcher's own account list still mentions it. Nothing needs doing: the panel only shows accounts whose folder is still there. (%w)", err))
 	}
 	if err := SetProfileName(identity, ""); err != nil {
-		errs = append(errs, fmt.Errorf("its display name is still recorded, and a later profile reusing the name %q would inherit it: %w", identity, err))
+		errs = append(errs, fmt.Errorf("Its name is still recorded as %q. If you sign in to this account again later it will come back under that name, which you can change with Rename. (%w)", name, err))
 	}
-	// Pending entries are pruned only on sign-in, and a removed profile never
-	// appears in FindProfiles again, so an entry left here would render a sign-in
-	// prompt the user could never clear.
+	// Pending entries are pruned only on sign-in, so one left here would outlive
+	// every folder it could describe.
 	if err := RemovePending(identity); err != nil {
-		errs = append(errs, fmt.Errorf("its pending sign-in entry is still recorded: %w", err))
+		errs = append(errs, fmt.Errorf("Its \"waiting to sign in\" note is still recorded. Nothing needs doing: that note is only ever shown against an account whose folder is still there. (%w)", err))
 	}
 	// A stale active.json resolves to "" through lastActivatedPath and is harmless,
 	// but it is one more record naming something that is gone.
 	if LoadActiveProfile() == identity {
 		if err := SaveActiveProfile(""); err != nil {
-			errs = append(errs, fmt.Errorf("it is still recorded as the last account used: %w", err))
+			errs = append(errs, fmt.Errorf("It is still recorded as the account you used last. Nothing needs doing: switching to any account replaces that. (%w)", err))
 		}
 	}
 	if len(errs) > 0 {
-		joined := fmt.Errorf("%s was removed, but %w", name, errors.Join(errs...))
+		// The summary is its own line rather than a "..., but" clause running into
+		// the first complaint: errors.Join separates its entries with newlines, and
+		// the screen draws one line per entry.
+		joined := fmt.Errorf("%s was removed, but some of what the switcher had recorded about it could not be cleared.\n%w", name, errors.Join(errs...))
 		log.Printf("remove: %v", joined)
 		return dest, joined
 	}
