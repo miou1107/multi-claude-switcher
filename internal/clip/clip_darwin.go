@@ -14,7 +14,20 @@ import (
 	"strings"
 )
 
-// Set writes text to the clipboard, returning only once it is there.
+// Set writes text to the clipboard and waits for pbcopy to exit before
+// returning.
+//
+// "Waits for pbcopy to exit" is the honest claim, not "waits for the write to
+// land": Set trusts pbcopy's own exit code and does not read the clipboard
+// back with pbpaste to confirm the bytes it wrote are the bytes now sitting
+// there. A read-back was considered and left out — it would double the
+// latency in front of the browser-open this blocks (see the package doc
+// comment on why that ordering matters), for a check that only catches
+// pbcopy lying about its own exit status, which is not a failure mode this
+// codebase has ever observed. The failure mode that IS observed — a stripped
+// LaunchServices locale making pbcopy silently discard non-ASCII input while
+// still exiting 0 — is handled below by forcing the locale, not by reading
+// back after the fact.
 func Set(text string) error {
 	cmd := exec.Command("pbcopy")
 	cmd.Stdin = strings.NewReader(text)
