@@ -624,7 +624,7 @@ func TestRenderSettingsOffersTheArchiveFolder(t *testing.T) {
 
 // TestRenderDebugShowsWhatWillBePublished pins the three things the screen
 // exists for: the report itself, a way to say what went wrong, and a statement
-// of what has been removed. The notice is not decoration — it is the only place
+// of what was replaced with stand-ins. The notice is not decoration — it is the only place
 // the user is told the report was masked at all.
 func TestRenderDebugShowsWhatWillBePublished(t *testing.T) {
 	h := RenderDebug(DebugVM{Report: "MCS 0.11.2\naccount-1", Comment: ""})
@@ -633,13 +633,13 @@ func TestRenderDebugShowsWhatWillBePublished(t *testing.T) {
 		"MCS 0.11.2",
 		"account-1",
 		// Assert on the element, not the word: shell()'s askReport literal
-		// contains "...already removed." and "Copy and open", so
-		// strings.Contains(html, "removed") or "Copy" is true on every page
+		// contains "already replaced with stand-ins" and "Copy and open", so
+		// asserting on that wording, or on "Copy", would be true on every page
 		// ever rendered (shell() is shared by all views) and these two
 		// assertions would still pass with the .dbgnote block or the Copy
 		// button deleted outright.
 		`class="dbgnote"`,
-		`send('showSettings','')`,
+		`send('showSettings', document.getElementById('dbgc').value)`,
 		`id="dbgc"`,
 		"Report a problem",
 		`send('copyDebug'`,
@@ -668,20 +668,29 @@ func TestRenderDebugEscapesTheReportAndTheComment(t *testing.T) {
 	}
 }
 
-// TestRenderDebugGatheringShowsPlaceholder is a round-3 finding. showDebug now
-// clears the report cache before the gather starts (so a stale snapshot from
-// an earlier visit can never be rendered or copied), which means the very
-// first render of this view has an empty Report. Without a placeholder that
-// looks identical to a report that gathered nothing at all — an empty box
-// with the busy banner cleared — and Copy/Report a problem would act on that
-// emptiness instead of refusing.
-func TestRenderDebugGatheringShowsPlaceholder(t *testing.T) {
-	h := RenderDebug(DebugVM{Report: "", Gathering: true})
-	if !strings.Contains(h, "Gathering") {
-		t.Errorf("gathering state should say so instead of showing an empty box:\n%s", h)
+// TestRenderDebugExplainsTheUnregisteredMarker: a user who sees
+// "[redacted: unregistered]" in their own report needs to know it means MCS
+// found something it did not recognise and blocked it, not that MCS is
+// hiding something else from them.
+func TestRenderDebugExplainsTheUnregisteredMarker(t *testing.T) {
+	h := RenderDebug(DebugVM{Report: "[redacted: unregistered]"})
+	if !strings.Contains(h, "[redacted: unregistered]") {
+		t.Fatalf("fixture broken: report marker missing:\n%s", h)
 	}
-	if strings.Contains(h, `<div class="dbgbox"></div>`) {
-		t.Error("the report box must not render empty while still gathering")
+	if !strings.Contains(h, "MCS spotted something") {
+		t.Errorf("the notice must explain what the marker means:\n%s", h)
+	}
+}
+
+// TestRenderDebugBackButtonKeepsTheComment pins the fix for the data loss the
+// back button shared with Esc (see the keydown handler in shell()): both used
+// to send showSettings with no argument, discarding whatever the user had
+// typed since it was never sent to Go until Copy or Report a problem. The
+// back button must now hand the live textarea value back with the action.
+func TestRenderDebugBackButtonKeepsTheComment(t *testing.T) {
+	h := RenderDebug(DebugVM{Report: "MCS 0.11.2"})
+	if !strings.Contains(h, `send('showSettings', document.getElementById('dbgc').value)`) {
+		t.Errorf("the back button must carry the comment back to Go:\n%s", h)
 	}
 }
 

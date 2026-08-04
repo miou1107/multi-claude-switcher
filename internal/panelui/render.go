@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/core/diagnostics"
 )
 
 // ProfileVM is one row in the account-list view.
@@ -225,7 +226,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
       'Open a GitHub issue?',
       'The report above and your comment are copied to your clipboard, and your browser opens a new issue on the MCS repository. Paste it there and you can still edit it before submitting.',
       'Copy and open',
-      'GitHub issues are public. What you saw on the previous screen is all that is included, with email addresses, account IDs and your user name already removed.');
+      'GitHub issues are public. What is copied is exactly what you saw on the screen behind this dialog, with your email address, account IDs, user name and home folder already replaced with stand-ins.');
   }
   // The folders arrive via data-* and are joined here, never interpolated into the
   // inline handler — a folder with an apostrophe would otherwise break the parse.
@@ -246,6 +247,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     // Inside a text input (Rename), Esc backs out to the list instead of
     // killing the panel — hiding on Windows would discard the typed name.
     var ae=document.activeElement;
+    // The Debug comment box is the one exception: showList jumps past
+    // Settings, which the back button does not, and — same as pressing that
+    // back button used to — discarded whatever the user had typed, since it
+    // was never sent to Go until Copy or Report a problem. Sending it as the
+    // arg here mirrors the back button's fix: showSettings on the Go side
+    // saves it before switching the view away.
+    if(ae && ae.id==='dbgc') { send('showSettings', ae.value); return; }
     if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA')) { send('showList',''); return; }
     // Otherwise, Esc hides the whole panel (matches NSPopover click-outside).
     send('hidePanel','');
@@ -446,18 +454,18 @@ func RenderSettings(vm SettingsVM) string {
 
 // DebugVM is the Debug info view: what MCS knows about this machine, already
 // masked, and a box to say what went wrong.
+//
+// There used to be a Gathering flag here, for the window between showDebug
+// clearing the report cache and the background gather filling it back in.
+// That window no longer reaches this view at all: showDebug now gathers
+// first, while Settings shows a busy banner, and only switches to this view
+// once the report is ready — so RenderDebug is never asked to draw a report
+// that has not finished gathering, and there is nothing left for a
+// placeholder to guard against.
 type DebugVM struct {
 	Report  string
 	Comment string
 	Status  string // transient feedback, e.g. after Copy
-
-	// Gathering is true for the window between showDebug clearing the report
-	// cache and the background gather filling it back in. The cache is
-	// cleared first, deliberately, so a stale snapshot from a previous visit
-	// can never be rendered or copied — but that leaves Report empty for a
-	// real reason, not because gathering found nothing, so the box must say
-	// so rather than render as if a finished, empty report were being shown.
-	Gathering bool
 }
 
 // RenderDebug shows the report before it goes anywhere.
@@ -472,14 +480,11 @@ func RenderDebug(vm DebugVM) string {
 		status = `<div class="status">` + esc(vm.Status) + `</div>`
 	}
 	reportBox := `<div class="dbgbox">` + esc(vm.Report) + `</div>`
-	if vm.Gathering {
-		reportBox = `<div class="dbgbox">Gathering the report…</div>`
-	}
 	body := `<div class="header">
-  <button class="back" onclick="send('showSettings','')">‹</button>
+  <button class="back" onclick="send('showSettings', document.getElementById('dbgc').value)">‹</button>
   <div class="htext"><h1>Debug info</h1><p>Exactly what a report contains</p></div>
 </div>` + status + `
-<div class="dbgnote">Email addresses, account IDs and your user name are removed before anything leaves this screen.</div>
+<div class="dbgnote">Your email address, account IDs, user name and home folder are replaced with stand-ins like account-1 in the report below. Names inside a folder you chose yourself may survive — a profile you named after yourself keeps that name. A line reading ` + esc(diagnostics.UnregisteredMarker) + ` means MCS spotted something that looked like an address or an ID and blocked it; it is not hiding anything else from you.</div>
 ` + reportBox + `
 <div class="hint">What went wrong? (optional)</div>
 <textarea class="dbgarea" id="dbgc" placeholder="Switching to my work account left the personal one closed…">` + esc(vm.Comment) + `</textarea>
