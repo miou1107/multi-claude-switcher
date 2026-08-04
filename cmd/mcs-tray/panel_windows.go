@@ -63,16 +63,17 @@ var (
 	// to act on, once again when the reload that follows redrew the same
 	// screen.
 	//
-	// panelDebugReportReady is false from the moment showDebug clears the
-	// cache until the gather that follows fills it back in. showDebug clears
-	// first, synchronously, so a concurrent reloadPanel triggered by some
-	// other in-flight action (backup, sync, a merge) can never redraw the
-	// debug view from a previous visit's snapshot — it sees the cleared cache
-	// instead. copyDebug and reportProblem check it too, and refuse rather
-	// than act on an empty report.
+	// There used to be a panelDebugReportReady flag here, false from the
+	// moment showDebug cleared the cache until the gather that followed
+	// filled it back in, because the view switched to "debug" before the
+	// gather had finished. That window is gone: showDebug now gathers to
+	// completion (while Settings shows a busy banner, guarded by the same
+	// busy flag as backup/sync/merge) and only then sets the view to "debug"
+	// and reloads. By the time this view — or copyDebug, or reportProblem —
+	// can be reached at all, the cache is already populated, so there is no
+	// "not ready" state left to track or to refuse against.
 	panelDebugReportCache  string
 	panelDebugReportMasker *diagnostics.Masker
-	panelDebugReportReady  bool
 
 	// panelNewProfileVM carries the pending name screen's context between the
 	// action that opened it and the render that draws it, including the validation
@@ -332,6 +333,15 @@ func dispatchAction(action, arg string) {
 		// that want a message set it and render the list themselves without this action
 		go reloadPanel()
 	case "showSettings":
+		// Shared by the plain Settings gear and the Debug view's back button
+		// (and its Esc equivalent), which pass the live comment textarea value
+		// as arg so leaving Debug does not discard what was typed — the same
+		// data loss showDebug's old gather-after-view-switch shape caused, by
+		// a different trigger. Every other caller passes "", which must not
+		// clobber a comment already saved by a previous Debug visit.
+		if arg != "" {
+			panelSetDebugComment(arg)
+		}
 		panelSetView("settings")
 		panelSetStatus("")
 		reloadPanel()
@@ -405,38 +415,39 @@ func dispatchAction(action, arg string) {
 		panelSetView("list")
 		go reloadPanel()
 	case "showDebug":
+		// Guarded like backup, sync and merge: the gather below is heavy (a
+		// leveldb copy per profile, a session-tree walk, every log tail), and a
+		// second click while one is already running must not start another.
+		if panelGetBusy() {
+			return
+		}
 		panelSetDebugComment("")
-		// Cleared before the view switches, synchronously — not inside the
-		// goroutine below. A backup or sync already running finishes on its own
-		// goroutine and calls reloadPanel independently of this click; if the
-		// cache still held the previous visit's report at that moment, that
-		// reload would draw the debug view from a stale snapshot the user never
-		// asked to see, and Copy or Report a problem could act on it.
-		clearPanelDebugReportCache()
-		panelSetView("debug")
+		// Gathered to completion before the view switches, not after. The old
+		// shape cleared the cache, switched to "debug" immediately, and
+		// gathered on a goroutine — which rendered the (empty) debug view, with
+		// its comment box, before the report existed. A user who started typing
+		// what went wrong the instant they saw that box lost it the moment the
+		// finished gather's reloadPanel redrew the same view from an empty
+		// panelGetDebugComment(). Staying on the current view with a busy banner
+		// keeps the comment box off screen until there is a finished report to
+		// show next to it.
+		panelSetBusy(true, "Gathering debug info…")
+		reloadPanel()
 		go func() {
 			report, m := panelDebugReport()
 			setPanelDebugReportCache(report, m)
+			panelSetBusy(false, "")
+			panelSetView("debug")
 			reloadPanel()
 		}()
 	case "reportProblem":
 		// Guarded like backup, sync and merge. Without this, mashing the button
-		// stacked concurrent clip.Set/open calls; the cache below already stops
-		// each click from re-gathering the report, but a second click could
-		// still race the first one's clipboard write.
+		// stacked concurrent clip.Set/open calls.
 		if panelGetBusy() {
 			return
 		}
 		panelSetDebugComment(arg)
-		report, m, ready := getPanelDebugReportCache()
-		if !ready {
-			// The gather is still running (first Debug visit of the session, or a
-			// click that landed inside that window). There is nothing to publish
-			// yet — refuse rather than open an issue with an empty report.
-			panelSetStatus("Still gathering the report — try again in a moment.")
-			reloadPanel()
-			return
-		}
+		report, m := getPanelDebugReportCache()
 		panelSetBusy(true, "Copying report…")
 		reloadPanel()
 		go func() {
@@ -457,12 +468,7 @@ func dispatchAction(action, arg string) {
 			return
 		}
 		panelSetDebugComment(arg)
-		report, _, ready := getPanelDebugReportCache()
-		if !ready {
-			panelSetStatus("Still gathering the report — try again in a moment.")
-			reloadPanel()
-			return
-		}
+		report, _ := getPanelDebugReportCache()
 		panelSetBusy(true, "Copying…")
 		reloadPanel()
 		go func() {
@@ -711,20 +717,15 @@ func reloadPanel() {
 		})
 	case "debug":
 		// Reused, not rebuilt: showDebug is the only path into this view, and it
-		// primes the cache asynchronously after clearing it synchronously first
-		// (see clearPanelDebugReportCache and the doc comment on
-		// panelDebugReportCache). Between those two points this renders with
-		// ready == false, and the placeholder below is what a concurrent
-		// reloadPanel — triggered by some other in-flight action finishing —
-		// draws instead of a stale report. Rebuilding here as well as in
-		// copyDebug/reportProblem was the double gather; see the doc comment on
-		// panelDebugReportCache.
-		report, _, ready := getPanelDebugReportCache()
+		// only sets the view once the gather that fills panelDebugReportCache
+		// has already finished (see the doc comment on panelDebugReportCache),
+		// so this always has a real report to draw. Rebuilding here as well as
+		// in copyDebug/reportProblem was the double gather this replaced.
+		report, _ := getPanelDebugReportCache()
 		htmlStr = panelui.RenderDebug(panelui.DebugVM{
-			Report:    report,
-			Comment:   panelGetDebugComment(),
-			Status:    panelGetStatus(),
-			Gathering: !ready,
+			Report:  report,
+			Comment: panelGetDebugComment(),
+			Status:  panelGetStatus(),
 		})
 	default:
 		htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus())
@@ -770,33 +771,20 @@ func panelDebugReport() (string, *diagnostics.Masker) {
 	return diagnostics.Build(in), diagnostics.NewMaskerFor(in)
 }
 
-// setPanelDebugReportCache, clearPanelDebugReportCache and
-// getPanelDebugReportCache guard panelDebugReportCache /
-// panelDebugReportMasker / panelDebugReportReady with the same mutex as the
+// setPanelDebugReportCache and getPanelDebugReportCache guard
+// panelDebugReportCache / panelDebugReportMasker with the same mutex as the
 // comment they are cached alongside.
 func setPanelDebugReportCache(report string, m *diagnostics.Masker) {
 	panelMu.Lock()
 	panelDebugReportCache = report
 	panelDebugReportMasker = m
-	panelDebugReportReady = true
 	panelMu.Unlock()
 }
 
-// clearPanelDebugReportCache empties the cache and marks it not ready. Called
-// by showDebug before the gather starts, synchronously, so nothing can render
-// or act on the previous visit's snapshot once a new visit has begun.
-func clearPanelDebugReportCache() {
-	panelMu.Lock()
-	panelDebugReportCache = ""
-	panelDebugReportMasker = nil
-	panelDebugReportReady = false
-	panelMu.Unlock()
-}
-
-func getPanelDebugReportCache() (string, *diagnostics.Masker, bool) {
+func getPanelDebugReportCache() (string, *diagnostics.Masker) {
 	panelMu.Lock()
 	defer panelMu.Unlock()
-	return panelDebugReportCache, panelDebugReportMasker, panelDebugReportReady
+	return panelDebugReportCache, panelDebugReportMasker
 }
 
 func panelSetBusy(b bool, s string) {
