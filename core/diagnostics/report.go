@@ -1,7 +1,9 @@
 package diagnostics
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +15,14 @@ import (
 // a switch, its sync and whatever went wrong after; short enough that the report
 // still fits in a clipboard and a reader's patience.
 const logTailLines = 200
+
+// logTailBytes bounds how much of a log file is ever read off disk, so a
+// large or runaway log costs a bounded read rather than a full-file
+// allocation in a long-running tray process. Comfortably larger than
+// logTailLines could ever need at realistic line lengths, so the 200-line
+// limit — not this byte limit — is what actually decides the content on any
+// log this app itself writes.
+const logTailBytes = 256 * 1024
 
 // Profile is one account's worth of what a report needs. Raw values: masking
 // happens here, once, rather than at every call site that fills this in.
@@ -86,7 +96,7 @@ func Build(in Input) string {
 	}
 
 	w("MCS %s · %s %s · %s", in.Version, in.OS, in.OSVersion, in.Arch)
-	w("Claude Desktop %s · %s", orUnknown(in.ClaudeVer, in.ClaudeVerErr, m), in.Install)
+	w("Claude Desktop %s · %s", orUnknown(in.ClaudeVer, in.ClaudeVerErr, m), m.Apply(in.Install))
 	w("claude-code %s", orUnknown(in.ClaudeCodeVer, in.ClaudeCodeVerErr, m))
 	w("Auto sync on switch: %s · Login item: %s", onOff(in.AutoSync), onOff(in.LoginItem))
 	w("%s", pathShape(in.Home))
@@ -195,20 +205,67 @@ func logSections(dir string, m *Masker) string {
 
 	var b strings.Builder
 	for _, name := range names {
-		fmt.Fprintf(&b, "%s (last %d lines)\n", name, logTailLines)
-		data, err := os.ReadFile(filepath.Join(dir, name))
+		// The directory entry's name is a raw filesystem value like anything
+		// else the gatherer hands in — a user's own log naming convention can
+		// carry an account folder or a user name — so it goes through Apply
+		// the same as every line of the file's content does below.
+		fmt.Fprintf(&b, "%s (last %d lines)\n", m.Apply(name), logTailLines)
+		data, err := readTail(filepath.Join(dir, name), logTailBytes)
 		if err != nil {
 			// Named rather than omitted, so a report never silently looks like a
 			// run with no activity.
 			fmt.Fprintf(&b, "  unreadable (%s)\n\n", m.Apply(err.Error()))
 			continue
 		}
-		for _, line := range tail(string(data), logTailLines) {
+		for _, line := range tail(data, logTailLines) {
 			b.WriteString(m.Apply(line) + "\n")
 		}
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// readTail reads at most the last maxBytes of path, rather than the whole
+// file, so a log that has grown large costs a bounded read instead of a
+// full-file allocation in a long-running tray process that may build this
+// report repeatedly. When the read starts mid-file, the first line read is
+// almost certainly a partial line — cut off at an arbitrary byte, not a line
+// boundary — so it is dropped; logTailLines then bounds the line count same
+// as before, on whatever full lines remain.
+func readTail(path string, maxBytes int64) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+
+	var start int64
+	if info.Size() > maxBytes {
+		start = info.Size() - maxBytes
+		if _, err := f.Seek(start, io.SeekStart); err != nil {
+			return "", err
+		}
+	}
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return "", err
+	}
+	if start > 0 {
+		if idx := bytes.IndexByte(data, '\n'); idx >= 0 {
+			data = data[idx+1:]
+		} else {
+			// No newline in the tail at all: the whole read is one partial
+			// line with nothing complete to keep.
+			data = nil
+		}
+	}
+	return string(data), nil
 }
 
 func tail(s string, n int) []string {
