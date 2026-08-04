@@ -972,8 +972,11 @@ type RemovedVM struct {
 	// behind (its display name, its managed listing, ...) could not be
 	// cleared. The hosts never set both Err and RegistryNote, and never
 	// construct a RemovedVM with neither set: a removal that left nothing
-	// behind returns to the list instead of reaching this screen. RenderRemoved
-	// enforces the latter itself rather than trusting callers to keep it true.
+	// behind returns to the list instead of reaching this screen. That rule is
+	// enforced where it can be checked without a live user in the room:
+	// DecideRemovalOutcome is a pure function with its own tests, and it is the
+	// only production code that builds a RemovedVM. RenderRemoved itself does
+	// not re-check it (see RenderRemoved's doc comment for why).
 	RegistryNote string
 }
 
@@ -985,17 +988,19 @@ type RemovedVM struct {
 // the case where the user cannot tell whether it happened, which for a
 // destructive-looking action is the one thing this screen has to answer.
 //
-// It panics if neither Err nor RegistryNote is set. That is not a screen this
-// function draws any more, not merely one nothing currently asks for: a clean
-// removal with nothing left behind is routed straight back to the list by
-// DecideRemovalOutcome before either host ever builds a RemovedVM, so a caller
-// reaching here with both empty has a bug, and rendering a "removed" screen
-// for data no code path can produce would hide that bug rather than surface
-// it.
+// If neither Err nor RegistryNote is set, this deliberately falls through to
+// the same rendering as a registry complaint with an empty note: a plain
+// "<name> removed" screen with a Done button. That is a harmless, truthful
+// state to land in by mistake — the removal genuinely is not undone by
+// seeing it — so it is the fallback for a host that regressed the routing in
+// DecideRemovalOutcome, not a panic. This function is called straight from
+// each host's reloadPanel, on goroutines and webview callbacks neither host
+// recovers around; a panic here does not surface a bug to a developer, it
+// takes down the user's whole panel mid-removal, on the machine where they
+// were just told their account was being removed. A second, weaker copy of
+// an invariant that DecideRemovalOutcome's own tests already pin is not worth
+// that trade.
 func RenderRemoved(vm RemovedVM) string {
-	if vm.Err == "" && vm.RegistryNote == "" {
-		panic("panelui: RenderRemoved called with neither Err nor RegistryNote set; a clean removal must go through DecideRemovalOutcome's ShowList path instead")
-	}
 	esc := html.EscapeString
 
 	if vm.Err != "" {

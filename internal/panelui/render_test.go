@@ -974,21 +974,31 @@ func jsFunctions(h string) map[string]string {
 	return out
 }
 
-// TestRenderRemovedRefusesAScreenWithNothingToSay pins finding 2 of the
-// review: a clean removal with nothing left behind is no longer merely
-// unreached by convention, it is refused. RenderRemoved panics rather than
-// silently drawing a complete "removed" screen for a RemovedVM no production
-// code path builds any more (DecideRemovalOutcome routes that case to
-// ShowList instead, before either host ever constructs a RemovedVM) — a
-// caller reaching here with both Err and RegistryNote empty has a bug, and
-// rendering something anyway would hide it instead of surfacing it.
-func TestRenderRemovedRefusesAScreenWithNothingToSay(t *testing.T) {
+// TestRenderRemovedFallsBackToAPlainSuccessScreenRatherThanCrashing pins the
+// deliberate choice behind finding "Critical" of the round-2 review: this
+// function must NOT panic for a RemovedVM with neither Err nor RegistryNote
+// set, even though no host is supposed to build one that way any more
+// (DecideRemovalOutcome, which is what actually enforces the routing, is
+// tested separately). RenderRemoved is called straight from each host's
+// reloadPanel on goroutines and webview callbacks neither host recovers
+// around, so a panic here would not surface a bug to a developer — it would
+// take down the user's whole panel, mid-removal, right after telling them
+// their account was being removed. A harmless, truthful "<name> removed"
+// screen is the correct fallback for a host that regressed the routing, not
+// a crash.
+func TestRenderRemovedFallsBackToAPlainSuccessScreenRatherThanCrashing(t *testing.T) {
 	defer func() {
-		if recover() == nil {
-			t.Fatal("RenderRemoved must panic for a RemovedVM with neither Err nor RegistryNote set")
+		if r := recover(); r != nil {
+			t.Fatalf("RenderRemoved must not panic for a RemovedVM with neither Err nor RegistryNote set, got panic: %v", r)
 		}
 	}()
-	RenderRemoved(RemovedVM{Name: "Old one", Convos: 34})
+	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34})
+	if !strings.Contains(h, "Old one removed") {
+		t.Fatalf("the fallback must still be a truthful, readable screen, not empty output:\n%s", h)
+	}
+	if strings.Contains(h, `class="hintw"`) {
+		t.Fatalf("no registry complaint was set, so no hintw block should render:\n%s", h)
+	}
 }
 
 // TestRenderRemovedSaysItIsArchivedNotDeleted pins the two things this screen
@@ -998,10 +1008,12 @@ func TestRenderRemovedRefusesAScreenWithNothingToSay(t *testing.T) {
 // Asserting on their ABSENCE is what stops them creeping back.
 //
 // A RegistryNote is set here because a clean removal with nothing left behind
-// no longer reaches this screen at all (RenderRemoved refuses to draw one at
-// all now, see TestRenderRemovedRefusesAScreenWithNothingToSay), so the only
-// way left to reach the "<name> removed" wording this test pins is the
-// partial-failure branch.
+// no longer reaches this screen in normal operation (DecideRemovalOutcome
+// routes it to the list instead; see
+// TestRenderRemovedFallsBackToAPlainSuccessScreenRatherThanCrashing for what
+// RenderRemoved itself does if that routing is ever bypassed), so the only
+// way left to reach the "<name> removed" wording this test pins, other than
+// that fallback, is the partial-failure branch.
 func TestRenderRemovedSaysItIsArchivedNotDeleted(t *testing.T) {
 	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34, RegistryNote: "its name is still recorded"})
 	if !strings.Contains(h, "Old one removed") {
