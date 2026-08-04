@@ -170,4 +170,5 @@
 - `docs/superpowers/specs/2026-07-28-windows-warm-panel-design.md` — Design spec for keeping the Windows panel process alive parked off-screen so a tray click moves an existing window instead of starting one (lifecycle, tray↔panel protocol, content freshness).
 - `docs/superpowers/specs/2026-07-30-ghost-account-recovery-design.md` — Design spec for recovering accounts that were signed out inside Claude Desktop (give the orphaned conversations their own profile), plus duplicate-account detection and merge-to-archive so one account never holds two profiles.
 - `docs/superpowers/plans/2026-07-30-ghost-account-recovery.md` — Implementation plan for the ghost-account-recovery spec: 17 TDD tasks across core, platform, the shared panel renderer, and both webview hosts.
+- `docs/superpowers/specs/2026-08-04-debug-info-and-problem-report-design.md` — Design spec for the Debug info screen and the clipboard-plus-prefilled-issue problem report (what is collected, stable-pseudonym masking, why nothing is uploaded).
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.
