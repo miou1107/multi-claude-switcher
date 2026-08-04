@@ -63,10 +63,10 @@ func ArchiveProfile(identity, profilePath, archiveRoot string) (string, error) {
 	}
 	if err := renameProfileWithRetry(profilePath, dest); err != nil {
 		if !archiveRetryWorthwhile(profilePath, dest, err) {
-			return "", fmt.Errorf("couldn't archive %s — the archive folder %s is not on the same drive as your Claude data, and archiving moves the folder rather than copying it. (%w)",
+			return "", fmt.Errorf("couldn't archive %s: the archive folder %s is not on the same drive as your Claude data, and archiving moves the folder rather than copying it. (%w)",
 				DisplayName(identity), archiveRoot, err)
 		}
-		return "", fmt.Errorf("couldn't archive %s — Claude may still be holding its files. Fully quit Claude and try again. (%w)",
+		return "", fmt.Errorf("couldn't archive %s: Claude may still be holding its files. Fully quit Claude and try again. (%w)",
 			DisplayName(identity), err)
 	}
 	return dest, nil
@@ -115,7 +115,7 @@ func freeArchiveName(archiveRoot, base string) (string, error) {
 			return "", fmt.Errorf("check archive destination %s: %w", dest, err)
 		}
 	}
-	return "", fmt.Errorf("too many archives named %q already — clear out %s", base, archiveRoot)
+	return "", fmt.Errorf("too many archives named %q already. Clear out %s", base, archiveRoot)
 }
 
 // archiveRetryWorthwhile reports whether err is the kind of failure that waiting

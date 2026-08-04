@@ -40,7 +40,7 @@ func loadManagedLocked() ([]string, error) {
 	}
 	var mf managedFile
 	if err := json.Unmarshal(data, &mf); err != nil {
-		return nil, fmt.Errorf("%s is damaged and was left untouched — repair or delete it: %w", managedPath(), err)
+		return nil, fmt.Errorf("%s is damaged and was left untouched. Repair or delete it: %w", managedPath(), err)
 	}
 	if mf.Managed == nil {
 		return []string{}, nil // present but no key → configured empty, not first-run

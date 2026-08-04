@@ -104,8 +104,17 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 	removed := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34, ArchiveDir: "Claude_Old-20260804-142233"})
 	// Err set draws the failure branch instead, which the success fixture above
 	// can never reach in the same call.
+	//
+	// The message is the one core.ArchiveProfile really returns, not a paraphrase.
+	// A shortened stand-in was here before and it hid a live em dash for a whole
+	// review round: this screen prints RemoveProfile's error verbatim, so a fixture
+	// that trims the sentence trims exactly the part worth checking. core's own
+	// TestNoEmDashInErrorStrings reads that package's source and is what keeps the
+	// two from drifting apart; this stays real text so the rendered screen is
+	// checked as the user meets it.
 	removedFailed := RenderRemoved(RemovedVM{Folder: "Claude_Old", Name: "Old one",
-		Err: "Claude may still be holding its files."})
+		Err: `couldn't archive Old one: Claude may still be holding its files. ` +
+			`Fully quit Claude and try again. (rename /Users/x/Library/Application Support/Claude_Old: permission denied)`})
 	// A non-empty RegistryNote is the partial-failure success branch: the
 	// folder moved (ArchiveDir is set) but a registry write afterward did not.
 	// The plain fixture above never sets RegistryNote, so this is the only call
