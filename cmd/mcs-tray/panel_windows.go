@@ -47,7 +47,7 @@ var (
 	panelSwitcher *core.Switcher
 
 	panelMu    sync.Mutex
-	panelView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge" | "debug"
+	panelView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge" | "removed" | "debug"
 	panelStale string   // profile folder being renamed
 
 	// panelDebugComment survives the reload that every action triggers. Without
@@ -81,6 +81,9 @@ var (
 	panelNewProfileVM panelui.NewProfileVM
 	// panelMergeFolders is the pair being resolved in the "merge" view.
 	panelMergeFolders [2]string
+	// panelRemovedVM holds the outcome of the last removal, drawn by the
+	// "removed" view.
+	panelRemovedVM panelui.RemovedVM
 
 	panelPlanMu sync.Mutex
 	panelPlan   = map[string]string{}
@@ -635,6 +638,48 @@ func dispatchAction(action, arg string) {
 			panelSetView("list")
 			reloadPanel()
 		}()
+	case "removeProfile":
+		// arg is the folder identity, straight from askRemove's confirm dialog (or
+		// the failure screen's Try again, which round-trips the same value).
+		if panelGetBusy() {
+			return
+		}
+		folder := arg
+		// Read before the goroutine starts: once RemoveProfile has moved the
+		// directory, neither the display name nor the conversation count can be
+		// looked up again — panelBuildProfiles no longer has a row for it.
+		before := panelAccountVM(folder)
+		panelSetBusy(true, "Removing…")
+		reloadPanel()
+		go func() {
+			out := panelui.RemovedVM{Folder: folder, Name: before.Name, Convos: before.Convos}
+			dest, err := core.RemoveProfile(panelPlat, folder)
+			switch {
+			case dest != "":
+				// Route on the destination, not the error. RemoveProfile can return both:
+				// the folder moved but a registry write afterward failed, which is a
+				// partial success, not the "nothing was moved" screen — that is the one
+				// case where showing the failure screen would send the user looking for
+				// an account that has, in fact, already moved.
+				out.ArchiveDir = filepath.Base(dest)
+				if err != nil {
+					// RegistryNote, not the status line: the "removed" screen's only exits
+					// are showList (which clears the status before anything renders) and
+					// openArchive (which does not reload the panel at all), so a status
+					// string set here would never be seen. This has to live on the VM the
+					// screen itself draws from.
+					out.RegistryNote = err.Error()
+				}
+			default:
+				out.Err = err.Error()
+			}
+			panelSetBusy(false, "")
+			panelMu.Lock()
+			panelRemovedVM = out
+			panelView = "removed"
+			panelMu.Unlock()
+			reloadPanel()
+		}()
 
 	case "quit":
 		if panelDeferQuitUntilIdle() {
@@ -713,6 +758,11 @@ func reloadPanel() {
 			break
 		}
 		htmlStr = panelui.RenderMerge(a, b, plan, panelGetStatus(), panelGetBusy())
+	case "removed":
+		panelMu.Lock()
+		vm := panelRemovedVM
+		panelMu.Unlock()
+		htmlStr = panelui.RenderRemoved(vm)
 	case "settings":
 		htmlStr = panelui.RenderSettings(panelui.SettingsVM{
 			AutoSync:   core.AutoSyncOnSwitch(),
