@@ -77,6 +77,12 @@ var (
 	mergeFolders [2]string
 	// removedVM holds the outcome of the last removal, drawn by the "removed" view.
 	removedVM panelui.RemovedVM
+	// renameOpen is true while a row's inline rename editor is on screen. A
+	// reload replaces the whole document, so a background action finishing
+	// mid-edit used to wipe what the user had typed with no warning: the list
+	// holds still while this is set. It is client-side state mirrored here
+	// because only Go knows when a reload is about to happen.
+	renameOpen bool
 
 	planMu    sync.Mutex
 	planCache = map[string]string{} // profile path -> plan label (leveldb read is heavy; cache it)
@@ -344,7 +350,25 @@ func goPanelAction(caction, cfolder *C.char) {
 			}
 			reloadPanel()
 		}()
+	case "renameOpen":
+		mu.Lock()
+		renameOpen = arg == "1"
+		mu.Unlock()
 	case "renameSave":
+		// The editor is gone either way; clear the hold before anything can
+		// return early, or the list would stay frozen.
+		mu.Lock()
+		renameOpen = false
+		mu.Unlock()
+		// Guarded like every other action that writes: renaming during a removal
+		// would write names.json after RemoveProfile had just cleared it, putting
+		// back the one piece of residue the design calls out as felt by the user,
+		// since a later profile reusing the identity inherits it.
+		if getBusy() {
+			setStatus("Busy right now. Try the rename again in a moment.")
+			go reloadPanel()
+			return
+		}
 		var pair []string
 		if json.Unmarshal([]byte(arg), &pair) == nil && len(pair) == 2 {
 			_ = core.SetProfileName(pair[0], pair[1])
@@ -680,6 +704,10 @@ func doSync(fromFolder, toFolder string) string {
 func setView(v string) {
 	mu.Lock()
 	currentView = v
+	// Any navigation ends an inline rename: the editor lived in the list's
+	// markup, which is gone. Clearing it here rather than in each caller is what
+	// stops a stuck flag freezing the list for good.
+	renameOpen = false
 	mu.Unlock()
 }
 
@@ -687,7 +715,16 @@ func setView(v string) {
 func reloadPanel() {
 	mu.Lock()
 	view := currentView
+	editing := renameOpen
 	mu.Unlock()
+
+	// Hold the list still while a row's rename editor is open. A reload replaces
+	// the document, so a backup or sync finishing at that moment took away what
+	// the user was halfway through typing, silently. The list is a few seconds
+	// stale instead, and the next reload after the edit ends catches it up.
+	if view == "list" && editing {
+		return
+	}
 
 	var htmlStr string
 	switch view {
@@ -727,6 +764,7 @@ func reloadPanel() {
 		mu.Lock()
 		vm := removedVM
 		mu.Unlock()
+		vm.Status = getStatus()
 		htmlStr = panelui.RenderRemoved(vm)
 	case "settings":
 		htmlStr = panelui.RenderSettings(panelui.SettingsVM{

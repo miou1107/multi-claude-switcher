@@ -183,8 +183,52 @@ func TestRowMenuOnlyOneOpenAtATimeAndClosesOnOutsideClick(t *testing.T) {
 	if !strings.Contains(html, "closeAllRowMenus();\n    if (!willOpen) return;") {
 		t.Fatalf("toggleRowMenu must close every other menu before deciding whether to open its own:\n%s", html)
 	}
-	if !strings.Contains(html, `if (!e.target.closest('.rowmenu-wrap')) closeAllRowMenus();`) {
-		t.Fatalf("a click outside any row menu's wrap must close whatever is open:\n%s", html)
+	// Capture phase, and it swallows the click. On the bubble phase the card's
+	// own switch handler had already run, so dismissing row A's menu by clicking
+	// row B also raised "Switch to B?", one Enter away from closing the user's
+	// Claude. The listener must only swallow while a menu is actually open, or an
+	// ordinary click on a row would stop working.
+	if !strings.Contains(html, `if (e.target.closest('.rowmenu-wrap')) return;`) ||
+		!strings.Contains(html, `if (!document.querySelector('.rowmenu.open')) return;`) {
+		t.Fatalf("a click outside any row menu's wrap must close whatever is open, and only then:\n%s", html)
+	}
+	if !strings.Contains(html, "    e.stopPropagation();\n    e.preventDefault();\n  }, true);") {
+		t.Fatalf("the dismissing click must be swallowed in the capture phase, before the card's own handler:\n%s", html)
+	}
+}
+
+// TestRowMenuAndRenameAreMutuallyExclusive pins two states nothing else handled:
+// two rows in edit mode at once, and a menu opened while another row was being
+// renamed. Both silently discarded whatever had been typed.
+func TestRowMenuAndRenameAreMutuallyExclusive(t *testing.T) {
+	html := RenderList([]ProfileVM{
+		{Folder: "Claude", Name: "Work", SignedIn: true},
+		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
+	}, false, "")
+	if !strings.Contains(html, "function cancelAllRenames(){") {
+		t.Fatalf("want a single place that ends every open rename:\n%s", html)
+	}
+	if !strings.Contains(html, "    closeAllRowMenus();\n    // One row at a time.") {
+		t.Fatalf("starting a rename must end any other open rename:\n%s", html)
+	}
+	if !strings.Contains(html, "  function toggleRowMenu(btn){\n    cancelAllRenames();") {
+		t.Fatalf("opening a row menu must end an in-progress rename:\n%s", html)
+	}
+}
+
+// TestEscapeCancelsAnOpenRenameBeforeHidingThePanel pins the Tab-then-Escape
+// case: rowRenameKey only sees Escape while focus is in the input, and Tab
+// reaches the row's own Cancel and Save buttons. From there Escape used to fall
+// through the whole chain to hidePanel and shut the panel on a half-typed name.
+func TestEscapeCancelsAnOpenRenameBeforeHidingThePanel(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	editing := strings.Index(html, "var editing = document.querySelector('.card.renaming');")
+	hide := strings.Index(html, "send('hidePanel','');")
+	if editing < 0 {
+		t.Fatalf("Escape must notice an open rename:\n%s", html)
+	}
+	if hide < 0 || editing > hide {
+		t.Fatalf("the rename check must come before Escape hides the panel:\n%s", html)
 	}
 }
 
@@ -1332,5 +1376,22 @@ func TestRenderRemovedTryAgainUsesDataAttributesNotInlineArgs(t *testing.T) {
 	}
 	if !strings.Contains(h, `onclick="send('removeProfile',this.dataset.folder)"`) {
 		t.Fatalf("Try again must read the folder back from dataset:\n%s", h)
+	}
+}
+
+// TestRenderRemovedShowsProgressOnRetry pins the Try again feedback. The retry
+// re-runs a removal that can take seconds behind a rename retry loop, and with
+// nowhere to draw the host's status the screen redrew identically and the button
+// read as dead.
+func TestRenderRemovedShowsProgressOnRetry(t *testing.T) {
+	h := RenderRemoved(RemovedVM{Folder: "Claude_Old", Name: "Old one",
+		Err: "Claude may still be holding its files.", Status: "Removing…"})
+	if !strings.Contains(h, `<div class="status">Removing…</div>`) {
+		t.Fatalf("the failure screen must be able to show the host's progress line:\n%s", h)
+	}
+	quiet := RenderRemoved(RemovedVM{Folder: "Claude_Old", Name: "Old one",
+		Err: "Claude may still be holding its files."})
+	if strings.Contains(quiet, `<div class="status">`) {
+		t.Fatalf("no status, no banner:\n%s", quiet)
 	}
 }

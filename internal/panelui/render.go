@@ -248,6 +248,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
   // rendered height, which depends on how many rows and banners are on
   // screen, not on anything RenderList itself controls.
   function toggleRowMenu(btn){
+    cancelAllRenames();
     var menu = btn.nextElementSibling;
     var willOpen = !menu.classList.contains('open');
     closeAllRowMenus();
@@ -258,27 +259,51 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     btn.classList.add('open');
     btn.setAttribute('aria-expanded','true');
   }
+  // Capture phase, and it swallows the click. "Click somewhere else to close it"
+  // is how everyone dismisses a menu, and on the bubble phase the card's own
+  // handler had already run by the time this fired: dismissing row A's menu by
+  // clicking row B also raised "Switch to B?", which is one Enter away from
+  // closing the user's Claude. Only ever swallows while a menu is actually open,
+  // so an ordinary click on a row is untouched.
   document.addEventListener('click', function(e){
-    if (!e.target.closest('.rowmenu-wrap')) closeAllRowMenus();
-  });
+    if (e.target.closest('.rowmenu-wrap')) return;
+    if (!document.querySelector('.rowmenu.open')) return;
+    closeAllRowMenus();
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
   // Renaming happens in the row itself: Rename swaps its .viewrow for the
   // .editrow already sitting in the markup (see the .card.renaming CSS
   // rules), rather than building or tearing down any DOM. Saving still sends
   // the same renameSave action with the same [folder, value] payload the old
   // Account settings screen sent, so the Go side reading it does not change.
+  function cancelAllRenames(){
+    document.querySelectorAll('.card.renaming').forEach(function(c){ c.classList.remove('renaming'); });
+  }
   function startRename(el){
     closeAllRowMenus();
+    // One row at a time. Two open editors is a state nothing else in the panel
+    // handles, and the second one silently discards the first.
+    cancelAllRenames();
     var card = el.closest('.card');
     var input = card.querySelector('.rnrow');
     input.value = card.dataset.name;
     card.classList.add('renaming');
     input.focus();
     input.select();
+    // Tell Go an editor is open. A reload replaces the whole document, so any
+    // background action finishing mid-edit used to wipe what was typed with no
+    // warning; Go holds the list still while this is set.
+    send('renameOpen', '1');
   }
-  function cancelRename(el){ el.closest('.card').classList.remove('renaming'); }
+  function cancelRename(el){
+    el.closest('.card').classList.remove('renaming');
+    send('renameOpen', '0');
+  }
   function rowRenameSave(el){
     var card = el.closest('.card');
     var v = card.querySelector('.rnrow').value.trim();
+    card.classList.remove('renaming');
     send('renameSave', JSON.stringify([card.dataset.folder, v]));
   }
   // Enter saves, Escape cancels, both without waiting on a round trip to Go:
@@ -433,6 +458,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     // so it never reaches this far down the chain in the first place.
     if(document.querySelector('.rowmenu.open')) { closeAllRowMenus(); return; }
     if(document.getElementById('mcsModal').classList.contains('on')) { closeConfirm(); return; }
+    // An open inline rename outranks the rest of this chain. rowRenameKey
+    // handles Escape while focus is in the input itself, but focus can leave it
+    // (Tab reaches the row's own Cancel and Save), and from there Escape used to
+    // fall all the way through to hidePanel and shut the panel on a half-typed
+    // name.
+    var editing = document.querySelector('.card.renaming');
+    if(editing) { editing.classList.remove('renaming'); send('renameOpen','0'); return; }
     // Inside a text input (the new-profile name field), Esc backs out to the
     // list instead of killing the panel; hiding on Windows would discard the
     // typed name.
@@ -1083,6 +1115,10 @@ type RemovedVM struct {
 	// only production code that builds a RemovedVM. RenderRemoved itself does
 	// not re-check it (see RenderRemoved's doc comment for why).
 	RegistryNote string
+	// Status is the host's transient line. Try again re-runs a removal that can
+	// take seconds, and without somewhere to show progress the screen redraws
+	// identically and the button reads as dead.
+	Status string
 }
 
 // RenderRemoved is the screen shown when a removal could not be completed
@@ -1108,6 +1144,14 @@ type RemovedVM struct {
 func RenderRemoved(vm RemovedVM) string {
 	esc := html.EscapeString
 
+	// The host's transient line. Try again re-runs a removal that can take
+	// seconds, and without this the screen redraws identically and the button
+	// reads as dead.
+	st := ""
+	if vm.Status != "" {
+		st = `<div class="status">` + esc(vm.Status) + `</div>`
+	}
+
 	if vm.Err != "" {
 		// Folder travels as data-* and is read back with dataset, never
 		// interpolated into the onclick string: html.EscapeString turns an
@@ -1118,7 +1162,7 @@ func RenderRemoved(vm RemovedVM) string {
   <button class="back" onclick="send('showList','')">‹</button>
   <div class="htext"><h1>` + esc(vm.Name) + ` was not removed</h1><p>Nothing was moved</p></div>
 </div>
-<div class="errbox">` + esc(vm.Err) + `</div>
+` + st + `<div class="errbox">` + esc(vm.Err) + `</div>
 <div class="hint">The account is still on your list, so you can try again.</div>
 <div class="footer">
   <button class="btn btn-light" onclick="send('showList','')">Back</button>
@@ -1168,7 +1212,7 @@ func RenderRemoved(vm RemovedVM) string {
 	body := `<div class="header">
   <div class="htext"><h1>` + esc(vm.Name) + ` removed</h1><p>It is off the switcher</p></div>
 </div>
-<div class="hint">` + esc(what) + `</div>
+` + st + `<div class="hint">` + esc(what) + `</div>
 ` + registryNote + `
 <div class="footer">
   <button class="btn btn-primary" onclick="send('showList','')">Done</button>
