@@ -103,6 +103,22 @@ func TestAppendCommentNilMasker(t *testing.T) {
 	}
 }
 
+// TestIssueBodyIsAFencedCodeBlock is the finding-4 fix. GitHub renders an
+// issue body as Markdown, and the report is multi-line, `·`-separated,
+// indented and can end in up to 200 log lines — pasted into plain prose that
+// gets reflowed into paragraphs, with underscores read as emphasis markers,
+// every report this feature produces arrived unreadable. The body carried in
+// the prefilled URL must open a fence for the user to paste inside, so
+// GitHub renders whatever they paste verbatim.
+func TestIssueBodyIsAFencedCodeBlock(t *testing.T) {
+	if !strings.Contains(issueBody, "```") {
+		t.Fatalf("the issue body must contain a fenced code block:\n%s", issueBody)
+	}
+	if strings.Count(issueBody, "```") != 2 {
+		t.Fatalf("the fence must be opened and closed exactly once:\n%s", issueBody)
+	}
+}
+
 func titleOf(t *testing.T, raw string) string {
 	t.Helper()
 	u, err := url.Parse(raw)

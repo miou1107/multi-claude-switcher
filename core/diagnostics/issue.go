@@ -16,7 +16,17 @@ const maxTitleRunes = 80
 // issueBody is all the URL carries. The report itself goes by clipboard: 200
 // log lines do not fit in a link, and truncating them to fit would ship a report
 // that is missing exactly the part someone asked for.
-const issueBody = "Paste the report here (Cmd+V / Ctrl+V).\n"
+//
+// The placeholder line sits inside a fenced code block on purpose. GitHub
+// renders an issue body as Markdown, and the report is multi-line, indented,
+// `·`-separated and ends in up to 200 log lines; pasted into plain prose that
+// reflows every line, drops the indentation and reads underscores as
+// emphasis markers. A fence tells GitHub (and every renderer downstream —
+// notifications, the mobile app, search) to print the report exactly as it
+// was copied. The instruction asks the user to replace the placeholder line
+// rather than paste after it, so the fence stays intact around whatever they
+// paste over it.
+const issueBody = "Paste the report here (Cmd+V / Ctrl+V), replacing the line below:\n\n```\nPASTE THE REPORT HERE\n```\n"
 
 // IssueURL builds the prefilled new-issue link.
 //
