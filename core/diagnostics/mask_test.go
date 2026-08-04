@@ -71,3 +71,80 @@ func TestMaskerIgnoresEmptyRegistrations(t *testing.T) {
 		t.Errorf("got %q, want the input unchanged", got)
 	}
 }
+
+// TestMaskerBoundedWordDoesNotEatLongerWords is the admin/administrator trap.
+// A user name is a short ordinary word, so replacing it everywhere corrupts
+// unrelated text, and corrupted text in a bug report is worse than absent text.
+func TestMaskerBoundedWordDoesNotEatLongerWords(t *testing.T) {
+	m := NewMasker()
+	m.RegisterBoundedWord("admin", "user")
+
+	cases := []struct{ in, want string }{
+		{"administrator rights", "administrator rights"},
+		{"the admin account", "the user account"},
+		{"/Volumes/Data/admin/Claude", "/Volumes/Data/user/Claude"},
+		{`D:\WorkData\admin\Claude`, `D:\WorkData\user\Claude`},
+		{"admin", "user"},
+		{"badmin", "badmin"},
+		{"admin@example.com", "user@example.com"},
+	}
+	for _, c := range cases {
+		if got := m.Apply(c.in); got != c.want {
+			t.Errorf("Apply(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestMaskerRewritesTheHomePrefix keeps the tail of a path, because which
+// folder inside the profile a file landed in is usually the whole bug.
+func TestMaskerRewritesTheHomePrefix(t *testing.T) {
+	m := NewMasker()
+	m.RegisterHome("/Users/vincentkao", "~")
+
+	in := "backup /Users/vincentkao/Library/Application Support/Claude/config.json"
+	want := "backup ~/Library/Application Support/Claude/config.json"
+	if got := m.Apply(in); got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
+// TestMaskerRewritesTheHomePrefixWithMixedSeparators covers what Windows
+// actually emits: one string carrying both spellings, because a Go-built path
+// and a command line reported by the OS meet in the same log line.
+func TestMaskerRewritesTheHomePrefixWithMixedSeparators(t *testing.T) {
+	m := NewMasker()
+	m.RegisterHome(`C:\Users\Adam`, "%USERPROFILE%")
+
+	cases := []struct{ in, want string }{
+		{`C:\Users\Adam\AppData\Roaming\Claude`, `%USERPROFILE%\AppData\Roaming\Claude`},
+		{`C:\Users\Adam/AppData/Roaming/Claude`, `%USERPROFILE%/AppData/Roaming/Claude`},
+		{`c:\users\adam\AppData`, `%USERPROFILE%\AppData`},
+	}
+	for _, c := range cases {
+		if got := m.Apply(c.in); got != c.want {
+			t.Errorf("Apply(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestMaskerBoundedWordDoesNotCorruptGeneratedPseudonyms is the hazard the
+// Task 2 reviewer raised: Apply accumulates into one string, so a bounded-word
+// rule running after pseudonyms have been inserted can match inside the
+// masker's own output, not just inside the caller's text. A single-letter org
+// pseudonym ("org-A") and a numbered account pseudonym ("account-1") both end
+// in a character that a short OS user name can collide with at a real word
+// boundary — a user named "A" or "1" would otherwise see the masker's own
+// pseudonym torn open.
+func TestMaskerBoundedWordDoesNotCorruptGeneratedPseudonyms(t *testing.T) {
+	m := NewMasker()
+	m.RegisterOrg("d129c8c1-7834-4e6c-84a4-dc19dfeedc8f") // becomes "org-A"
+	m.RegisterAccount("035899b2-b130-40b6-aa9e-93cf208df7b7", "")
+	m.RegisterBoundedWord("A", "user-a")
+	m.RegisterBoundedWord("1", "user-1")
+
+	got := m.Apply("org d129c8c1-7834-4e6c-84a4-dc19dfeedc8f, account 035899b2-b130-40b6-aa9e-93cf208df7b7")
+	want := "org org-A, account account-1"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}

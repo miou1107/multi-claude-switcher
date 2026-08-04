@@ -6,6 +6,7 @@ package diagnostics
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -22,8 +23,40 @@ type Masker struct {
 	// never by role: a UUID that arrives as both an account and an organization
 	// must not answer to two names depending on which was registered first.
 	byValue  map[string]string
+	bounded  []boundedRule
+	homes    []homeRule
 	accounts int
 	orgs     int
+}
+
+type boundedRule struct {
+	re   *regexp.Regexp
+	with string
+}
+
+type homeRule struct {
+	re   *regexp.Regexp
+	with string
+}
+
+// guardRune brackets a pseudonym the moment Apply inserts it, so a bounded-word
+// rule running later cannot mistake the pseudonym's own edge for a word
+// boundary. It is a Private Use Area code point, chosen only because real
+// diagnostics text never contains one; it never survives past Apply's return.
+//
+// Without this, a single-letter org ("org-A") or a numbered account
+// ("account-1") is one boundary away from colliding with a short OS user name
+// registered through RegisterBoundedWord — a user named "A" would otherwise
+// see the masker's own output torn open, not just their own name masked.
+const guardRune = ''
+
+var guardString = string(guardRune)
+
+// guard wraps a just-inserted replacement so later bounded-word rules see a
+// non-boundary character at both of its edges instead of the real boundary
+// that would otherwise sit there.
+func guard(s string) string {
+	return guardString + s + guardString
 }
 
 func NewMasker() *Masker {
@@ -79,6 +112,53 @@ func (m *Masker) RegisterWord(value, replacement string) {
 	m.put(value, replacement)
 }
 
+// RegisterBoundedWord replaces value only where it stands on its own — bounded
+// by a separator, not by a letter or digit.
+//
+// The OS user name has to be masked as a value, because the home-prefix rule
+// cannot reach /Volumes/…/<user>/… or D:\WorkData\<user>\…. But user names are
+// short ordinary words, and replacing "admin" everywhere turns "administrator"
+// into "useristrator". A boundary is the difference between a masked report and
+// a corrupted one.
+//
+// guardRune joins the set of characters that do NOT count as a boundary, so
+// this rule also refuses to match against the outer edge of a pseudonym Apply
+// has already inserted in this same pass.
+func (m *Masker) RegisterBoundedWord(value, replacement string) {
+	if value == "" {
+		return
+	}
+	sep := `[^\p{L}\p{N}` + regexp.QuoteMeta(guardString) + `]`
+	m.bounded = append(m.bounded, boundedRule{
+		re:   regexp.MustCompile(`(?i)(^|` + sep + `)` + regexp.QuoteMeta(value) + `($|` + sep + `)`),
+		with: "${1}" + replacement + "${2}",
+	})
+}
+
+// homeSepInQuoted finds a separator inside an already-QuoteMeta'd path: either
+// a quoted backslash (which QuoteMeta always renders as two backslash bytes)
+// or a bare forward slash (which QuoteMeta leaves untouched, since it is not a
+// regex metacharacter). Matched in one alternation, not two sequential
+// ReplaceAll passes: the class we substitute in, "[\\/]", itself contains a
+// forward slash, and a second pass over already-substituted text would find
+// that slash and mangle its own output.
+var homeSepInQuoted = regexp.MustCompile(`\\\\|/`)
+
+// RegisterHome rewrites a home directory prefix, keeping everything after it.
+// Case-insensitive and separator-blind, because Windows reports both spellings
+// and mixes them inside one string.
+func (m *Masker) RegisterHome(home, replacement string) {
+	if home == "" {
+		return
+	}
+	pat := regexp.QuoteMeta(home)
+	pat = homeSepInQuoted.ReplaceAllString(pat, `[\\/]`)
+	m.homes = append(m.homes, homeRule{
+		re:   regexp.MustCompile(`(?i)` + pat),
+		with: replacement,
+	})
+}
+
 func (m *Masker) put(value, name string) {
 	if value == "" {
 		return
@@ -103,15 +183,35 @@ func orgLetter(n int) string {
 
 // Apply replaces every registered value in s.
 //
-// Longest first: an email and a UUID can share a prefix with something else
-// registered, and replacing the shorter one first would leave a fragment of the
-// longer one behind.
+// Ordering is explicit: exact values first (they are the most specific), then
+// home prefixes, then bounded words (the least specific, and the ones most
+// likely to fire inside a path the earlier rules already handled). Apply
+// accumulates into one string across all three passes, so a later rule can
+// see — and mismask — an earlier rule's output; exact values and home
+// prefixes are inserted wrapped in guardRune specifically so the bounded pass
+// cannot mistake their edges for a word boundary. See guard's doc comment.
+//
+// Longest first among exact values: an email and a UUID can share a prefix
+// with something else registered, and replacing the shorter one first would
+// leave a fragment of the longer one behind.
 func (m *Masker) Apply(s string) string {
-	if s == "" || len(m.byValue) == 0 {
+	if s == "" {
 		return s
 	}
 	for _, v := range m.sortedValues() {
-		s = strings.ReplaceAll(s, v, m.byValue[v])
+		s = strings.ReplaceAll(s, v, guard(m.byValue[v]))
+	}
+	for _, h := range m.homes {
+		s = h.re.ReplaceAllStringFunc(s, func(string) string { return guard(h.with) })
+	}
+	for _, b := range m.bounded {
+		// Twice: adjacent matches share the separator the pattern consumes, so a
+		// single pass leaves the second of "…/admin/admin/…" behind.
+		s = b.re.ReplaceAllString(s, b.with)
+		s = b.re.ReplaceAllString(s, b.with)
+	}
+	if strings.Contains(s, guardString) {
+		s = strings.ReplaceAll(s, guardString, "")
 	}
 	return s
 }
