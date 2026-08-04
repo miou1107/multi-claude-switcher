@@ -43,6 +43,9 @@ type mockPlatform struct {
 	// prepareArchive lets a test decide what PrepareArchive hands back, which is
 	// how the Store build's swap — where both paths move — gets represented.
 	prepareArchive func(keep, archive string) (string, string, error)
+	// prepareRemove lets a test decide what PrepareRemove hands back, which is how
+	// the Store build's refusals get represented.
+	prepareRemove func(identity string) (string, error)
 }
 
 func (m *mockPlatform) CreateProfile(clean string) (string, string, error) {
@@ -60,6 +63,13 @@ func (m *mockPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (str
 		return m.prepareArchive(keepIdentity, archiveIdentity)
 	}
 	return keepIdentity, archiveIdentity, nil
+}
+
+func (m *mockPlatform) PrepareRemove(identity string) (string, error) {
+	if m.prepareRemove != nil {
+		return m.prepareRemove(identity)
+	}
+	return filepath.Join(m.appSupport, identity), nil
 }
 
 func (m *mockPlatform) ArchiveDir() string { return m.archiveRoot }

@@ -120,6 +120,21 @@ type Platform interface {
 	// Caller must have terminated Claude first.
 	PrepareArchive(keepIdentity, archiveIdentity string) (keepPath string, archivePath string, err error)
 
+	// PrepareRemove resolves an identity to the directory a removal would archive,
+	// and refuses when that directory may not be renamed away. It reads only; it
+	// never moves anything, which is what lets a caller refuse afterwards and leave
+	// the disk as it found it.
+	//
+	// It is not PrepareArchive with one argument. PrepareArchive takes a KEEPER to
+	// swap into the Store build's shared slot; a removal has no keeper, so there is
+	// nothing to swap and the only honest answer for the slot occupant is a
+	// refusal. Passing the active identity as a stand-in would read as a swap that
+	// never happens.
+	//
+	// It does NOT check whether Claude is running: that is the caller's job,
+	// because the answer changes between this call and the rename.
+	PrepareRemove(identity string) (path string, err error)
+
 	// ArchiveDir returns the root that archived profiles are parked under. It is
 	// chosen per platform so archiving is a same-volume rename and the result sits
 	// outside FindProfiles' scan path, which is what stops an archived profile

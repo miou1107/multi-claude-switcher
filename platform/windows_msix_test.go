@@ -523,3 +523,72 @@ func TestMSIXStrayIsNotListedAsAProfile(t *testing.T) {
 		t.Fatalf("want just the slot profile, got %+v", got)
 	}
 }
+
+// msixRealFixture points %LOCALAPPDATA% at a fresh temp directory containing a
+// synthetic Packages\Claude_test\LocalCache\Roaming, and returns that roaming
+// path. PrepareRemove is a method on WindowsPlatform, not a roaming-taking free
+// function like msixFindProfilesIn, so it resolves the Store install itself via
+// isMSIX()/msixRoamingDir() (which read %LOCALAPPDATA%) rather than accepting a
+// path — this fixture is what lets a test steer that resolution onto a temp dir
+// instead of a real machine's install.
+//
+// It leaves %LOCALAPPDATA%\AnthropicClaude absent on purpose: findClaudeExecutable
+// must fail to find the standalone build, which is what makes isMSIX() true here.
+func msixRealFixture(t *testing.T) string {
+	t.Helper()
+	local := t.TempDir()
+	t.Setenv("LOCALAPPDATA", local)
+	roaming := filepath.Join(local, "Packages", "Claude_test", "LocalCache", "Roaming")
+	if err := os.MkdirAll(roaming, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return roaming
+}
+
+// TestPrepareRemoveRefusesSlotOccupant covers the reason PrepareRemove exists
+// separately from PrepareArchive: a removal has no keeper to swap in, so the
+// slot occupant can only be refused, never archived.
+func TestPrepareRemoveRefusesSlotOccupant(t *testing.T) {
+	roaming := msixRealFixture(t)
+	if err := writeMSIXStateIn(roaming, msixState{Current: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	w := &WindowsPlatform{}
+	if _, err := w.PrepareRemove("Work"); err == nil {
+		t.Fatal("PrepareRemove accepted the slot occupant; it must refuse")
+	}
+	got, err := w.PrepareRemove("Personal")
+	if err != nil {
+		t.Fatalf("PrepareRemove on a parked profile: %v", err)
+	}
+	want := filepath.Join(msixContainerDir(roaming), "Personal")
+	if got != want {
+		t.Fatalf("PrepareRemove = %q, want %q", got, want)
+	}
+}
+
+// TestPrepareRemoveRefusesWhenNoStateRecorded covers the install where MCS has
+// never run: readMSIXStateIn answers "Claude" for the occupant, which is
+// indistinguishable from a real occupant called Claude. Accepting anything here
+// archives a parked folder while the live account stays in the slot.
+func TestPrepareRemoveRefusesWhenNoStateRecorded(t *testing.T) {
+	msixRealFixture(t) // no state.json written
+	w := &WindowsPlatform{}
+	if _, err := w.PrepareRemove("Work"); err == nil {
+		t.Fatal("PrepareRemove answered for an install whose occupant is unknowable")
+	}
+}
+
+// TestPrepareRemoveRefusesPendingMigrationSource covers removing the source of a
+// queued migration, which loses it silently: the copy stats the folder, finds it
+// gone, copies nothing and clears the flag.
+func TestPrepareRemoveRefusesPendingMigrationSource(t *testing.T) {
+	roaming := msixRealFixture(t)
+	if err := writeMSIXStateIn(roaming, msixState{Current: "New", PendingMigrateFrom: "Old"}); err != nil {
+		t.Fatal(err)
+	}
+	w := &WindowsPlatform{}
+	if _, err := w.PrepareRemove("Old"); err == nil {
+		t.Fatal("PrepareRemove accepted the profile a queued migration reads from")
+	}
+}

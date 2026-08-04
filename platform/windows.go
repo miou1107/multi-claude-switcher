@@ -615,7 +615,7 @@ func (w *WindowsPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (
 	if roaming == "" {
 		return "", "", fmt.Errorf("Store Claude Desktop data directory not found")
 	}
-	if strings.EqualFold(readMSIXStateIn(roaming).Current, archiveIdentity) {
+	if msixIsSlotOccupant(roaming, archiveIdentity) {
 		// The profile to archive is the slot occupant. Renaming the slot away would
 		// leave state.json naming a directory that does not exist, so swap the keeper
 		// in first: the keeper becomes the active profile — where the user wants to
@@ -627,6 +627,45 @@ func (w *WindowsPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (
 	}
 	// Resolve after any swap: state.json has moved, and so have both directories.
 	return msixProfilePath(roaming, keepIdentity), msixProfilePath(roaming, archiveIdentity), nil
+}
+
+// PrepareRemove refuses three things on the Store build, and nothing on the
+// standalone one, which has no shared slot.
+//
+// The slot occupant, because the active profile is addressed through one shared
+// directory that state.json names; renaming it away would leave state.json
+// pointing at nothing, and unlike a merge there is no keeper to swap in first.
+//
+// An install with no recorded state, because readMSIXStateIn substitutes the
+// default name when there is no file: "the occupant is Claude" and "MCS has never
+// run here" come back identical, so the occupant is not knowable and a guess here
+// archives the wrong directory.
+//
+// The pending-migration source, because msixAttemptMigrationIn stats that folder
+// and, finding it gone, copies nothing and clears the flag without a word. The
+// conversations would survive in the archive and simply never arrive.
+func (w *WindowsPlatform) PrepareRemove(identity string) (string, error) {
+	if !w.isMSIX() {
+		root := w.AppSupportDir()
+		if root == "" {
+			return "", fmt.Errorf("could not determine %%APPDATA%% directory")
+		}
+		return filepath.Join(root, identity), nil
+	}
+	roaming := msixRoamingDir()
+	if roaming == "" {
+		return "", fmt.Errorf("Store Claude Desktop data directory not found")
+	}
+	if !msixStateRecorded(roaming) {
+		return "", fmt.Errorf("MCS has not set up switching on this install yet, so it cannot tell which account is in use. Run Rescan first")
+	}
+	if msixIsSlotOccupant(roaming, identity) {
+		return "", fmt.Errorf("%q is the account in use. Switch to another account first, then remove it", identity)
+	}
+	if strings.EqualFold(readMSIXStateIn(roaming).PendingMigrateFrom, identity) {
+		return "", fmt.Errorf("%q still has conversations waiting to move into the account you just added. Sign in to that account first, then remove this one", identity)
+	}
+	return msixProfilePath(roaming, identity), nil
 }
 
 // ArchiveDir keeps Store archives inside the package container, beside
