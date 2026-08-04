@@ -250,6 +250,21 @@ func (w *WindowsPlatform) DetectRunningProfiles() ([]string, error) {
 		// The Store build always runs out of the single slot dir; its identity is
 		// whichever profile MCS last swapped in (tracked in state). Return the slot
 		// path so it matches the current profile's ProfileInfo.Path.
+		//
+		// Two measured facts (Windows 11, Claude Desktop 1.24012.9.0) are why this
+		// shortcut has to exist rather than being an optimisation:
+		//
+		//  1. The Store build's MAIN process carries no --user-data-dir at all.
+		//     Only its helpers (crashpad, gpu, renderer, network) do. Enumerating
+		//     by that flag would find the profile through child processes or miss
+		//     it entirely, depending on what happened to be alive.
+		//  2. The path those helpers report is the virtualized spelling,
+		//     C:\Users\<u>\AppData\Roaming\Claude, while the profile really lives
+		//     under ...\AppData\Local\Packages\Claude_<pub>\LocalCache\Roaming\Claude.
+		//     SamePath compares text, so matching Store command lines against
+		//     ProfileInfo.Path would never hit. Anything that needs to do that has
+		//     to check both spellings and confirm the redirect with os.SameFile,
+		//     the way the slot-blocker detection does.
 		running, _, err := w.IsAppRunning()
 		if err != nil {
 			return nil, err
@@ -305,7 +320,16 @@ func runningProfilesInProcsWindows(procs []string, profiles []*ProfileInfo) []st
 
 // extractUserDataDir pulls the value of --user-data-dir= out of a command line.
 // On Windows the path may be quoted ("--user-data-dir=\"C:\\...\\Claude\"") or
-// bare (--user-data-dir=C:\...\Claude), so both forms are handled.
+// bare (--user-data-dir=C:\...\Claude), so both forms are handled. Both were
+// observed on one machine in one app: every helper quotes the value, the
+// crashpad handler does not.
+//
+// Known gap, unverified: the bare form ends at the first space, so a profile
+// path containing one (C:\Users\Adam Smith\...) would be truncated if Chromium
+// also passes it bare there. It may not — quoting the whole switch is the usual
+// behaviour when a value contains spaces, and the quoted form is what the
+// helpers already emit. Settling it needs a Windows account whose name has a
+// space in it.
 func extractUserDataDir(cmdLine string) string {
 	const flag = "--user-data-dir="
 	idx := strings.Index(cmdLine, flag)
