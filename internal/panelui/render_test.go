@@ -621,3 +621,52 @@ func TestRenderSettingsOffersTheArchiveFolder(t *testing.T) {
 		t.Fatalf("want the openArchive action:\n%s", html)
 	}
 }
+
+// TestRenderDebugShowsWhatWillBePublished pins the three things the screen
+// exists for: the report itself, a way to say what went wrong, and a statement
+// of what has been removed. The notice is not decoration — it is the only place
+// the user is told the report was masked at all.
+func TestRenderDebugShowsWhatWillBePublished(t *testing.T) {
+	h := RenderDebug(DebugVM{Report: "MCS 0.11.2\naccount-1", Comment: ""})
+
+	for _, want := range []string{
+		"MCS 0.11.2",
+		"account-1",
+		"removed",
+		`send('showSettings','')`,
+		`id="dbgc"`,
+		"Report a problem",
+		"Copy",
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("missing %q from the debug view", want)
+		}
+	}
+}
+
+// TestRenderDebugEscapesTheReportAndTheComment stops a log line containing
+// markup from rewriting the panel it is displayed in.
+func TestRenderDebugEscapesTheReportAndTheComment(t *testing.T) {
+	h := RenderDebug(DebugVM{
+		Report:  `<script>alert(1)</script>`,
+		Comment: `</textarea><img src=x onerror=alert(1)>`,
+	})
+	if strings.Contains(h, "<script>alert(1)</script>") {
+		t.Error("the report was not escaped")
+	}
+	if strings.Contains(h, "</textarea><img") {
+		t.Error("the comment was not escaped")
+	}
+	if !strings.Contains(h, "&lt;script&gt;") {
+		t.Error("the report should still be readable once escaped")
+	}
+}
+
+// TestRenderSettingsOffersDebugInfo keeps the screen reachable. A view nothing
+// links to is a view nobody uses.
+func TestRenderSettingsOffersDebugInfo(t *testing.T) {
+	h := RenderSettings(SettingsVM{Version: "0.11.2"})
+	if !strings.Contains(h, `send('showDebug','')`) {
+		t.Error("Settings must offer Debug info")
+	}
+}
