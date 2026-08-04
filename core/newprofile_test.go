@@ -8,6 +8,7 @@ import (
 
 func TestCreateProfileAddPath(t *testing.T) {
 	withStubbedManaged(t)
+	withStubbedActiveProfile(t)
 	withStubbedPending(t)
 	withStubbedNames(t)
 	root := t.TempDir()
@@ -62,6 +63,7 @@ func TestCreateProfileAddPath(t *testing.T) {
 // through the pending registry instead, so the list must be left unset here.
 func TestCreateProfileFirstRunLeavesTheManagedListUnset(t *testing.T) {
 	withStubbedManaged(t) // first run: managed.json absent
+	withStubbedActiveProfile(t)
 	withStubbedPending(t)
 	withStubbedNames(t)
 	root := t.TempDir()
@@ -88,6 +90,7 @@ func TestCreateProfileFirstRunLeavesTheManagedListUnset(t *testing.T) {
 // already there.
 func TestCreateProfileAddsToAnAlreadyCuratedList(t *testing.T) {
 	withStubbedManaged(t)
+	withStubbedActiveProfile(t)
 	withStubbedPending(t)
 	withStubbedNames(t)
 	if err := SetManaged([]string{"Claude"}); err != nil {
@@ -117,6 +120,7 @@ func TestCreateProfileAddsToAnAlreadyCuratedList(t *testing.T) {
 // leaves the real one invisible.
 func TestCreateProfileKeysRegistriesOnTheIdentityNotThePath(t *testing.T) {
 	withStubbedManaged(t)
+	withStubbedActiveProfile(t)
 	withStubbedPending(t)
 	withStubbedNames(t)
 	// Curate the list first, so the managed write actually happens (a first-run list
@@ -152,6 +156,7 @@ func TestCreateProfileKeysRegistriesOnTheIdentityNotThePath(t *testing.T) {
 
 func TestCreateProfileRecoveryPath(t *testing.T) {
 	withStubbedManaged(t)
+	withStubbedActiveProfile(t)
 	withStubbedPending(t)
 	withStubbedNames(t)
 	root := t.TempDir()
@@ -191,6 +196,7 @@ func TestCreateProfileRecoveryPath(t *testing.T) {
 
 func TestCreateProfileRejectsBadNameBeforeTouchingAnything(t *testing.T) {
 	withStubbedManaged(t)
+	withStubbedActiveProfile(t)
 	withStubbedPending(t)
 	withStubbedNames(t)
 	m := &mockPlatform{}
@@ -211,6 +217,7 @@ func TestCreateProfileRejectsBadNameBeforeTouchingAnything(t *testing.T) {
 
 func TestCreateProfileRecoveryWithNoSourcesIsRefused(t *testing.T) {
 	withStubbedManaged(t)
+	withStubbedActiveProfile(t)
 	withStubbedPending(t)
 	withStubbedNames(t)
 	m := &mockPlatform{createdIdentity: "Claude_Recovered", createdPath: t.TempDir()}
@@ -227,6 +234,7 @@ func TestCreateProfileRecoveryWithNoSourcesIsRefused(t *testing.T) {
 
 func TestCreateProfileRecoveryFailureLeavesNoState(t *testing.T) {
 	withStubbedManaged(t)
+	withStubbedActiveProfile(t)
 	withStubbedPending(t)
 	withStubbedNames(t)
 	root := t.TempDir()
@@ -265,6 +273,7 @@ func TestCreateProfileRecoveryFailureLeavesNoState(t *testing.T) {
 // another copy.
 func TestCreateProfileDiscardsTheNewProfileWhenItCannotBeRegistered(t *testing.T) {
 	withStubbedManaged(t)
+	withStubbedActiveProfile(t)
 	withStubbedNames(t)
 
 	// Point the pending registry at a path it cannot possibly create: a directory
