@@ -166,7 +166,7 @@ func TestBuildProfilesShowsAPendingProfileWithoutCurating(t *testing.T) {
 
 	got := BuildProfiles(
 		[]*platform.ProfileInfo{profile("Claude", existing), freshP},
-		nil,                        // first run: never curated
+		nil,                         // first run: never curated
 		[]string{"Claude_Personal"}, // but this one is pending sign-in
 		"", noPlan)
 
