@@ -138,6 +138,31 @@ Not masked, deliberately: conversation counts and exact version numbers. In
 combination these do fingerprint a machine, but the user is publishing this
 voluntarily and blurring them would remove the two numbers most reports turn on.
 
+### The sweep
+
+Everything above is a list of things someone thought of. That is the weakness:
+what is not registered is not masked, and a field added next year leaks by
+default with nothing to say so. Every leak found in review had that shape — not a
+rule written wrongly, but a place nobody had thought of.
+
+So the assembled report is swept once more before it leaves `Build`, matching by
+*shape* rather than by list: anything that still looks like an email address or a
+UUID is a value that escaped registration.
+
+A hit is replaced with `[redacted: unregistered]` — the user is safe either way,
+but the marker says a rule is missing rather than quietly papering over it.
+
+**In tests, a hit is a hard failure.** `Build` on a fully populated input must
+produce a report with no `[redacted: unregistered]` in it. Add a field and forget
+to register its identifiers, and the suite goes red before anyone sees their
+address in a public issue. That is the point of the sweep: it converts "we
+thought of everything" into something a machine checks.
+
+The sweep runs last, over the final string, including the log sections and the
+user's comment. It does not replace registration — a swept value loses its
+identity, so `account-1` appearing twice can no longer be recognised as the same
+account. It is the backstop, not the mechanism.
+
 ## Submitting
 
 `Copy and open` does two things:
@@ -257,6 +282,10 @@ but the path exists rather than being assumed away.
   absolute path; a profile folder named after an email; a path outside the home
   directory (`/Volumes/…`, `D:\…`); the user's comment containing their own
   address.
+- The sweep: an unregistered email and an unregistered UUID planted in a log line
+  are both replaced with `[redacted: unregistered]`; a fully populated, correctly
+  registered input produces a report containing no such marker (this is the
+  regression test that fires when a new field forgets to register).
 - `Build`: a full input produces a stable string (golden); missing fields render
   as `unknown` rather than empty; the log section is truncated to 200 lines per
   file, headed per file, and says so; path-shape facts are emitted without values.
