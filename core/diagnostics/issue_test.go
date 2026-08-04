@@ -35,11 +35,28 @@ func TestIssueURL(t *testing.T) {
 
 	t.Run("a long comment cannot run away with the url", func(t *testing.T) {
 		u := IssueURL(strings.Repeat("very long ", 500), m)
-		if len(u) > 8000 {
-			t.Errorf("url is %d bytes, want under 8000", len(u))
+		// Measured worst case with the 80-rune cap in place: an 80-rune title
+		// made entirely of 4-byte UTF-8 characters encodes to about 1085 bytes
+		// for the whole url. 2000 leaves headroom above that measured worst
+		// case while staying far under what this subtest's own input encodes
+		// to (about 5124 bytes) if the truncation were removed — so this
+		// assertion actually fails without it, unlike a bound like 8000 that
+		// neither the truncated nor the untruncated case ever reaches.
+		if len(u) > 2000 {
+			t.Errorf("url is %d bytes, want under 2000", len(u))
 		}
 		if n := len([]rune(titleOf(t, u))); n > 80 {
 			t.Errorf("title is %d runes, want at most 80", n)
+		}
+	})
+
+	t.Run("a nil masker does not panic and does not leak the comment", func(t *testing.T) {
+		u := IssueURL("hello vincent@fontrip.com", nil)
+		if got := titleOf(t, u); got != "Problem report" {
+			t.Errorf("title = %q, want Problem report", got)
+		}
+		if strings.Contains(u, "hello") || strings.Contains(u, "fontrip") {
+			t.Errorf("unmasked comment reached the url: %s", u)
 		}
 	})
 

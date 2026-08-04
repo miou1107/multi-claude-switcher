@@ -24,8 +24,18 @@ const issueBody = "Paste the report here (Cmd+V / Ctrl+V).\n"
 // tends to paste the error they saw, and the error they saw has their path in
 // it. It is then flattened to one line, capped, and escaped — a comment
 // containing & or # must not be able to truncate the URL or reach a shell.
+//
+// Only NewMaskerFor produces the masker today, so m is never nil in practice.
+// But IssueURL is exported and its signature promises nothing about that, so a
+// nil m is guarded here rather than left to panic inside Masker.Apply. The
+// guard drops the comment entirely instead of falling back to it verbatim:
+// with no masker there is no way to know the comment is safe to publish, and
+// a quietly unmasked title is worse than the generic fallback title below.
 func IssueURL(comment string, m *Masker) string {
-	title := strings.TrimSpace(m.Apply(comment))
+	title := ""
+	if m != nil {
+		title = strings.TrimSpace(m.Apply(comment))
+	}
 	if i := strings.IndexAny(title, "\r\n"); i >= 0 {
 		title = strings.TrimSpace(title[:i])
 	}
