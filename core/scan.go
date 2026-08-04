@@ -103,15 +103,17 @@ type dirScan struct {
 	Buckets     map[string]bucketStat // accountUUID -> stats (from claude-code-sessions/)
 }
 
-// deriveNote returns the review note for a row: incomplete rows are invalid data;
-// complete Team rows warn that conversations can't be synced; complete personal
-// rows have no note.
+// deriveNote returns the review note for a row: incomplete rows are invalid data,
+// everything else has nothing worth saying.
+//
+// Team rows used to carry "conversations can't be synced". They can. Sessions are
+// filed per account AND per organization, and sync was writing them under the
+// source's organization, where the target account never looks. Fixing the path
+// fixed the import; the note was describing a bug in MCS as a property of Team
+// accounts.
 func deriveNote(complete bool, acct AccountType) string {
 	if !complete {
 		return "Invalid account data"
-	}
-	if acct == AccountTeam {
-		return "Team account — conversations can't be synced"
 	}
 	return ""
 }

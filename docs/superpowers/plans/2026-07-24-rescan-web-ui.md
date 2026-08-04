@@ -1,5 +1,7 @@
 # Rescan Web UI Implementation Plan
 
+> **⚠️ One detail superseded (2026-08-04).** The Team row note specified here, "Team account — conversations can't be synced", has been removed: conversations DO sync into a Team account, and the imports that appeared to fail were being filed under the source account's organization folder. See `docs/team-accounts.md`. Complete Team rows now carry no note.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the Rescan review/pick osascript dialogs (an unreadable proportional-font text "table") with a real visual UI: an ephemeral, token-guarded localhost HTTP server that serves an HTML table with checkboxes, opened in the user's browser, returning the chosen folders to the tray.

@@ -446,3 +446,234 @@ func TestSyncBidirectionalUnion(t *testing.T) {
 		}
 	}
 }
+
+// writeAccountConfigWithOrg writes a config.json naming both the account and the
+// organization the profile is working in, which is the pair that decides where
+// Claude Desktop reads conversations from.
+func writeAccountConfigWithOrg(t *testing.T, profile, accountUUID, orgUUID string) {
+	t.Helper()
+	if err := os.MkdirAll(profile, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := fmt.Sprintf(`{"lastKnownAccountUuid":%q,"dxt:allowlistLastUpdated:%s":"2026-08-04T01:14:05.939Z"}`,
+		accountUUID, orgUUID)
+	if err := os.WriteFile(filepath.Join(profile, "config.json"), []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSyncSessionsRebucketsTheOrganisationToo is the whole reason importing into a
+// Team account looked impossible. Sync rewrote the account segment of the path and
+// left the organization segment naming the SOURCE's organization, so every
+// conversation it copied landed in a folder the target account never opens: on
+// disk, correct, and invisible. The conversations have to arrive in the
+// organization the target is actually signed in to.
+func TestSyncSessionsRebucketsTheOrganisationToo(t *testing.T) {
+	tempDir := t.TempDir()
+	const (
+		srcAccount = "src-account"
+		dstAccount = "dst-account"
+		srcOrg     = "personal-org"
+		dstOrg     = "company-org"
+	)
+
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfigWithOrg(t, src, srcAccount, srcOrg)
+	writeAccountConfigWithOrg(t, dst, dstAccount, dstOrg)
+	writeSessionFile(t, src, filepath.Join(srcAccount, srcOrg, "local_a.json"), `{"v":"work"}`, time.Now())
+
+	report, err := SyncSessions(src, dst)
+	if err != nil {
+		t.Fatalf("SyncSessions: %v", err)
+	}
+	if report.CopiedCount != 1 {
+		t.Fatalf("copied %d, want 1 (skips %d, conflicts %d, errors %v)",
+			report.CopiedCount, report.SkippedCount, report.ConflictCount, report.SkipErrors)
+	}
+
+	want := filepath.Join(platformSessions(dst), dstAccount, dstOrg, "local_a.json")
+	if _, err := os.Stat(want); err != nil {
+		t.Errorf("conversation is not where the target reads them (%s): %v", want, err)
+	}
+	// And specifically NOT under the source's organization, which is where it used
+	// to land and be ignored forever.
+	stale := filepath.Join(platformSessions(dst), dstAccount, srcOrg, "local_a.json")
+	if _, err := os.Stat(stale); err == nil {
+		t.Errorf("conversation was also filed under the source's organization (%s), where the target never looks", stale)
+	}
+}
+
+// TestSyncSessionsKeepsThePathWhenTheOrganisationIsUnknown: a profile MCS cannot
+// read an organization out of must still sync. Falling back to the old
+// path-preserving copy is no worse than what shipped, and refusing would break
+// syncing for anyone whose config.json does not carry the stamp.
+func TestSyncSessionsKeepsThePathWhenTheOrganisationIsUnknown(t *testing.T) {
+	tempDir := t.TempDir()
+	const (
+		srcAccount = "src-account"
+		dstAccount = "dst-account"
+		srcOrg     = "personal-org"
+	)
+
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfig(t, src, srcAccount) // no organization stamp on either side
+	writeAccountConfig(t, dst, dstAccount)
+	writeSessionFile(t, src, filepath.Join(srcAccount, srcOrg, "local_a.json"), `{"v":"work"}`, time.Now())
+
+	if _, err := SyncSessions(src, dst); err != nil {
+		t.Fatalf("SyncSessions: %v", err)
+	}
+	want := filepath.Join(platformSessions(dst), dstAccount, srcOrg, "local_a.json")
+	if _, err := os.Stat(want); err != nil {
+		t.Errorf("expected the unchanged path-preserving copy at %s: %v", want, err)
+	}
+}
+
+// TestUnresolvedConflictsMatchAcrossOrganisations: the two legs of a bidirectional
+// sync write into opposite accounts, so the same conversation is named by a
+// different organization folder in each leg's report. Matching the reports as raw
+// paths therefore found nothing in common, and the one warning auto sync has —
+// "both copies were kept, go and look" — was never printed. Auto sync runs
+// unattended; the log is the only channel it has.
+func TestUnresolvedConflictsMatchAcrossOrganisations(t *testing.T) {
+	aToB := &SyncReport{Conflicts: []string{filepath.Join("b-org", "local_x.json")}}
+	bToA := &SyncReport{Conflicts: []string{filepath.Join("a-org", "local_x.json")}}
+
+	got := UnresolvedConflicts(aToB, bToA)
+	if len(got) != 1 {
+		t.Fatalf("got %q, want the one conversation both legs could not converge", got)
+	}
+}
+
+// TestUnresolvedConflictsIgnoresUnrelatedConversations guards the other direction:
+// matching on something too loose would report every conflict as unresolved.
+func TestUnresolvedConflictsIgnoresUnrelatedConversations(t *testing.T) {
+	aToB := &SyncReport{Conflicts: []string{filepath.Join("b-org", "local_x.json")}}
+	bToA := &SyncReport{Conflicts: []string{filepath.Join("a-org", "local_y.json")}}
+
+	if got := UnresolvedConflicts(aToB, bToA); len(got) != 0 {
+		t.Fatalf("got %q, want nothing: each side resolved the other's clash", got)
+	}
+}
+
+// TestSyncSessionsSkipsWhatTheOldBugLeftBehind. Every install that ran the old
+// sync has the target's conversations sitting in the SOURCE profile under the
+// target's own organization folder, because that is where the broken re-bucketing
+// put them. Copying those back would push stale versions — including conversations
+// the target has since deleted — into the folder the target actually reads.
+func TestSyncSessionsSkipsWhatTheOldBugLeftBehind(t *testing.T) {
+	tempDir := t.TempDir()
+	const (
+		srcAccount = "src-account"
+		dstAccount = "dst-account"
+		srcOrg     = "personal-org"
+		dstOrg     = "company-org"
+	)
+
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfigWithOrg(t, src, srcAccount, srcOrg)
+	writeAccountConfigWithOrg(t, dst, dstAccount, dstOrg)
+	writeSessionFile(t, src, filepath.Join(srcAccount, srcOrg, "local_mine.json"), `{"v":"mine"}`, time.Now())
+	// Left in the source by the old sync: a copy of the TARGET's own conversation,
+	// filed under the target's organization.
+	writeSessionFile(t, src, filepath.Join(srcAccount, dstOrg, "local_stale.json"), `{"v":"stale"}`, time.Now())
+
+	if _, err := SyncSessions(src, dst); err != nil {
+		t.Fatalf("SyncSessions: %v", err)
+	}
+	mine := filepath.Join(platformSessions(dst), dstAccount, dstOrg, "local_mine.json")
+	if _, err := os.Stat(mine); err != nil {
+		t.Errorf("the source's own conversation must arrive: %v", err)
+	}
+	stale := filepath.Join(platformSessions(dst), dstAccount, dstOrg, "local_stale.json")
+	if _, err := os.Stat(stale); err == nil {
+		t.Error("a leftover copy of the target's own conversation was pushed back into the folder the target reads")
+	}
+}
+
+// TestSyncSessionsDoesNotRemapWhenTheStampIsStale: the organization stamp is a
+// heuristic on Claude Desktop's private format, and it goes stale when the user
+// switches organization inside the app without relaunching. A stamp naming an
+// organization the source has no conversations under is not evidence, so the paths
+// are left alone rather than half-rewritten.
+func TestSyncSessionsDoesNotRemapWhenTheStampIsStale(t *testing.T) {
+	tempDir := t.TempDir()
+	const (
+		srcAccount = "src-account"
+		dstAccount = "dst-account"
+		realOrg    = "the-org-actually-in-use"
+		staleOrg   = "the-org-the-stamp-still-names"
+		dstOrg     = "company-org"
+	)
+
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfigWithOrg(t, src, srcAccount, staleOrg)
+	writeAccountConfigWithOrg(t, dst, dstAccount, dstOrg)
+	writeSessionFile(t, src, filepath.Join(srcAccount, realOrg, "local_a.json"), `{"v":"work"}`, time.Now())
+
+	if _, err := SyncSessions(src, dst); err != nil {
+		t.Fatalf("SyncSessions: %v", err)
+	}
+	want := filepath.Join(platformSessions(dst), dstAccount, realOrg, "local_a.json")
+	if _, err := os.Stat(want); err != nil {
+		t.Errorf("expected the unchanged path-preserving copy at %s: %v", want, err)
+	}
+}
+
+// TestSyncSessionsReportsWhereFilesLanded: the report drives the merge screen and
+// the sync log, so it has to name where a conversation ended up, not where it came
+// from.
+func TestSyncSessionsReportsWhereFilesLanded(t *testing.T) {
+	tempDir := t.TempDir()
+	const (
+		srcAccount = "src-account"
+		dstAccount = "dst-account"
+		srcOrg     = "personal-org"
+		dstOrg     = "company-org"
+	)
+
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfigWithOrg(t, src, srcAccount, srcOrg)
+	writeAccountConfigWithOrg(t, dst, dstAccount, dstOrg)
+	writeSessionFile(t, src, filepath.Join(srcAccount, srcOrg, "local_a.json"), `{"v":"work"}`, time.Now())
+
+	report, err := SyncSessions(src, dst)
+	if err != nil {
+		t.Fatalf("SyncSessions: %v", err)
+	}
+	want := filepath.Join(dstOrg, "local_a.json")
+	if len(report.CopiedFiles) != 1 || report.CopiedFiles[0] != want {
+		t.Errorf("CopiedFiles = %q, want [%q]", report.CopiedFiles, want)
+	}
+}
+
+// TestSyncSessionsLeavesPathsAloneWhenBothSidesShareAnOrganisation: two profiles
+// signed into the same organization need no rewriting, and rewriting anyway would
+// be a no-op that only risks getting the path wrong.
+func TestSyncSessionsLeavesPathsAloneWhenBothSidesShareAnOrganisation(t *testing.T) {
+	tempDir := t.TempDir()
+	const (
+		srcAccount = "src-account"
+		dstAccount = "dst-account"
+		sharedOrg  = "one-org"
+	)
+
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfigWithOrg(t, src, srcAccount, sharedOrg)
+	writeAccountConfigWithOrg(t, dst, dstAccount, sharedOrg)
+	writeSessionFile(t, src, filepath.Join(srcAccount, sharedOrg, "local_a.json"), `{"v":"work"}`, time.Now())
+
+	if _, err := SyncSessions(src, dst); err != nil {
+		t.Fatalf("SyncSessions: %v", err)
+	}
+	want := filepath.Join(platformSessions(dst), dstAccount, sharedOrg, "local_a.json")
+	if _, err := os.Stat(want); err != nil {
+		t.Errorf("expected the conversation at %s: %v", want, err)
+	}
+}

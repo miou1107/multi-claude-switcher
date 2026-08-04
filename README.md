@@ -132,17 +132,22 @@ clears out old ones on its own schedule — so a conversation can sit in the lis
 with nothing left behind it. That is Claude's own housekeeping, which this tool
 neither causes nor can undo.
 
-## Team accounts only sync outwards
+## Team accounts sync like any other
 
-You can copy Code sessions **out of** a Claude Team account. You cannot copy them
-**in**. A Team account gets its conversation list from Anthropic's servers, so
-files placed in its local folder are never read, and no setting changes that.
+An earlier version of this page said conversations could be copied out of a Claude
+Team account but never into one. That was wrong, and the mistake was this tool's.
 
-The app labels Team accounts it recognises and warns you before an action that
-would try to import into one. Recognition is best-effort. An account it cannot
-classify is left unlabelled rather than labelled wrongly.
+Conversations are filed on disk by account **and** by organization. Syncing put
+them under the account you were copying to, but left them filed under the
+organization you were copying **from** — a folder that account never reads. The
+files arrived, correct and complete, somewhere invisible. That looked exactly like
+a Team account refusing an import, and it was diagnosed as one.
 
-[What was tested, and why it behaves this way →](docs/team-accounts.md)
+Both halves of the path are now rewritten, so an import into a Team account
+arrives where that account reads it. Nothing about Team accounts needs special
+handling, and the warnings that used to appear before syncing into one are gone.
+
+[What was tested, before and after →](docs/team-accounts.md)
 
 ## FAQ and recovery
 

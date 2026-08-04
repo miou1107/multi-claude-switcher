@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Fixed
+- **Conversations can be synced into a Claude Team account.** They always could;
+  this tool was putting them in the wrong place. Conversations are filed by
+  account and by organization, and syncing rewrote only the account, leaving them
+  under the organization they came from — a folder the receiving account never
+  reads. The files arrived complete and invisible, which looked exactly like a
+  Team account refusing an import, and was documented as one. Both halves of the
+  path are now rewritten. The warnings shown before syncing into a Team account,
+  and the note marking Team accounts as unable to receive one, are gone.
 - **An account you had open no longer disappears when you switch or sync.**
   Closing Claude Desktop closes every account at once, but only one was ever
   reopened, so a second account you had open was taken away without a word. Every

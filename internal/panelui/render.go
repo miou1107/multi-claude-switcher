@@ -704,10 +704,9 @@ func RenderSync(profiles []ProfileVM, status string, busy bool) string {
 				continue
 			}
 			count++
-			note := ""
-			if to.Plan == "Team" {
-				note = `<div class="sub" style="color:#b0455f">Team destination — import won't apply</div>`
-			}
+			// No per-destination caveat. A Team account used to be marked as one
+			// that could not receive an import; that was MCS filing conversations
+			// under the wrong organization, not a limit of the account.
 			oc, cls := "", "card selectable"
 			if busy {
 				cls = "card ghost"
@@ -723,8 +722,8 @@ func RenderSync(profiles []ProfileVM, status string, busy bool) string {
 			cards.WriteString(fmt.Sprintf(`
       <div class="%s" %s><div class="chev">→</div>
         <div class="body"><div class="row1"><span class="name">%s → %s</span></div>
-          <div class="sub">Copy %s's sessions into %s</div>%s</div></div>`,
-				cls, oc, esc(from.Name), esc(to.Name), esc(from.Name), esc(to.Name), note))
+          <div class="sub">Copy %s's sessions into %s</div></div></div>`,
+				cls, oc, esc(from.Name), esc(to.Name), esc(from.Name), esc(to.Name)))
 		}
 	}
 	if count == 0 {

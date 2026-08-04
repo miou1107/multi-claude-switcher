@@ -386,3 +386,51 @@ func TestMergePreviewSurvivesAnUnreadableSubdirectory(t *testing.T) {
 		t.Fatalf("Combined = %d, want the readable records still counted", plan.Combined)
 	}
 }
+
+// TestMergePreviewPredictsTheOrganisationRemap: the merge screen promises a number
+// and the merge has to deliver it. Merging runs a sync, which files the archived
+// account's conversations under the organization the KEEPER reads, so a preview
+// that compares raw paths sees two unrelated files where the merge sees one
+// conversation in two versions. The user is then told "2 conversations, no
+// conflicts" and gets one, with the other stranded and nothing said.
+func TestMergePreviewPredictsTheOrganisationRemap(t *testing.T) {
+	tempDir := t.TempDir()
+	const (
+		account    = "same-account"
+		keepOrg    = "company-org"
+		archiveOrg = "personal-org"
+		session    = "local_x.json"
+	)
+
+	keep := filepath.Join(tempDir, "Keep")
+	archive := filepath.Join(tempDir, "Archive")
+	writeAccountConfigWithOrg(t, keep, account, keepOrg)
+	writeAccountConfigWithOrg(t, archive, account, archiveOrg)
+
+	// The same conversation, in two versions, on either side. The keeper's copy is
+	// newer, so the sync keeps it and strands the archive's: one conflict, and the
+	// combined total stays at one.
+	older := time.Now().Add(-time.Hour)
+	writeSessionFile(t, archive, filepath.Join(account, archiveOrg, session), `{"v":"archived"}`, older)
+	writeSessionFile(t, keep, filepath.Join(account, keepOrg, session), `{"v":"kept"}`, time.Now())
+
+	plan, err := MergePreview(keep, archive, account)
+	if err != nil {
+		t.Fatalf("MergePreview: %v", err)
+	}
+	if plan.Combined != 1 {
+		t.Errorf("preview promises %d conversations, but the two files are one conversation", plan.Combined)
+	}
+	if plan.Conflicts != 1 {
+		t.Errorf("preview reports %d conflicts; the archived version loses and must be disclosed", plan.Conflicts)
+	}
+
+	// And the preview must match what the merge actually does.
+	report, err := SyncSessions(archive, keep)
+	if err != nil {
+		t.Fatalf("SyncSessions: %v", err)
+	}
+	if report.ConflictCount != plan.Conflicts {
+		t.Errorf("preview said %d conflicts, the sync reported %d", plan.Conflicts, report.ConflictCount)
+	}
+}

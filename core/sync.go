@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,6 +108,14 @@ func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 		return nil, fmt.Errorf("failed to create destination account bucket: %w", err)
 	}
 
+	// The account bucket is only half the address. Under it, sessions are filed by
+	// organization, and the app reads exactly one of those folders: the
+	// organization it is signed in to. Rewriting the account and leaving the
+	// organization alone put every copied conversation in a folder the target
+	// account never opens, which is what made importing into a Team account look
+	// impossible for a fortnight.
+	remap := orgRemapper(srcProfilePath, dstProfilePath)
+
 	walkErr := filepath.Walk(srcBucket, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -120,7 +129,14 @@ func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 			return err
 		}
 
-		targetPath := filepath.Join(dstBucket, relPath)
+		// relPath is where the file sits under the source account; targetRel is
+		// where it belongs under the target account.
+		targetRel, keep := remap(relPath)
+		if !keep {
+			report.SkippedCount++
+			return nil
+		}
+		targetPath := filepath.Join(dstBucket, targetRel)
 
 		// Lstat, and only ErrNotExist counts as absent. copyFile truncates through
 		// os.Create, so treating every stat failure as "not there" would destroy
@@ -143,7 +159,7 @@ func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 				return nil
 			}
 			report.CopiedCount++
-			report.CopiedFiles = append(report.CopiedFiles, relPath)
+			report.CopiedFiles = append(report.CopiedFiles, targetRel)
 			return nil
 		}
 		if !dstInfo.Mode().IsRegular() {
@@ -172,13 +188,13 @@ func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 				return nil
 			}
 			report.CopiedCount++
-			report.CopiedFiles = append(report.CopiedFiles, relPath)
+			report.CopiedFiles = append(report.CopiedFiles, targetRel)
 			return nil
 		}
 		// The target is newer, or the two are the same age and still differ. Either
 		// way this side has nothing better to offer, so the target is left alone.
 		report.ConflictCount++
-		report.Conflicts = append(report.Conflicts, relPath)
+		report.Conflicts = append(report.Conflicts, targetRel)
 		return nil
 	})
 
@@ -187,6 +203,71 @@ func SyncSessions(srcProfilePath, dstProfilePath string) (*SyncReport, error) {
 	}
 
 	return report, nil
+}
+
+// orgRemapper returns the rule for turning a path under the SOURCE account's
+// bucket into the path it belongs at under the TARGET's, and whether to copy it
+// at all.
+//
+// Sessions are addressed by account AND organization, and Claude Desktop reads
+// exactly one organization folder: the one that account is signed in to. Sync used
+// to rewrite the account and leave the organization naming the SOURCE's, so
+// everything it copied landed where the target never looks.
+//
+// Two things it deliberately does NOT do:
+//
+// It does not remap when either side's organization cannot be read, or when the
+// source's own organization folder is not actually there. The organization comes
+// from a heuristic on Claude Desktop's private format (see
+// platform.GetProfileActiveOrgUUID) and a stamp naming a folder that does not
+// exist is stale, not evidence. Leaving the paths alone is what shipped before, so
+// falling back to it cannot be worse.
+//
+// It does not copy what the old bug left behind. Every install that ran the
+// previous version has copies of the TARGET's conversations sitting in the SOURCE
+// under the target's own organization name. Sending those back would push stale
+// versions — including conversations the target has since deleted — into the
+// folder the target actually reads, and they would look like a new bug rather than
+// the residue of an old one.
+func orgRemapper(srcProfilePath, dstProfilePath string) func(relPath string) (string, bool) {
+	keepAsIs := func(rel string) (string, bool) { return rel, true }
+
+	srcOrg, srcErr := platform.GetProfileActiveOrgUUID(srcProfilePath)
+	dstOrg, dstErr := platform.GetProfileActiveOrgUUID(dstProfilePath)
+	if srcErr != nil || dstErr != nil {
+		log.Printf("[Sync] Could not tell which organization to file conversations under (source: %v, target: %v); copying paths unchanged, which may leave them where the target does not look.",
+			srcErr, dstErr)
+		return keepAsIs
+	}
+	if srcOrg == dstOrg {
+		return keepAsIs
+	}
+
+	srcAccount, err := platform.GetProfileAccountUUID(srcProfilePath)
+	if err != nil {
+		return keepAsIs
+	}
+	srcOrgDir := filepath.Join(platform.GetProfileSessionsDir(srcProfilePath), srcAccount, srcOrg)
+	if fi, err := os.Stat(srcOrgDir); err != nil || !fi.IsDir() {
+		log.Printf("[Sync] The source names organization %s but has no conversations under it, so that record looks stale; copying paths unchanged.", srcOrg)
+		return keepAsIs
+	}
+
+	log.Printf("[Sync] Filing conversations from organization %s under %s, which is where the target reads them.", srcOrg, dstOrg)
+	return func(rel string) (string, bool) {
+		first, rest, found := strings.Cut(rel, string(filepath.Separator))
+		if !found {
+			return rel, true
+		}
+		switch first {
+		case srcOrg:
+			return filepath.Join(dstOrg, rest), true
+		case dstOrg:
+			return "", false // residue of the old bug; see above
+		default:
+			return rel, true
+		}
+	}
 }
 
 // filesEqual reports whether two files have identical contents.
@@ -248,13 +329,18 @@ func UnresolvedConflicts(aToB, bToA *SyncReport) []string {
 	if aToB == nil || bToA == nil {
 		return nil
 	}
+	// Matched on the file name, not the path. Each leg reports where the file sits
+	// under ITS target, and the two targets are different accounts in different
+	// organizations, so the same conversation is named two different ways. Comparing
+	// paths found nothing in common and this warning stopped being printed at all.
+	// The file name is the session id, which is unique and identical on both sides.
 	inB := make(map[string]bool, len(bToA.Conflicts))
 	for _, c := range bToA.Conflicts {
-		inB[c] = true
+		inB[filepath.Base(c)] = true
 	}
 	var out []string
 	for _, c := range aToB.Conflicts {
-		if inB[c] {
+		if inB[filepath.Base(c)] {
 			out = append(out, c)
 		}
 	}

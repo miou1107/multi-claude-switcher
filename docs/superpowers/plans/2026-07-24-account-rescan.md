@@ -1,5 +1,7 @@
 # Account Rescan Implementation Plan
 
+> **⚠️ One detail superseded (2026-08-04).** The Team row note specified here, "Team account — conversations can't be synced", has been removed: conversations DO sync into a Team account, and the imports that appeared to fail were being filed under the source account's organization folder. See `docs/team-accounts.md`. Complete Team rows now carry no note.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a "Rescan accounts…" tray action that scans the machine for Claude accounts, shows a 7-column review of each (UUID, completeness, email, Team, conversations, last-updated, note), and lets the user pick which complete accounts the switcher manages — persisted to a new `managed.json` registry that replaces the hardcoded menu filter.

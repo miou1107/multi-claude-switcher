@@ -20,23 +20,15 @@ func TestShouldWarnAutoSync(t *testing.T) {
 }
 
 func TestAutoSyncWarningMessage(t *testing.T) {
-	base := autoSyncWarningMessage(nil)
-	if base == "" {
+	msg := autoSyncWarningMessage()
+	if msg == "" {
 		t.Fatal("base message empty")
 	}
-	withTeam := autoSyncWarningMessage([]string{"Company"})
-	if withTeam == base {
-		t.Error("expected an extra Team note when a Team profile is present")
-	}
-	if !strings.Contains(withTeam, "Company") || !strings.Contains(withTeam, "cannot be imported") {
-		t.Errorf("Team note missing details: %q", withTeam)
-	}
-
-	withTeams := autoSyncWarningMessage([]string{"Company", "Team B"})
-	if !strings.Contains(withTeams, "are Team accounts") {
-		t.Errorf("expected plural grammar for 2+ team names: %q", withTeams)
-	}
-	if !strings.Contains(withTeams, "cannot be imported") {
-		t.Errorf("Team note missing 'cannot be imported': %q", withTeams)
+	// A Team account used to get an extra warning that conversations could not be
+	// imported into it. That was wrong: they can, once they are filed under the
+	// organization the account is signed in to. Warning about it again would talk
+	// users out of a sync that works.
+	if strings.Contains(msg, "cannot be imported") {
+		t.Errorf("the Team import caveat is no longer true and must not be shown: %q", msg)
 	}
 }
