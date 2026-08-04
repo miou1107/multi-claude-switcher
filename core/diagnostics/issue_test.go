@@ -90,9 +90,10 @@ func TestIssueURL(t *testing.T) {
 
 // TestAppendCommentNilMasker is a round-3 finding: IssueURL guards m == nil
 // but AppendComment did not, even though both are exported and the cache
-// added in the previous round made nil reachable in practice — showDebug can
-// switch to the debug view before the gather that produces the masker
-// finishes, and a Report-a-problem click in that window called AppendComment
+// added in the previous round makes nil reachable in practice — the cache
+// starts empty, and reportProblem is not gated on the debug view actually
+// being on screen, only on the gather having completed at least once, so a
+// Report-a-problem call reached before that first gather calls AppendComment
 // with a nil masker. With no masker there is no way to know the comment is
 // safe to publish, so the guard has to drop it, exactly like IssueURL does,
 // rather than publish it unmasked or panic.

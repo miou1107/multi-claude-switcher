@@ -37,12 +37,14 @@ const issueBody = "Paste the report here (Cmd+V / Ctrl+V), replacing the line be
 //
 // NewMaskerFor is the only thing that produces the masker in the hosts today,
 // but the debug report cache (see debugReportCache in cmd/mcs-menubar and its
-// Windows twin) makes a nil m reachable in practice: showDebug clears the
-// cache before the gather that produces the masker completes, and a click in
-// that window calls in with whatever the cache holds. IssueURL is exported
-// besides, and its signature promises nothing about m being non-nil, so a nil
-// m is guarded here rather than left to panic inside Masker.Apply. The guard
-// drops the comment entirely instead of falling back to it verbatim: with no
+// Windows twin) makes a nil m reachable in practice: the cache starts empty,
+// and reportProblem is not gated on the debug view actually being on screen —
+// only on the gather having completed at least once. Before that first
+// gather, or if reportProblem is ever reached without one, m is nil. IssueURL
+// is exported besides, and its signature promises nothing about m being
+// non-nil, so a nil m is guarded here rather than left to panic inside
+// Masker.Apply. The guard drops the comment entirely instead of falling back
+// to it verbatim: with no
 // masker there is no way to know the comment is safe to publish, and a
 // quietly unmasked title is worse than the generic fallback title below.
 func IssueURL(comment string, m *Masker) string {

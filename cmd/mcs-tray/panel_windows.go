@@ -335,10 +335,10 @@ func dispatchAction(action, arg string) {
 	case "showSettings":
 		// Shared by the plain Settings gear and the Debug view's back button
 		// (and its Esc equivalent), which pass the live comment textarea value
-		// as arg so leaving Debug does not discard what was typed — the same
-		// data loss showDebug's old gather-after-view-switch shape caused, by
-		// a different trigger. Every other caller passes "", which must not
-		// clobber a comment already saved by a previous Debug visit.
+		// as arg so leaving Debug does not discard what was typed. showDebug no
+		// longer clears the saved comment on entry, so this save is what makes
+		// a later Debug visit come back with the text still there. Every other
+		// caller passes "", which must not clobber a comment saved this way.
 		if arg != "" {
 			panelSetDebugComment(arg)
 		}
@@ -421,7 +421,6 @@ func dispatchAction(action, arg string) {
 		if panelGetBusy() {
 			return
 		}
-		panelSetDebugComment("")
 		// Gathered to completion before the view switches, not after. The old
 		// shape cleared the cache, switched to "debug" immediately, and
 		// gathered on a goroutine — which rendered the (empty) debug view, with
@@ -454,12 +453,19 @@ func dispatchAction(action, arg string) {
 			full := diagnostics.AppendComment(report, arg, m)
 			if err := clip.Set(full); err != nil {
 				// The browser is not opened: an issue form with nothing to paste is
-				// worse than no browser at all.
+				// worse than no browser at all. The comment is left in place too —
+				// this is exactly the moment the user still needs it, to retry Copy
+				// or Report a problem once whatever broke clip.Set is fixed.
 				panelSetBusy(false, "Couldn't copy the report: "+err.Error())
 				reloadPanel()
 				return
 			}
 			_ = openURL(diagnostics.IssueURL(arg, m))
+			// The comment has done its job: it is in the clipboard body and in the
+			// prefilled issue title. Clearing it here, rather than on Debug's next
+			// entry, means a stale "still happening" does not sit in the box the
+			// next time something unrelated goes wrong.
+			panelSetDebugComment("")
 			panelSetBusy(false, "Report copied. Paste it into the issue.")
 			reloadPanel()
 		}()

@@ -685,12 +685,34 @@ func TestRenderDebugExplainsTheUnregisteredMarker(t *testing.T) {
 // TestRenderDebugBackButtonKeepsTheComment pins the fix for the data loss the
 // back button shared with Esc (see the keydown handler in shell()): both used
 // to send showSettings with no argument, discarding whatever the user had
-// typed since it was never sent to Go until Copy or Report a problem. The
-// back button must now hand the live textarea value back with the action.
+// typed since it was never sent to Go until Copy or Report a problem.
+//
+// This only proves the back button's onclick reads the live textarea at
+// click time — it says nothing about whether a comment handed to Go that way
+// actually survives a return trip to this view. That half is
+// TestRenderDebugPutsTheSavedCommentInTheTextarea below: together they cover
+// both ends of the round trip that showSettings/showDebug do between them.
 func TestRenderDebugBackButtonKeepsTheComment(t *testing.T) {
 	h := RenderDebug(DebugVM{Report: "MCS 0.11.2"})
 	if !strings.Contains(h, `send('showSettings', document.getElementById('dbgc').value)`) {
 		t.Errorf("the back button must carry the comment back to Go:\n%s", h)
+	}
+}
+
+// TestRenderDebugPutsTheSavedCommentInTheTextarea proves the other half of
+// the round trip: a Comment saved by a previous Debug visit (back button or
+// Esc, both routed through showSettings, saved by the host, and no longer
+// cleared when showDebug runs again) must come back out inside the textarea,
+// not just travel through JS untouched. Without this, a renderer that always
+// emitted an empty textarea would still pass every other Debug test — the
+// bug this pins was exactly that omission.
+func TestRenderDebugPutsTheSavedCommentInTheTextarea(t *testing.T) {
+	h := RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "still happening after the update"})
+	if !strings.Contains(h, `id="dbgc"`) {
+		t.Fatalf("fixture broken: no textarea with id=dbgc:\n%s", h)
+	}
+	if !strings.Contains(h, `>still happening after the update</textarea>`) {
+		t.Errorf("a saved comment must be rendered inside the textarea:\n%s", h)
 	}
 }
 
