@@ -30,6 +30,8 @@ import (
 
 	webview2 "github.com/jchv/go-webview2"
 	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/core/diagnostics"
+	"github.com/miou1107/multi-claude-switcher/internal/clip"
 	"github.com/miou1107/multi-claude-switcher/internal/panelui"
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
@@ -45,8 +47,12 @@ var (
 	panelSwitcher *core.Switcher
 
 	panelMu    sync.Mutex
-	panelView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge"
+	panelView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge" | "debug"
 	panelStale string   // profile folder being renamed
+
+	// panelDebugComment survives the reload that every action triggers. Without
+	// it, pressing Copy wipes what the user just typed.
+	panelDebugComment string
 
 	// panelNewProfileVM carries the pending name screen's context between the
 	// action that opened it and the render that draws it, including the validation
@@ -378,6 +384,39 @@ func dispatchAction(action, arg string) {
 		}
 		panelSetView("list")
 		go reloadPanel()
+	case "showDebug":
+		panelSetDebugComment("")
+		panelSetView("debug")
+		go reloadPanel()
+	case "reportProblem":
+		panelSetDebugComment(arg)
+		go func() {
+			report, m := panelDebugReport()
+			if arg != "" {
+				report += "\n---\n" + m.Apply(arg) + "\n"
+			}
+			if err := clip.Set(report); err != nil {
+				// The browser is not opened: an issue form with nothing to paste is
+				// worse than no browser at all.
+				panelSetStatus("Couldn't copy the report: " + err.Error())
+				reloadPanel()
+				return
+			}
+			_ = openURL(diagnostics.IssueURL(arg, m))
+			panelSetStatus("Report copied. Paste it into the issue.")
+			reloadPanel()
+		}()
+	case "copyDebug":
+		panelSetDebugComment(arg)
+		go func() {
+			report, _ := panelDebugReport()
+			if err := clip.Set(report); err != nil {
+				panelSetStatus("Couldn't copy: " + err.Error())
+			} else {
+				panelSetStatus("Copied.")
+			}
+			reloadPanel()
+		}()
 	case "openLog":
 		_ = exec.Command("explorer.exe", core.LogDir()).Start()
 	case "openBackups":
@@ -614,6 +653,13 @@ func reloadPanel() {
 			Status:     panelGetStatus(),
 			Busy:       panelGetBusy(),
 		})
+	case "debug":
+		report, _ := panelDebugReport()
+		htmlStr = panelui.RenderDebug(panelui.DebugVM{
+			Report:  report,
+			Comment: panelGetDebugComment(),
+			Status:  panelGetStatus(),
+		})
 	default:
 		htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus())
 	}
@@ -636,6 +682,26 @@ func panelGetStatus() string {
 	panelStatusMu.Lock()
 	defer panelStatusMu.Unlock()
 	return panelStatusMsg
+}
+
+func panelSetDebugComment(s string) {
+	panelMu.Lock()
+	panelDebugComment = s
+	panelMu.Unlock()
+}
+
+func panelGetDebugComment() string {
+	panelMu.Lock()
+	defer panelMu.Unlock()
+	return panelDebugComment
+}
+
+// panelDebugReport builds the report and hands back the masker that produced
+// it, so the user's comment and the issue title are masked with the same
+// registrations rather than a fresh, empty one.
+func panelDebugReport() (string, *diagnostics.Masker) {
+	in := panelBuildDiagnostics()
+	return diagnostics.Build(in), diagnostics.NewMaskerFor(in)
 }
 
 func panelSetBusy(b bool, s string) {

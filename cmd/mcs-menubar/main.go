@@ -31,6 +31,8 @@ import (
 	"unsafe"
 
 	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/core/diagnostics"
+	"github.com/miou1107/multi-claude-switcher/internal/clip"
 	"github.com/miou1107/multi-claude-switcher/internal/panelui"
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
@@ -40,8 +42,12 @@ var (
 	switcher *core.Switcher
 
 	mu           sync.Mutex
-	currentView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge"
+	currentView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge" | "debug"
 	renameFolder string   // the folder being renamed in the "rename" view
+
+	// debugComment survives the reload that every action triggers. Without it,
+	// pressing Copy wipes what the user just typed.
+	debugComment string
 
 	// newProfileVM carries the pending name screen's context between the action
 	// that opened it and the render that draws it, including the validation error
@@ -142,6 +148,26 @@ func getStatus() string {
 	statusMu.Lock()
 	defer statusMu.Unlock()
 	return statusMsg
+}
+
+func setDebugComment(s string) {
+	mu.Lock()
+	debugComment = s
+	mu.Unlock()
+}
+
+func getDebugComment() string {
+	mu.Lock()
+	defer mu.Unlock()
+	return debugComment
+}
+
+// debugReport builds the report and hands back the masker that produced it, so
+// the user's comment and the issue title are masked with the same registrations
+// rather than a fresh, empty one.
+func debugReport() (string, *diagnostics.Masker) {
+	in := buildDiagnostics()
+	return diagnostics.Build(in), diagnostics.NewMaskerFor(in)
 }
 
 //export goPanelReady
@@ -380,6 +406,39 @@ func goPanelAction(caction, cfolder *C.char) {
 			setView("list")
 			reloadPanel()
 		}()
+	case "showDebug":
+		setDebugComment("")
+		setView("debug")
+		go reloadPanel()
+	case "reportProblem":
+		setDebugComment(arg)
+		go func() {
+			report, m := debugReport()
+			if arg != "" {
+				report += "\n---\n" + m.Apply(arg) + "\n"
+			}
+			if err := clip.Set(report); err != nil {
+				// The browser is not opened: an issue form with nothing to paste is
+				// worse than no browser at all.
+				setStatus("Couldn't copy the report: " + err.Error())
+				reloadPanel()
+				return
+			}
+			_ = exec.Command("open", diagnostics.IssueURL(arg, m)).Start()
+			setStatus("Report copied. Paste it into the issue.")
+			reloadPanel()
+		}()
+	case "copyDebug":
+		setDebugComment(arg)
+		go func() {
+			report, _ := debugReport()
+			if err := clip.Set(report); err != nil {
+				setStatus("Couldn't copy: " + err.Error())
+			} else {
+				setStatus("Copied.")
+			}
+			reloadPanel()
+		}()
 	case "openLog":
 		_ = exec.Command("open", core.LogDir()).Start()
 	case "openBackups":
@@ -552,6 +611,13 @@ func reloadPanel() {
 			Version:    core.Version,
 			Status:     getStatus(),
 			Busy:       getBusy(),
+		})
+	case "debug":
+		report, _ := debugReport()
+		htmlStr = panelui.RenderDebug(panelui.DebugVM{
+			Report:  report,
+			Comment: getDebugComment(),
+			Status:  getStatus(),
 		})
 	default:
 		htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())

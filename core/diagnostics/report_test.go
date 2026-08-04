@@ -247,3 +247,14 @@ func TestBuildReportsNoActiveRecordAsNone(t *testing.T) {
 		t.Errorf("an empty active record must read as none:\n%s", got)
 	}
 }
+
+// TestNewMaskerForMasksTheUsersOwnComment covers the case the exported
+// constructor exists for: a user pastes the error they saw, and that error
+// names their account.
+func TestNewMaskerForMasksTheUsersOwnComment(t *testing.T) {
+	m := NewMaskerFor(fullInput(t))
+	got := m.Apply("it broke for vincent@fontrip.com in /Users/vincentkao/Library")
+	if strings.Contains(got, "fontrip") || strings.Contains(got, "vincentkao") {
+		t.Errorf("the comment kept an identifier: %q", got)
+	}
+}
