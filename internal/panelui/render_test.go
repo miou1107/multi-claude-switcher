@@ -135,26 +135,33 @@ func TestRenderListFlagsProfileAwaitingSignIn(t *testing.T) {
 	}
 }
 
-// TestRenderListRowButtonIsAChevronMenu pins change 1 of the row-menu redesign:
+// TestRenderListRowButtonIsAWrenchMenu pins change 1 of the row-menu redesign:
 // the three-dot button (itself a redesign of an earlier pencil) is gone, and a
-// downward chevron opens a menu anchored to the row instead of navigating to a
-// separate screen. The chevron must keep stopping the click from bubbling to
-// the card's own switch handler — that guard already existed for the three-dot
-// button, and dropping it here would make every "options" click also switch
-// accounts.
-func TestRenderListRowButtonIsAChevronMenu(t *testing.T) {
+// bordered wrench opens a menu anchored to the row instead of navigating to a
+// separate screen. It must keep stopping the click from bubbling to the card's
+// own switch handler: that guard already existed for the three-dot button, and
+// dropping it here would make every "options" click also switch accounts.
+//
+// The icon is asserted as inline SVG on purpose. Set as a character instead,
+// every wrench in Unicode resolves to the colour emoji font on macOS, which
+// would put one full-colour icon among a panel of flat monochrome ones and
+// render differently again in WebView2.
+func TestRenderListRowButtonIsAWrenchMenu(t *testing.T) {
 	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", Current: true, SignedIn: true}}, false, "")
 	if strings.Contains(html, ">✎<") || strings.Contains(html, ">⋯<") {
 		t.Fatal("neither the old pencil nor the old three-dot glyph may still be the row button")
 	}
-	if !strings.Contains(html, `<button type="button" class="chevbtn" aria-label="Account options" aria-haspopup="menu" aria-expanded="false" onclick="event.stopPropagation();toggleRowMenu(this)">▾</button>`) {
-		t.Fatalf("want the chevron button with its aria attributes, stopPropagation and toggle handler intact:\n%s", html)
+	if !strings.Contains(html, `<button type="button" class="chevbtn" aria-label="Account options" aria-haspopup="menu" aria-expanded="false" onclick="event.stopPropagation();toggleRowMenu(this)"><svg`) {
+		t.Fatalf("want the wrench button with its aria attributes, stopPropagation and toggle handler intact:\n%s", html)
+	}
+	if !strings.Contains(html, `stroke="currentColor"`) {
+		t.Fatalf("the icon must be drawn inline, not set as a character that macOS resolves to colour emoji:\n%s", html)
 	}
 	if !strings.Contains(html, `<div class="rowmenu" role="menu">`) {
 		t.Fatalf("the dropdown needs the menu role:\n%s", html)
 	}
-	if !strings.Contains(html, `role="menuitem" onclick="event.stopPropagation();startRename(this)">Rename</button>`) {
-		t.Fatalf("want a Rename menu item with the menuitem role:\n%s", html)
+	if !strings.Contains(html, `role="menuitem" onclick="event.stopPropagation();startRename(this)">Change name</button>`) {
+		t.Fatalf("want a Change name menu item with the menuitem role:\n%s", html)
 	}
 	if strings.Contains(html, "showRename") {
 		t.Fatal("showRename was the old screen-navigation action; it must not survive the redesign")
@@ -197,16 +204,24 @@ func TestRowMenuOpensUpwardNearTheBottomDecidedInJS(t *testing.T) {
 	}
 }
 
-// TestRowMenuChevronFlipsWhileOpen pins the chevron flip requirement: ▾ while
-// closed, ▴ while its own menu is open, both set from the same toggle/close
-// functions rather than left for a CSS-only hover state to fake.
-func TestRowMenuChevronFlipsWhileOpen(t *testing.T) {
+// TestRowMenuButtonShowsItsOpenStateWithoutTouchingItsIcon pins how the open
+// state is carried now that the icon is an SVG element rather than a character:
+// by the .open class alone. The earlier version wrote textContent to swap a
+// chevron glyph, which against an inline SVG would delete the icon outright the
+// first time a menu closed.
+func TestRowMenuButtonShowsItsOpenStateWithoutTouchingItsIcon(t *testing.T) {
 	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
-	if !strings.Contains(html, `btn.textContent='▴';`) {
-		t.Fatalf("opening the menu must flip the glyph to ▴:\n%s", html)
+	if strings.Contains(html, "btn.textContent=") || strings.Contains(html, "b.textContent=") {
+		t.Fatalf("writing textContent on the button would delete its inline SVG icon:\n%s", html)
 	}
-	if !strings.Contains(html, `b.textContent='▾';`) {
-		t.Fatalf("closing must flip it back to ▾:\n%s", html)
+	if !strings.Contains(html, "btn.classList.add('open');") {
+		t.Fatalf("opening must mark the button open:\n%s", html)
+	}
+	if !strings.Contains(html, ".chevbtn:hover,.chevbtn.open{") {
+		t.Fatalf("the open class needs a visible style, or the state is invisible:\n%s", html)
+	}
+	if !strings.Contains(html, ".chevbtn{width:28px;height:28px;flex:none;border:1px solid") {
+		t.Fatalf("the button must be bordered; unboxed it read as decoration and went unnoticed:\n%s", html)
 	}
 }
 
@@ -298,7 +313,7 @@ func TestRowMenuRemoveUsesTheSameAskRemoveAsBefore(t *testing.T) {
 		{Folder: "Claude_Old", Name: "Old one", Convos: 34, SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
 	}, false, "")
-	if !strings.Contains(notCurrent, `<button type="button" role="menuitem" class="danger" data-folder="Claude_Old" data-name="Old one" data-convos="34" data-current="0" onclick="event.stopPropagation();askRemove(this)">Remove</button>`) {
+	if !strings.Contains(notCurrent, `<button type="button" role="menuitem" class="danger" data-folder="Claude_Old" data-name="Old one" data-convos="34" data-current="0" onclick="event.stopPropagation();askRemove(this)">Remove from list</button>`) {
 		t.Fatalf("want the Remove menu item wired to askRemove with the folder, name, conversation count and current marker:\n%s", notCurrent)
 	}
 
@@ -313,7 +328,8 @@ func TestRowMenuRemoveUsesTheSameAskRemoveAsBefore(t *testing.T) {
 
 // TestRowMenuHidesRemoveWhenItIsTheOnlyProfile pins the OnlyOne rule carried
 // over from the deleted Account settings screen: removing the last account
-// would leave an empty panel with no way back, so the menu holds Rename alone.
+// would leave an empty panel with no way back, so the menu holds Change name
+// alone.
 func TestRowMenuHidesRemoveWhenItIsTheOnlyProfile(t *testing.T) {
 	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Claude", Convos: 5, SignedIn: true}}, false, "")
 	// Not a bare "Remove" check: the shared shell script's askRemove/askConfirm
@@ -323,8 +339,8 @@ func TestRowMenuHidesRemoveWhenItIsTheOnlyProfile(t *testing.T) {
 	if strings.Contains(html, `role="menuitem" class="danger"`) {
 		t.Fatalf("the only account listed must not offer a Remove menu item:\n%s", html)
 	}
-	if !strings.Contains(html, ">Rename<") {
-		t.Fatal("Rename must still be offered even with Remove hidden")
+	if !strings.Contains(html, ">Change name<") {
+		t.Fatal("Change name must still be offered even with Remove hidden")
 	}
 }
 

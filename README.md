@@ -96,17 +96,18 @@ is unavoidable: Claude Desktop reads its account data once, at launch, so there
 is no way to move a running instance to a different account.
 
 **Rescan** finds accounts already on the machine, including any you have not
-signed into yet. **Rename** and **Remove** both live behind the chevron on an
-account row: click it to open a small menu right there, no separate screen.
+signed into yet. **Change name** and **Remove from list** both live behind the
+wrench on an account row: click it to open a small menu right there, no
+separate screen.
 
-**Rename** turns the row itself into a text field, in place. Enter saves,
+**Change name** turns the row itself into a text field, in place. Enter saves,
 Escape cancels.
 
-**Remove** opens the same confirmation it always has. It takes the account off
+**Remove from list** opens the same confirmation it always has. It takes the account off
 the list by archiving its profile folder, never deleting it, and you can open
 that archive folder any time from Settings. To use the account again, just
-sign in to it once more. Remove is left off the menu entirely when it is the
-only account listed. For the account Claude currently has open, it is still
+sign in to it once more. Remove from list is left off the menu entirely when
+it is the only account listed. For the account Claude currently has open, it is still
 offered, but choosing it just tells you to switch to another account first,
 which is why removing a *different* account never requires quitting Claude at
 all. On the Windows Store build, removal is also refused for the account

@@ -152,8 +152,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
    positioned off the wrap, not the card, so it floats above whatever sits
    below it in the list rather than pushing those rows down. */
 .rowmenu-wrap{position:relative;flex:none}
-.chevbtn{width:26px;height:26px;flex:none;border:none;border-radius:8px;background:transparent;color:#8b8598;cursor:pointer;font-size:12px;opacity:.55;display:flex;align-items:center;justify-content:center}
-.chevbtn:hover,.chevbtn.open{background:#f1eef9;opacity:1;color:#7c6cf0}
+/* Bordered rather than a bare glyph. Unboxed and half-faded, it read as
+   decoration and went unnoticed: the edges are what say "you can press this".
+   The wrench is drawn inline rather than set as a character, because every
+   wrench in Unicode resolves to the colour emoji font on macOS, which would
+   put one full-colour icon among a panel of flat monochrome ones. */
+.chevbtn{width:28px;height:28px;flex:none;border:1px solid #ded7ee;border-radius:8px;background:#fff;color:#5f5878;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.chevbtn:hover,.chevbtn.open{background:#f1eef9;border-color:#c9bff0;color:#7c6cf0}
+.chevbtn svg{width:15px;height:15px;display:block}
 .rowmenu{display:none;position:absolute;right:0;top:calc(100% + 4px);min-width:130px;background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(60,40,90,.2);overflow:hidden;z-index:5}
 .rowmenu.open{display:block}
 /* The panel is a fixed-height popover with nothing to scroll, so a menu near
@@ -221,7 +227,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     document.querySelectorAll('.card.selectable.selected').forEach(function(c){ if(c.dataset.folder) picked.push(c.dataset.folder); });
     send('confirmManaged', JSON.stringify(picked));
   }
-  // Row menu: the chevron on an account row opens Rename/Remove for that row
+  // Row menu: the wrench on an account row opens that row's own menu
   // alone. Only one is ever open — opening another, or a click anywhere else
   // on the page, closes it via closeAllRowMenus, and Escape does too (see the
   // keydown handler below, where that check runs before anything else the
@@ -229,7 +235,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
   function closeAllRowMenus(){
     document.querySelectorAll('.rowmenu.open').forEach(function(m){ m.classList.remove('open','up'); });
     document.querySelectorAll('.chevbtn.open').forEach(function(b){
-      b.classList.remove('open'); b.setAttribute('aria-expanded','false'); b.textContent='▾';
+      // The button's icon is an inline SVG, so the open state is carried by the
+      // class alone: writing textContent here would delete the icon.
+      b.classList.remove('open'); b.setAttribute('aria-expanded','false');
     });
   }
   // Opens downward by default. The panel is a fixed-height popover with
@@ -249,7 +257,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     menu.classList.add('open');
     btn.classList.add('open');
     btn.setAttribute('aria-expanded','true');
-    btn.textContent='▴';
   }
   document.addEventListener('click', function(e){
     if (!e.target.closest('.rowmenu-wrap')) closeAllRowMenus();
@@ -514,7 +521,16 @@ func duplicateAccounts(profiles []ProfileVM, esc func(string) string) (map[strin
 	return dupFolder, warning
 }
 
-// rowMenu builds the chevron button and its Rename/Remove dropdown for one
+// wrenchSVG is the row-menu button's icon, drawn rather than set as a
+// character. Every wrench codepoint in Unicode falls back to the colour emoji
+// font on macOS, which would leave one full-colour icon in a panel of flat
+// monochrome ones, and would render differently again in WebView2 on Windows.
+// currentColor means the CSS above still owns the hover and open states.
+const wrenchSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ` +
+	`stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+	`<path d="M7 10h3v-3l-3.5 -3.5a6 6 0 0 1 8 8l6 6a2 2 0 0 1 -3 3l-6 -6a6 6 0 0 1 -8 -8l3.5 3.5"/></svg>`
+
+// rowMenu builds the wrench button and its menu for one
 // account row. Both share it regardless of whether the row is the current
 // account: the two actions do not depend on that, only askRemove's own choice
 // of dialog (informational vs. destructive) does, decided client-side from
@@ -531,13 +547,13 @@ func rowMenu(esc func(string) string, p ProfileVM, removable bool) string {
 	}
 	removeItem := ""
 	if removable {
-		removeItem = fmt.Sprintf(`<button type="button" role="menuitem" class="danger" data-folder="%s" data-name="%s" data-convos="%d" data-current="%s" onclick="event.stopPropagation();askRemove(this)">Remove</button>`,
+		removeItem = fmt.Sprintf(`<button type="button" role="menuitem" class="danger" data-folder="%s" data-name="%s" data-convos="%d" data-current="%s" onclick="event.stopPropagation();askRemove(this)">Remove from list</button>`,
 			esc(p.Folder), esc(p.Name), p.Convos, current)
 	}
 	return fmt.Sprintf(`<div class="rowmenu-wrap">
-        <button type="button" class="chevbtn" aria-label="Account options" aria-haspopup="menu" aria-expanded="false" onclick="event.stopPropagation();toggleRowMenu(this)">▾</button>
+        <button type="button" class="chevbtn" aria-label="Account options" aria-haspopup="menu" aria-expanded="false" onclick="event.stopPropagation();toggleRowMenu(this)">`+wrenchSVG+`</button>
         <div class="rowmenu" role="menu">
-          <button type="button" role="menuitem" onclick="event.stopPropagation();startRename(this)">Rename</button>
+          <button type="button" role="menuitem" onclick="event.stopPropagation();startRename(this)">Change name</button>
           %s
         </div>
       </div>`, removeItem)

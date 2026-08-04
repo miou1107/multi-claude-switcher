@@ -5,9 +5,10 @@
 ## [0.13.0] - 2026-08-04
 
 ### Added
-- **Remove an account.** Reached from a chevron on an account row, which opens
-  a small menu right there with Rename and Remove, with no separate screen.
-  Rename turns the row itself into an editable field, in place; Remove goes
+- **Remove an account.** Reached from a wrench on an account row, which opens
+  a small menu right there with Change name and Remove from list, and no
+  separate screen. Change name turns the row itself into an editable field, in
+  place; Remove from list goes
   straight to a confirmation styled as destructive and always clickable. For
   the account Claude currently has open, pressing it opens a plain dialog
   saying to switch first, rather than disabling the button and leaving the
