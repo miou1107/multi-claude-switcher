@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-08-04
+
 ### Fixed
 - **Conversations can be synced into a Claude Team account.** They always could;
   this tool was putting them in the wrong place. Conversations are filed by
