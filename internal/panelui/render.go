@@ -115,6 +115,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .btn-light:hover{background:#f6f4fb}
 .btn-primary{background:linear-gradient(135deg,#7c6cf0,#9b6bff);color:#fff;box-shadow:0 4px 12px rgba(124,108,240,.4)}
 .btn-primary:hover{filter:brightness(1.05)}
+/* The confirm button of a destructive dialog, and only that one. Every other
+   dialog keeps btn-primary: red on all of them would read as "this is the
+   confirm button" rather than "this one takes something away". */
+.btn-danger{background:linear-gradient(135deg,#d5566d,#c0392b);color:#fff;box-shadow:0 4px 12px rgba(192,57,43,.35)}
+.btn-danger:hover{filter:brightness(1.05)}
 .btn-quit{flex:none;padding:10px 15px;background:#fff;color:#b0455f;box-shadow:0 3px 9px rgba(60,40,90,.08)}
 .btn-quit:hover{background:#fdf2f5}
 .gear{flex:none;padding:10px 14px;background:#fff;color:#514b66;box-shadow:0 3px 9px rgba(60,40,90,.08);font-size:15px}
@@ -126,9 +131,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .slabel .s{font-size:11.5px;color:#8b8598;margin-top:1px}
 .sbtn{width:100%;text-align:left;background:#fff;border:none;border-radius:14px;padding:13px 15px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 3px 10px rgba(60,40,90,.06);color:#241f38}
 .sbtn:hover{background:#faf9ff}
-.sbtn.danger{color:#b0455f}
 .sbtn:disabled{opacity:.5;cursor:default;color:#8b8598}
 .sbtn:disabled:hover{background:#fff}
+/* Red text inside a red border, so the one button on the account screen that
+   takes something away does not read as another row of settings. It sits below
+   a rule and away from Save, which is the other half of the delete-button rule
+   this follows. */
+.sbtn.danger{color:#b0455f;border:1.5px solid #e0a3b1}
+.sbtn.danger:hover{background:#fdf2f5}
+.sbtn.danger:disabled{border-color:#ded9ec}
 .toggle{width:44px;height:26px;border-radius:999px;background:#d5d0e6;position:relative;flex:none;transition:.15s;cursor:pointer}
 .toggle.on{background:#7c6cf0}
 .toggle::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
@@ -206,13 +217,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
   // may call send('switch') or send('sync') directly: closing an app somebody is
   // working in is not a single-click operation, and a warning that one code path
   // can skip is not a warning.
+  //
+  // kind is 'destructive' for a dialog that takes something away, and anything
+  // else (omitted, in practice) for the rest. It only paints the confirm button:
+  // switching, syncing and reporting a problem all close Claude or publish
+  // something, but none of them removes an account, and a red button on every
+  // dialog would stop meaning anything.
   var _pending=null;
-  function askConfirm(action, arg, title, body, okLabel, warn){
+  function askConfirm(action, arg, title, body, okLabel, warn, kind){
     _pending={a:action, arg:arg};
     document.getElementById('mcsModalTitle').textContent=title;
     document.getElementById('mcsModalBody').textContent=body;
     document.querySelector('#mcsModal .warn').textContent=
       warn || 'Anything unsaved in Claude is interrupted.';
+    var ok=document.getElementById('mcsModalOk');
+    // Set both ways round: the dialog is reused, so a plain confirm opened after
+    // a removal must not inherit the red button.
+    ok.classList.toggle('btn-danger', kind==='destructive');
+    ok.classList.toggle('btn-primary', kind!=='destructive');
     document.getElementById('mcsModalOk').textContent=okLabel;
     document.getElementById('mcsModal').classList.add('on');
     // Cancel takes the focus, not Continue. Enter on an unread dialog must not
@@ -242,7 +264,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     askConfirm('removeProfile', el.dataset.folder, 'Remove '+el.dataset.name+'?',
       'It disappears from the switcher. Its folder, with '+what+', moves to the archive folder you can open from Settings.',
       'Remove',
-      'To use this account again you have to sign in to it again.');
+      'To use this account again you have to sign in to it again.',
+      'destructive');
   }
   // The folders arrive via data-* and are joined here, never interpolated into the
   // inline handler — a folder with an apostrophe would otherwise break the parse.

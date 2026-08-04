@@ -778,6 +778,65 @@ func TestAskRemoveWordsTheConversationCountNaturally(t *testing.T) {
 	}
 }
 
+// TestRemovalIsTheOnlyDestructiveConfirmation pins the two halves of the
+// destructive styling, and the boundary that makes it mean anything.
+//
+// There is no JS runtime here, so the source of the shared askConfirm and its
+// callers is the only thing that can be asserted on, the same way
+// TestAskRemoveWordsTheConversationCountNaturally reads its ternary.
+//
+// The boundary is the point: askConfirm is shared with switching, syncing and
+// reporting a problem. Those close Claude or publish something, which is worth
+// a dialog but is not destructive, and painting their confirm button red too
+// would turn red into the colour of "confirm".
+func TestRemovalIsTheOnlyDestructiveConfirmation(t *testing.T) {
+	h := RenderAccount(AccountVM{Folder: "Claude_Old", Name: "Old one", Convos: 3})
+
+	// Filled red, per the design: a background, not merely red lettering.
+	if !strings.Contains(h, ".btn-danger{background:linear-gradient(135deg,#d5566d,#c0392b);color:#fff") {
+		t.Fatalf("the destructive confirm button is not filled red:\n%s", h)
+	}
+	if !strings.Contains(h, `ok.classList.toggle('btn-danger', kind==='destructive')`) ||
+		!strings.Contains(h, `ok.classList.toggle('btn-primary', kind!=='destructive')`) {
+		t.Fatal("askConfirm does not paint the confirm button from its kind, both ways round")
+	}
+
+	// The account screen's own button: red text inside a red border.
+	if !strings.Contains(h, ".sbtn.danger{color:#b0455f;border:1.5px solid #e0a3b1}") {
+		t.Fatalf("the remove button on the account screen has no red border:\n%s", h)
+	}
+
+	// Only askRemove asks for it.
+	for name, fn := range jsFunctions(h) {
+		wantDestructive := name == "askRemove"
+		if got := strings.Contains(fn, "'destructive'"); got != wantDestructive {
+			t.Errorf("%s: destructive=%v, want %v\n%s", name, got, wantDestructive, fn)
+		}
+	}
+}
+
+// jsFunctions returns the source of each ask* helper in the rendered shell,
+// keyed by name, so a test can assert on one dialog's arguments without
+// matching another's.
+func jsFunctions(h string) map[string]string {
+	out := map[string]string{}
+	for _, name := range []string{"askRemove", "askSwitch", "askSync", "askReport"} {
+		start := strings.Index(h, "function "+name+"(")
+		if start < 0 {
+			continue
+		}
+		// Up to the next function declaration, which is enough: these helpers are
+		// declared one after another and each is a single askConfirm call.
+		rest := h[start+1:]
+		end := strings.Index(rest, "\n  function ")
+		if end < 0 {
+			end = len(rest)
+		}
+		out[name] = rest[:end]
+	}
+	return out
+}
+
 func TestRenderRemovedNamesWhereItWent(t *testing.T) {
 	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34, ArchiveDir: "Claude_Old-20260804-142233"})
 	if !strings.Contains(h, "Old one removed") {
