@@ -381,8 +381,7 @@ func goPanelAction(caction, cfolder *C.char) {
 			reloadPanel()
 		}()
 	case "openLog":
-		home, _ := os.UserHomeDir()
-		_ = exec.Command("open", filepath.Join(home, ".multi-claude-switcher", "logs")).Start()
+		_ = exec.Command("open", core.LogDir()).Start()
 	case "openBackups":
 		home, _ := os.UserHomeDir()
 		_ = exec.Command("open", filepath.Join(home, ".multi-claude-switcher", "backups")).Start()
@@ -563,6 +562,12 @@ func reloadPanel() {
 }
 
 func main() {
+	// Without this the menu-bar process logs to stderr only, which a bundled .app
+	// discards: there was no log file on macOS at all. Diagnostics reports include
+	// the log, so an unlogged host produces an empty section.
+	if c, _, err := core.SetupLogging("mcs-menubar"); err == nil {
+		defer func() { _ = c.Close() }()
+	}
 	plat = platform.New()
 	switcher = core.NewSwitcher(plat, core.NewBackupManager(""))
 	startUpdateChecker() // periodic background self-update

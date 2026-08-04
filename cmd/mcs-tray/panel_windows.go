@@ -379,8 +379,7 @@ func dispatchAction(action, arg string) {
 		panelSetView("list")
 		go reloadPanel()
 	case "openLog":
-		home, _ := os.UserHomeDir()
-		_ = exec.Command("explorer.exe", filepath.Join(home, ".multi-claude-switcher", "logs")).Start()
+		_ = exec.Command("explorer.exe", core.LogDir()).Start()
 	case "openBackups":
 		home, _ := os.UserHomeDir()
 		_ = exec.Command("explorer.exe", filepath.Join(home, ".multi-claude-switcher", "backups")).Start()
