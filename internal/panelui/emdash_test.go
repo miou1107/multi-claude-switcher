@@ -44,16 +44,18 @@ import (
 //     real dialog literals behind it — the same shape of bug as the
 //     tag-stripping fix above, one level down.
 //
-//     "Every one" is load-bearing: RenderAccount and RenderNewProfile each
-//     draw a small inline <script> of their own (autofocusing the rename/new
-//     -name input) BEFORE shell()'s big script — the one with askConfirm and
-//     the four dialog helpers — gets appended to the body. An earlier version
-//     of this function used FindStringSubmatch, which returns only the FIRST
-//     match, so on exactly those views (plus "account_current" and
-//     "newprofile_recover", the other fixtures built on the same renderers)
-//     it read the tiny autofocus script and never looked at the shell's at
-//     all — measured directly: an em dash injected into askRemove's copy was
-//     caught on "list" and "settings" but silently missed on "account",
+//     "Every one" is load-bearing: RenderNewProfile draws a small inline
+//     <script> of its own (autofocusing the new-name input) BEFORE shell()'s
+//     big script — the one with askConfirm and the four dialog helpers —
+//     gets appended to the body. An earlier version of this function used
+//     FindStringSubmatch, which returns only the FIRST match, so on exactly
+//     that view (plus "newprofile_recover", the other fixture built on the
+//     same renderer) it read the tiny autofocus script and never looked at
+//     the shell's at all — measured directly: an em dash injected into
+//     askRemove's copy was caught on "list" and "settings" but silently
+//     missed on the account screen this guard's history was written
+//     against (since deleted; its Rename/Remove actions moved onto the
+//     account list's own rows, which carry no extra <script> of their own),
 //     because coverage of the shell's own dialog copy survived only because
 //     other fixtures happened to share it. FindAllStringSubmatch fixes that
 //     by checking every <script> block a page contains, not assuming there
@@ -148,21 +150,19 @@ func TestEmDashGuardCatchesTextInsideTheOldBlindWindow(t *testing.T) {
 // For each of the four dialog helpers, a known, harmless piece of its real
 // rendered copy is swapped for a version carrying an em dash, and
 // emDashViolations — called on the resulting page, exactly as
-// TestNoEmDashInUserFacingText calls it — must report it. askSwitch and
-// askSync are checked on RenderList (which has only the shell's own script);
-// askReport on RenderDebug; askRemove on RenderAccount, which is one of the
-// views that carries its own small inline <script> ahead of the shell's, and
-// is exactly the shape that hid this bug in the first place.
+// TestNoEmDashInUserFacingText calls it — must report it. askSwitch, askSync
+// and askRemove are all checked on RenderList (which has only the shell's own
+// script — askRemove moved there with the row menu that replaced the deleted
+// Account settings screen); askReport on RenderDebug.
 func TestEmDashGuardCoversTheFourDialogHelpers(t *testing.T) {
 	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
 	debug := RenderDebug(DebugVM{Report: "MCS 0.11.2"})
-	account := RenderAccount(AccountVM{Folder: "Claude", Name: "Some name", Convos: 3})
 
 	cases := []struct{ name, html, from, to string }{
 		{"askSwitch", list, "Claude closes and reopens signed in as", "Claude — closes and reopens signed in as"},
 		{"askSync", list, "then Claude reopens where you were", "then Claude — reopens where you were"},
 		{"askReport", debug, "GitHub issues are public", "GitHub — issues are public"},
-		{"askRemove", account, "It comes off your list", "It — comes off your list"},
+		{"askRemove", list, "It comes off your list", "It — comes off your list"},
 	}
 	for _, c := range cases {
 		if !strings.Contains(c.html, c.from) {
@@ -233,11 +233,6 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 	// non-empty list can never reach in the same call.
 	listEmpty := RenderList(nil, false, "")
 
-	account := RenderAccount(AccountVM{Folder: "Claude_Old", Name: "Old one", Convos: 34})
-	// Current drops the hint line and carries data-current instead, which a
-	// non-Current fixture cannot show at the same time.
-	accountCurrent := RenderAccount(AccountVM{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true})
-
 	newProfile := RenderNewProfile(NewProfileVM{SuggestedName: "Work", Convos: 0, Err: "That name is already taken"})
 	// RecoverUUID switches the title, subtitle and hint text to the recovery
 	// variant; mutually exclusive with the add variant above in one call.
@@ -299,8 +294,6 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		"list":                  list,
 		"list_empty":            listEmpty,
 		"rescan":                rescan,
-		"account":               account,
-		"account_current":       accountCurrent,
 		"newprofile":            newProfile,
 		"newprofile_recover":    newProfileRecover,
 		"merge":                 merge,

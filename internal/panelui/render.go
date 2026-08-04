@@ -146,12 +146,41 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .toggle.on::after{left:21px}
 .about{text-align:center;font-size:11.5px;color:#8b8598;margin-top:14px}
 .status{background:#e3f3e8;color:#1a7a3d;font-size:12.5px;font-weight:600;padding:9px 13px;border-radius:11px;margin-bottom:11px;text-align:center}
-.edit{width:30px;height:30px;flex:none;border:none;border-radius:8px;background:transparent;color:#8b8598;cursor:pointer;font-size:14px;opacity:.55}
-.edit:hover{background:#f1eef9;opacity:1;color:#7c6cf0}
 .rninput{width:100%;font:inherit;font-size:15px;padding:13px 15px;border:2px solid #e0dcf3;border-radius:14px;background:#fff;color:#241f38;outline:none}
 .rninput:focus{border-color:#7c6cf0}
+/* The row menu (Rename / Remove), anchored to its chevron. Absolutely
+   positioned off the wrap, not the card, so it floats above whatever sits
+   below it in the list rather than pushing those rows down. */
+.rowmenu-wrap{position:relative;flex:none}
+.chevbtn{width:26px;height:26px;flex:none;border:none;border-radius:8px;background:transparent;color:#8b8598;cursor:pointer;font-size:12px;opacity:.55;display:flex;align-items:center;justify-content:center}
+.chevbtn:hover,.chevbtn.open{background:#f1eef9;opacity:1;color:#7c6cf0}
+.rowmenu{display:none;position:absolute;right:0;top:calc(100% + 4px);min-width:130px;background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(60,40,90,.2);overflow:hidden;z-index:5}
+.rowmenu.open{display:block}
+/* The panel is a fixed-height popover with nothing to scroll, so a menu near
+   the bottom of the list has to open upward instead of running off the
+   window with no way to reach it. .up is toggled from the button's actual
+   position at click time (see toggleRowMenu in the script below), not
+   guessed here from a row's index. */
+.rowmenu.up{top:auto;bottom:calc(100% + 4px)}
+.rowmenu button{display:block;width:100%;text-align:left;background:none;border:none;font:inherit;font-size:13px;font-weight:600;padding:10px 13px;cursor:pointer;color:#241f38}
+.rowmenu button:hover{background:#f6f4fb}
+.rowmenu button.danger{color:#b0455f}
+.rowmenu button.danger:hover{background:#fdf2f5}
+/* Renaming happens in the row: .viewrow (name + sub-copy) and .editrow (the
+   input and its two controls) are both always in the markup, and the card's
+   own .renaming class flips which one is visible. Nothing is built or torn
+   down by JS, so there is no separate "does the input exist yet" state to
+   get wrong. */
+.editrow{display:none;align-items:center;gap:6px}
+.card.renaming .viewrow{display:none}
+.card.renaming .editrow{display:flex}
+.rnrow{flex:1;min-width:0;font:inherit;font-size:13px;padding:7px 10px;border:2px solid #e0dcf3;border-radius:9px;background:#fff;color:#241f38;outline:none}
+.rnrow:focus{border-color:#7c6cf0}
+.rncancel{flex:none;background:#fff;color:#514b66;border:none;border-radius:8px;padding:7px 9px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.rncancel:hover{background:#f6f4fb}
+.rnsave{flex:none;background:linear-gradient(135deg,#7c6cf0,#9b6bff);color:#fff;border:none;border-radius:8px;padding:7px 11px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.rnsave:hover{filter:brightness(1.05)}
 .hint{font-size:12px;color:#6b6580;line-height:1.5;margin-top:11px}
-.dangerzone{border-top:1px solid #ece9f4;margin-top:18px;padding-top:14px}
 .hintw{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-top:10px}
 .hintw .noteline+.noteline{margin-top:7px}
 .dbgnote{background:#e9f5ee;color:#1a7a3d;font-size:11.5px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-bottom:9px}
@@ -192,7 +221,66 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     document.querySelectorAll('.card.selectable.selected').forEach(function(c){ if(c.dataset.folder) picked.push(c.dataset.folder); });
     send('confirmManaged', JSON.stringify(picked));
   }
-  function renameSave(f){ var v=document.getElementById('rn').value.trim(); send('renameSave', JSON.stringify([f, v])); }
+  // Row menu: the chevron on an account row opens Rename/Remove for that row
+  // alone. Only one is ever open — opening another, or a click anywhere else
+  // on the page, closes it via closeAllRowMenus, and Escape does too (see the
+  // keydown handler below, where that check runs before anything else the
+  // panel already did on Escape).
+  function closeAllRowMenus(){
+    document.querySelectorAll('.rowmenu.open').forEach(function(m){ m.classList.remove('open','up'); });
+    document.querySelectorAll('.chevbtn.open').forEach(function(b){
+      b.classList.remove('open'); b.setAttribute('aria-expanded','false'); b.textContent='▾';
+    });
+  }
+  // Opens downward by default. The panel is a fixed-height popover with
+  // nothing to scroll, so a row near the bottom has to open its menu upward
+  // instead, or the menu is unreachable. That is decided here, from the
+  // button's real position when it is clicked, not guessed in Go from the
+  // row's index — a guess in Go would have to know the popover's actual
+  // rendered height, which depends on how many rows and banners are on
+  // screen, not on anything RenderList itself controls.
+  function toggleRowMenu(btn){
+    var menu = btn.nextElementSibling;
+    var willOpen = !menu.classList.contains('open');
+    closeAllRowMenus();
+    if (!willOpen) return;
+    var r = btn.getBoundingClientRect();
+    menu.classList.toggle('up', r.bottom > window.innerHeight - 90);
+    menu.classList.add('open');
+    btn.classList.add('open');
+    btn.setAttribute('aria-expanded','true');
+    btn.textContent='▴';
+  }
+  document.addEventListener('click', function(e){
+    if (!e.target.closest('.rowmenu-wrap')) closeAllRowMenus();
+  });
+  // Renaming happens in the row itself: Rename swaps its .viewrow for the
+  // .editrow already sitting in the markup (see the .card.renaming CSS
+  // rules), rather than building or tearing down any DOM. Saving still sends
+  // the same renameSave action with the same [folder, value] payload the old
+  // Account settings screen sent, so the Go side reading it does not change.
+  function startRename(el){
+    closeAllRowMenus();
+    var card = el.closest('.card');
+    var input = card.querySelector('.rnrow');
+    input.value = card.dataset.name;
+    card.classList.add('renaming');
+    input.focus();
+    input.select();
+  }
+  function cancelRename(el){ el.closest('.card').classList.remove('renaming'); }
+  function rowRenameSave(el){
+    var card = el.closest('.card');
+    var v = card.querySelector('.rnrow').value.trim();
+    send('renameSave', JSON.stringify([card.dataset.folder, v]));
+  }
+  // Enter saves, Escape cancels, both without waiting on a round trip to Go:
+  // stopPropagation keeps the document keydown handler below from also
+  // treating this Escape as "focus is in some INPUT, back out to the list".
+  function rowRenameKey(e, input){
+    if (e.key === 'Enter') { e.preventDefault(); rowRenameSave(input); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelRename(input); }
+  }
   function createProfileSave(btn){
     var v=document.getElementById('np').value.trim();
     send('createProfile', JSON.stringify([v, btn.dataset.uuid||'']));
@@ -324,9 +412,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
   // so tabbing to Cancel and pressing Enter cancels; hijacking it would silently confirm.
   document.addEventListener('keydown', function(e){
     if(e.key!=='Escape') return;
+    // A row's own menu (Rename/Remove) closes before anything else on this
+    // list: it is a small, row-anchored overlay, not a screen, and closing it
+    // is the whole meaning of Esc while it is open. The row's inline rename
+    // input has its own Escape handler (rowRenameKey) that stops propagation,
+    // so it never reaches this far down the chain in the first place.
+    if(document.querySelector('.rowmenu.open')) { closeAllRowMenus(); return; }
     if(document.getElementById('mcsModal').classList.contains('on')) { closeConfirm(); return; }
-    // Inside a text input (Rename), Esc backs out to the list instead of
-    // killing the panel; hiding on Windows would discard the typed name.
+    // Inside a text input (the new-profile name field), Esc backs out to the
+    // list instead of killing the panel; hiding on Windows would discard the
+    // typed name.
     var ae=document.activeElement;
     // The Debug comment box is the one exception: showList jumps past
     // Settings, which the back button does not, and, same as pressing that
@@ -419,6 +514,48 @@ func duplicateAccounts(profiles []ProfileVM, esc func(string) string) (map[strin
 	return dupFolder, warning
 }
 
+// rowMenu builds the chevron button and its Rename/Remove dropdown for one
+// account row. Both share it regardless of whether the row is the current
+// account: the two actions do not depend on that, only askRemove's own choice
+// of dialog (informational vs. destructive) does, decided client-side from
+// data-current on the Remove item itself.
+//
+// removable is false only for the single row on a one-profile list (OnlyOne
+// in the old Account settings screen): removing the last account would leave
+// an empty panel with no way back, so Remove is not rendered at all, and the
+// menu holds Rename alone — same rule as before, just relocated.
+func rowMenu(esc func(string) string, p ProfileVM, removable bool) string {
+	current := "0"
+	if p.Current {
+		current = "1"
+	}
+	removeItem := ""
+	if removable {
+		removeItem = fmt.Sprintf(`<button type="button" role="menuitem" class="danger" data-folder="%s" data-name="%s" data-convos="%d" data-current="%s" onclick="event.stopPropagation();askRemove(this)">Remove</button>`,
+			esc(p.Folder), esc(p.Name), p.Convos, current)
+	}
+	return fmt.Sprintf(`<div class="rowmenu-wrap">
+        <button type="button" class="chevbtn" aria-label="Account options" aria-haspopup="menu" aria-expanded="false" onclick="event.stopPropagation();toggleRowMenu(this)">▾</button>
+        <div class="rowmenu" role="menu">
+          <button type="button" role="menuitem" onclick="event.stopPropagation();startRename(this)">Rename</button>
+          %s
+        </div>
+      </div>`, removeItem)
+}
+
+// editRow is the inline rename control baked into every row alongside its
+// normal .viewrow content; the card's own .renaming class (toggled by
+// startRename/cancelRename in the shared script) decides which one shows, so
+// there is no separate DOM to build or tear down. The Save button sends the
+// same renameSave action and [folder, value] payload the old Account settings
+// screen sent — the folder travels through card.dataset in the script, not
+// interpolated here, so it needs no data-* attribute of its own.
+func editRow(esc func(string) string, name string) string {
+	return `<div class="editrow"><input class="rnrow" type="text" value="` + esc(name) + `" onclick="event.stopPropagation()" onkeydown="rowRenameKey(event,this)">` +
+		`<button type="button" class="rncancel" onclick="event.stopPropagation();cancelRename(this)">Cancel</button>` +
+		`<button type="button" class="rnsave" onclick="event.stopPropagation();rowRenameSave(this)">Save</button></div>`
+}
+
 func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string {
 	esc := html.EscapeString
 	dupFolder, dupWarning := duplicateAccounts(profiles, esc)
@@ -430,6 +567,9 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 	if status != "" {
 		statusBanner = `<div class="status">` + esc(status) + `</div>`
 	}
+	// Removing the only account listed would leave an empty panel with no way
+	// back, so every row's menu hides Remove in that case (see rowMenu).
+	removable := len(profiles) > 1
 	var cards strings.Builder
 	for _, p := range profiles {
 		badge := planPill(p.Plan)
@@ -437,12 +577,13 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 		if dupFolder[p.Folder] {
 			dupPill = `<span class="dup-pill">Duplicate</span>`
 		}
-		editBtn := fmt.Sprintf(`<button class="edit" aria-label="Account options" data-folder="%s" onclick="event.stopPropagation();send('showRename',this.dataset.folder)">⋯</button>`, esc(p.Folder))
+		menu := rowMenu(esc, p, removable)
+		edit := editRow(esc, p.Name)
 		if p.Current {
 			cards.WriteString(fmt.Sprintf(`
-      <div class="card current"><div class="dotcur"></div>
-        <div class="body"><div class="row1"><span class="name">%s</span>%s%s</div><div class="sub">Current account</div></div>%s</div>`,
-				esc(p.Name), badge, dupPill, editBtn))
+      <div class="card current" data-folder="%s" data-name="%s"><div class="dotcur"></div>
+        <div class="body"><div class="viewrow row1"><span class="name">%s</span>%s%s</div><div class="sub viewrow">Current account</div>%s</div>%s</div>`,
+				esc(p.Folder), esc(p.Name), esc(p.Name), badge, dupPill, edit, menu))
 			continue
 		}
 		// A profile with no account yet is still switchable: switching to it is
@@ -453,10 +594,14 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 		if !p.SignedIn {
 			sub = "Not signed in yet. Switch here, then sign in."
 		}
+		// The card stays the switch target — clicking anywhere on it that is not
+		// the chevron or the rename input still switches — except while it is
+		// being renamed: the guard reads the very class startRename/cancelRename
+		// toggle, so there is nothing to keep in sync separately.
 		cards.WriteString(fmt.Sprintf(`
-      <div class="card selectable" data-folder="%s" data-name="%s" onclick="askSwitch(this.dataset.folder,this.dataset.name)"><div class="chev">⇄</div>
-        <div class="body"><div class="row1"><span class="name">%s</span>%s%s</div><div class="sub">%s</div></div>%s</div>`,
-			esc(p.Folder), esc(p.Name), esc(p.Name), badge, dupPill, esc(sub), editBtn))
+      <div class="card selectable" data-folder="%s" data-name="%s" onclick="if(!this.classList.contains('renaming'))askSwitch(this.dataset.folder,this.dataset.name)"><div class="chev">⇄</div>
+        <div class="body"><div class="viewrow row1"><span class="name">%s</span>%s%s</div><div class="sub viewrow">%s</div>%s</div>%s</div>`,
+			esc(p.Folder), esc(p.Name), esc(p.Name), badge, dupPill, esc(sub), edit, menu))
 	}
 	if len(profiles) == 0 {
 		cards.WriteString(`<div class="empty">No managed accounts yet. Run Rescan to add some.</div>`)
@@ -668,69 +813,6 @@ func RenderRescan(accounts []core.ScannedAccount, preselected map[string]bool) s
   <button class="btn btn-light" onclick="send('showList','')">Cancel</button>
   <button class="btn btn-primary" onclick="confirmManaged()">Confirm</button>
 </div>`
-	return shell(body)
-}
-
-// AccountVM drives the per-account screen: renaming, and removal.
-type AccountVM struct {
-	Folder  string // the identity, the key every action carries
-	Name    string // display name
-	Convos  int    // conversations in its own account bucket
-	Current bool   // Claude is running on it: remove is disabled
-	OnlyOne bool   // the only profile listed: remove is hidden
-}
-
-// RenderAccount is the in-panel screen reached from the three-dot button on an
-// account row. It was the Rename screen; removal lives at the bottom of it rather
-// than as a bin icon beside the three dots, because two small adjacent icons is
-// the arrangement most likely to be mis-tapped, and the delete-button rule is red
-// and away from edit.
-//
-// The button is always enabled: a disabled control cannot explain itself, and this
-// is the one place Vin's design guidance to keep controls live and respond on use
-// actually bites. data-current tells askRemove to open an informational dialog
-// instead of the destructive confirmation when Claude has this account open — the
-// dialog carries the "switch first" sentence that used to sit here as a hint.
-//
-// That said, disabling was a courtesy, not the guard, and still is not one:
-// core.RemoveProfile asks what Claude has open at the moment of the action,
-// because this screen may have been drawn before the user opened Claude on the
-// account it is about.
-func RenderAccount(vm AccountVM) string {
-	esc := html.EscapeString
-
-	remove := ""
-	if !vm.OnlyOne {
-		current := ""
-		// The hint line goes away for the account in use: the informational
-		// dialog askRemove now opens carries that sentence instead, so the
-		// screen would otherwise say it twice.
-		//
-		// "Nothing is deleted" and "signing in again" are two separate
-		// sentences, not one: signing in to this account again starts a new
-		// copy of it, and does not bring its old conversations along, so
-		// joining the two ("kept, and you can add it back") would read as a
-		// promise this does not keep.
-		note := `<div class="hint">Removing takes this account off your list. Nothing is deleted. Signing in to it again starts a new copy of the account.</div>`
-		if vm.Current {
-			current = ` data-current="1"`
-			note = ""
-		}
-		btn := fmt.Sprintf(`<button class="sbtn danger" data-folder="%s" data-name="%s" data-convos="%d"%s onclick="askRemove(this)">Remove this account</button>`,
-			esc(vm.Folder), esc(vm.Name), vm.Convos, current)
-		remove = `<div class="dangerzone">` + note + btn + `</div>`
-	}
-
-	body := `<div class="header">
-  <button class="back" onclick="send('showList','')">‹</button>
-  <div class="htext"><h1>Account settings</h1><p>Rename or remove this account</p></div>
-</div>
-<input id="rn" class="rninput" type="text" value="` + esc(vm.Name) + `" placeholder="Display name">
-<div class="footer">
-  <button class="btn btn-light" onclick="send('showList','')">Cancel</button>
-  <button class="btn btn-primary" data-folder="` + esc(vm.Folder) + `" onclick="renameSave(this.dataset.folder)">Save</button>
-</div>` + remove + `
-<script>var e=document.getElementById('rn'); e.focus(); e.select();</script>`
 	return shell(body)
 }
 

@@ -5,9 +5,10 @@
 ## [0.13.0] - 2026-08-04
 
 ### Added
-- **Remove an account.** Reached from the three-dot button on an account row,
-  which opens an Account settings screen (renaming lives there too), with the
-  remove button at the bottom, styled as destructive and always clickable. For
+- **Remove an account.** Reached from a chevron on an account row, which opens
+  a small menu right there with Rename and Remove, with no separate screen.
+  Rename turns the row itself into an editable field, in place; Remove goes
+  straight to a confirmation styled as destructive and always clickable. For
   the account Claude currently has open, pressing it opens a plain dialog
   saying to switch first, rather than disabling the button and leaving the
   user to guess why. The confirmation is one sentence: it comes off your list,
@@ -15,11 +16,11 @@
   Windows Store build, removal is also refused for the account occupying the
   shared slot, an install MCS has not recorded slot state for yet, and an
   account whose conversations are still queued to move into a newly added
-  account. The button is hidden entirely when only one account is listed. A
-  clean removal goes straight back to the account list with a banner instead
-  of its own screen, since the row disappearing is confirmation enough; a
-  removal that failed, or moved the account but left something behind, still
-  gets a screen of its own with the reason.
+  account. Remove is left off the menu entirely when only one account is
+  listed. A clean removal goes straight back to the account list with a
+  banner instead of its own screen, since the row disappearing is
+  confirmation enough; a removal that failed, or moved the account but left
+  something behind, still gets a screen of its own with the reason.
 
 ### Fixed
 - **Windows knows an account is open even when you did not open it from MCS.**

@@ -135,18 +135,218 @@ func TestRenderListFlagsProfileAwaitingSignIn(t *testing.T) {
 	}
 }
 
-// TestRenderListRowButtonIsThreeDotsNotAPencil pins the redesign: a pencil
-// glyph reads as "rename" to everyone, which is exactly why nobody found
-// removal behind it. The three-dot glyph, the .edit class, the data-folder
-// attribute and the showRename action all have to survive the swap — only the
-// glyph and its accessible name change.
-func TestRenderListRowButtonIsThreeDotsNotAPencil(t *testing.T) {
+// TestRenderListRowButtonIsAChevronMenu pins change 1 of the row-menu redesign:
+// the three-dot button (itself a redesign of an earlier pencil) is gone, and a
+// downward chevron opens a menu anchored to the row instead of navigating to a
+// separate screen. The chevron must keep stopping the click from bubbling to
+// the card's own switch handler — that guard already existed for the three-dot
+// button, and dropping it here would make every "options" click also switch
+// accounts.
+func TestRenderListRowButtonIsAChevronMenu(t *testing.T) {
 	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", Current: true, SignedIn: true}}, false, "")
-	if strings.Contains(html, ">✎<") {
-		t.Fatal("the pencil glyph must be gone")
+	if strings.Contains(html, ">✎<") || strings.Contains(html, ">⋯<") {
+		t.Fatal("neither the old pencil nor the old three-dot glyph may still be the row button")
 	}
-	if !strings.Contains(html, `<button class="edit" aria-label="Account options" data-folder="Claude" onclick="event.stopPropagation();send('showRename',this.dataset.folder)">⋯</button>`) {
-		t.Fatalf("want the three-dot button with its aria-label, class, data-folder and action intact:\n%s", html)
+	if !strings.Contains(html, `<button type="button" class="chevbtn" aria-label="Account options" aria-haspopup="menu" aria-expanded="false" onclick="event.stopPropagation();toggleRowMenu(this)">▾</button>`) {
+		t.Fatalf("want the chevron button with its aria attributes, stopPropagation and toggle handler intact:\n%s", html)
+	}
+	if !strings.Contains(html, `<div class="rowmenu" role="menu">`) {
+		t.Fatalf("the dropdown needs the menu role:\n%s", html)
+	}
+	if !strings.Contains(html, `role="menuitem" onclick="event.stopPropagation();startRename(this)">Rename</button>`) {
+		t.Fatalf("want a Rename menu item with the menuitem role:\n%s", html)
+	}
+	if strings.Contains(html, "showRename") {
+		t.Fatal("showRename was the old screen-navigation action; it must not survive the redesign")
+	}
+}
+
+// TestRowMenuOnlyOneOpenAtATimeAndClosesOnOutsideClick pins the mechanics
+// behind "opening one row's menu closes any other" and "clicking anywhere
+// else on the page closes it": there is no JS runtime in this test suite, so
+// the only thing that can be asserted on is the literal source of
+// toggleRowMenu (which closes every other menu before it opens its own) and
+// the document-level click listener that closes whatever is open when the
+// click did not land inside a .rowmenu-wrap.
+func TestRowMenuOnlyOneOpenAtATimeAndClosesOnOutsideClick(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	if !strings.Contains(html, "function toggleRowMenu(btn){") {
+		t.Fatalf("toggleRowMenu must exist:\n%s", html)
+	}
+	if !strings.Contains(html, "closeAllRowMenus();\n    if (!willOpen) return;") {
+		t.Fatalf("toggleRowMenu must close every other menu before deciding whether to open its own:\n%s", html)
+	}
+	if !strings.Contains(html, `if (!e.target.closest('.rowmenu-wrap')) closeAllRowMenus();`) {
+		t.Fatalf("a click outside any row menu's wrap must close whatever is open:\n%s", html)
+	}
+}
+
+// TestRowMenuOpensUpwardNearTheBottomDecidedInJS pins the requirement that the
+// downward-vs-upward choice is computed from the button's actual position at
+// click time, in the script, rather than guessed in Go from a row's index —
+// Go has no way to know how tall the rendered popover actually is, since that
+// depends on how many rows and banners are on screen.
+func TestRowMenuOpensUpwardNearTheBottomDecidedInJS(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	if !strings.Contains(html, "var r = btn.getBoundingClientRect();") ||
+		!strings.Contains(html, `menu.classList.toggle('up', r.bottom > window.innerHeight - 90);`) {
+		t.Fatalf("the up/down decision must read the button's real position at click time:\n%s", html)
+	}
+	if !strings.Contains(html, ".rowmenu.up{top:auto;bottom:calc(100% + 4px)}") {
+		t.Fatalf("want the CSS that actually flips the menu upward:\n%s", html)
+	}
+}
+
+// TestRowMenuChevronFlipsWhileOpen pins the chevron flip requirement: ▾ while
+// closed, ▴ while its own menu is open, both set from the same toggle/close
+// functions rather than left for a CSS-only hover state to fake.
+func TestRowMenuChevronFlipsWhileOpen(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	if !strings.Contains(html, `btn.textContent='▴';`) {
+		t.Fatalf("opening the menu must flip the glyph to ▴:\n%s", html)
+	}
+	if !strings.Contains(html, `b.textContent='▾';`) {
+		t.Fatalf("closing must flip it back to ▾:\n%s", html)
+	}
+}
+
+// TestEscapeClosesRowMenuBeforeItsOtherMeanings pins the ordering requirement
+// directly: the row-menu-closing branch must appear, in source, before every
+// other branch already in the panel's Escape chain (the modal, the debug
+// textarea, and the generic INPUT/TEXTAREA-backs-out-to-the-list case), since
+// whichever branch runs first is the one Escape actually does.
+func TestEscapeClosesRowMenuBeforeItsOtherMeanings(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	rowMenuIdx := strings.Index(html, `if(document.querySelector('.rowmenu.open')) { closeAllRowMenus(); return; }`)
+	modalIdx := strings.Index(html, `if(document.getElementById('mcsModal').classList.contains('on')) { closeConfirm(); return; }`)
+	inputIdx := strings.Index(html, `if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA')) { send('showList',''); return; }`)
+	if rowMenuIdx < 0 || modalIdx < 0 || inputIdx < 0 {
+		t.Fatalf("fixture broken: one of the three Escape branches is missing entirely:\n%s", html)
+	}
+	if !(rowMenuIdx < modalIdx && rowMenuIdx < inputIdx) {
+		t.Fatalf("closing an open row menu must be checked before the modal or the generic input case:\nrowMenu@%d modal@%d input@%d", rowMenuIdx, modalIdx, inputIdx)
+	}
+}
+
+// TestRenderListRenamesInPlace pins change 2: Rename no longer navigates to a
+// separate screen. Each row already carries an input holding its current
+// name, plus Cancel and Save controls, hidden until the card's own .renaming
+// class is toggled on by startRename (asserted separately) — so the swap to
+// editable is instant and needs no round trip to Go.
+func TestRenderListRenamesInPlace(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude_Work", Name: "Work account", SignedIn: true}}, false, "")
+	if !strings.Contains(html, `<input class="rnrow" type="text" value="Work account" onclick="event.stopPropagation()" onkeydown="rowRenameKey(event,this)">`) {
+		t.Fatalf("want an inline input pre-filled with the current name:\n%s", html)
+	}
+	if !strings.Contains(html, `<button type="button" class="rncancel" onclick="event.stopPropagation();cancelRename(this)">Cancel</button>`) {
+		t.Fatalf("want a Cancel control:\n%s", html)
+	}
+	if !strings.Contains(html, `<button type="button" class="rnsave" onclick="event.stopPropagation();rowRenameSave(this)">Save</button>`) {
+		t.Fatalf("want a Save control:\n%s", html)
+	}
+	if !strings.Contains(html, ".card.renaming .viewrow{display:none}") || !strings.Contains(html, ".card.renaming .editrow{display:flex}") {
+		t.Fatalf("the CSS that actually swaps view for edit is missing:\n%s", html)
+	}
+}
+
+// TestRowRenameSaveSendsTheSameActionAndPayload pins the requirement that
+// saving from the row still sends the existing renameSave action with the
+// same [folder, value] JSON payload the old Account settings screen sent, so
+// the Go side reading it needs no change. Enter must save; the same function
+// this test reads is what rowRenameKey calls on Enter.
+func TestRowRenameSaveSendsTheSameActionAndPayload(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	if !strings.Contains(html, `send('renameSave', JSON.stringify([card.dataset.folder, v]));`) {
+		t.Fatalf("Save must send the same action and payload shape as before:\n%s", html)
+	}
+	if !strings.Contains(html, `if (e.key === 'Enter') { e.preventDefault(); rowRenameSave(input); }`) {
+		t.Fatalf("Enter must save:\n%s", html)
+	}
+}
+
+// TestRowRenameEscapeCancelsLocallyWithoutARoundTrip pins the other half of
+// "Enter saves, Escape cancels": Escape inside the row's rename input must
+// cancel immediately, in JS, rather than falling through to the panel's
+// generic "focus is in some INPUT, back out to the list" Escape handling —
+// stopPropagation is what keeps it from also reaching that generic branch.
+func TestRowRenameEscapeCancelsLocallyWithoutARoundTrip(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	if !strings.Contains(html, `else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelRename(input); }`) {
+		t.Fatalf("Escape must cancel locally and stop the event from bubbling further:\n%s", html)
+	}
+}
+
+// TestRenamingRowIsNotASwitchTarget pins the requirement that while a row is
+// being renamed, the card must not act as a switch target: the card's onclick
+// guard reads the very .renaming class startRename/cancelRename toggle, so
+// there is no separate flag to fall out of sync with it.
+func TestRenamingRowIsNotASwitchTarget(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	if !strings.Contains(html, `onclick="if(!this.classList.contains('renaming'))askSwitch(this.dataset.folder,this.dataset.name)"`) {
+		t.Fatalf("the switch handler must be guarded by the renaming class:\n%s", html)
+	}
+}
+
+// TestRowMenuRemoveUsesTheSameAskRemoveAsBefore pins change 3: Remove goes
+// straight to the existing confirmation, unchanged. The menu item is wired to
+// the same askRemove(this) call the old Account settings screen used, and
+// carries the same data-* the confirmation (and the informational dialog for
+// the account in use) reads: folder, name, conversation count, and whether
+// Claude has it open.
+func TestRowMenuRemoveUsesTheSameAskRemoveAsBefore(t *testing.T) {
+	notCurrent := RenderList([]ProfileVM{
+		{Folder: "Claude_Old", Name: "Old one", Convos: 34, SignedIn: true},
+		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
+	}, false, "")
+	if !strings.Contains(notCurrent, `<button type="button" role="menuitem" class="danger" data-folder="Claude_Old" data-name="Old one" data-convos="34" data-current="0" onclick="event.stopPropagation();askRemove(this)">Remove</button>`) {
+		t.Fatalf("want the Remove menu item wired to askRemove with the folder, name, conversation count and current marker:\n%s", notCurrent)
+	}
+
+	current := RenderList([]ProfileVM{
+		{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true, SignedIn: true},
+		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
+	}, false, "")
+	if !strings.Contains(current, `data-folder="Claude_Live" data-name="Live" data-convos="12" data-current="1"`) {
+		t.Fatalf("the account Claude has open must carry data-current=\"1\" so askRemove opens the informational dialog:\n%s", current)
+	}
+}
+
+// TestRowMenuHidesRemoveWhenItIsTheOnlyProfile pins the OnlyOne rule carried
+// over from the deleted Account settings screen: removing the last account
+// would leave an empty panel with no way back, so the menu holds Rename alone.
+func TestRowMenuHidesRemoveWhenItIsTheOnlyProfile(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Claude", Convos: 5, SignedIn: true}}, false, "")
+	// Not a bare "Remove" check: the shared shell script's askRemove/askConfirm
+	// source carries the word "Remove" as a dialog label regardless of whether
+	// any row offers the menu item, so that substring is present on every page
+	// ever rendered and its absence could never be asserted on meaningfully.
+	if strings.Contains(html, `role="menuitem" class="danger"`) {
+		t.Fatalf("the only account listed must not offer a Remove menu item:\n%s", html)
+	}
+	if !strings.Contains(html, ">Rename<") {
+		t.Fatal("Rename must still be offered even with Remove hidden")
+	}
+}
+
+// TestRowMenuAndRenameUseDataAttributesNotInlineArgs guards the v0.9.1 bug
+// class for the new markup specifically: html.EscapeString turns an
+// apostrophe into &#39;, which the HTML parser decodes back to ' before the
+// inline JS is parsed, so a folder or display name containing one must travel
+// as data-* and be read back with dataset (or, for the rename input, the DOM
+// value property) rather than be interpolated into an inline handler string.
+func TestRowMenuAndRenameUseDataAttributesNotInlineArgs(t *testing.T) {
+	html := RenderList([]ProfileVM{
+		{Folder: "Claude_O'Brien", Name: "Pat O'Brien", Convos: 2, SignedIn: true},
+		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
+	}, false, "")
+	if strings.Contains(html, `askRemove('`) || strings.Contains(html, `startRename('`) || strings.Contains(html, `askSwitch('`) {
+		t.Fatalf("no inline string args (v0.9.1 bug class):\n%s", html)
+	}
+	if !strings.Contains(html, `data-folder="Claude_O&#39;Brien" data-name="Pat O&#39;Brien"`) {
+		t.Fatalf("the card must carry the apostrophe-bearing folder and name as data-*:\n%s", html)
+	}
+	if !strings.Contains(html, `value="Pat O&#39;Brien"`) {
+		t.Fatalf("the rename input's value must still be set from the (escaped) name:\n%s", html)
 	}
 }
 
@@ -759,67 +959,6 @@ func TestRenderSettingsOffersDebugInfo(t *testing.T) {
 	}
 }
 
-func TestRenderAccountOffersRemove(t *testing.T) {
-	h := RenderAccount(AccountVM{Folder: "Claude_Old", Name: "Old one", Convos: 34})
-	if !strings.Contains(h, "Remove this account") {
-		t.Fatal("no remove button on the account screen")
-	}
-	if !strings.Contains(h, "sbtn danger") {
-		t.Fatal("the remove button is not styled as destructive")
-	}
-	if !strings.Contains(h, "Account settings") {
-		t.Fatal("the screen is still titled as rename-only")
-	}
-	want := `<div class="hint">Removing takes this account off your list. Nothing is deleted. Signing in to it again starts a new copy of the account.</div>`
-	if !strings.Contains(h, want) {
-		t.Fatalf("want the hint rendered without implementation words like folder/archive, and without implying a fresh sign-in restores the old conversations:\n%s", h)
-	}
-}
-
-// TestRenderAccountNeverDisablesRemove pins the redesign: a disabled control
-// cannot explain itself, so the button stays live in every state, including
-// for the account Claude currently has open. Asserting on the actual disabled
-// button markup, not the bare word "disabled" (which the shell's own CSS
-// always contains, e.g. ".sbtn:disabled"), is what makes the negative
-// assertion meaningful.
-func TestRenderAccountNeverDisablesRemove(t *testing.T) {
-	notCurrent := RenderAccount(AccountVM{Folder: "Claude_Old", Name: "Old one", Convos: 34})
-	if strings.Contains(notCurrent, `sbtn danger" disabled`) {
-		t.Fatal("remove must not be disabled outside the account in use")
-	}
-	current := RenderAccount(AccountVM{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true})
-	if strings.Contains(current, `sbtn danger" disabled`) {
-		t.Fatal("remove must not be disabled even for the account in use: it opens an informational dialog instead")
-	}
-	if !strings.Contains(current, `onclick="askRemove(this)"`) {
-		t.Fatalf("the button for the account in use must still be clickable:\n%s", current)
-	}
-}
-
-// TestRenderAccountCurrentCarriesDataForTheInformationalDialog pins the marker
-// askRemove reads to decide which dialog to open, and that the hint div that
-// used to sit next to a disabled button is gone now that the dialog says the
-// same sentence instead — otherwise the screen would say it twice. The
-// sentence itself is unavoidably present in the page as JS source (the shared
-// shell embeds every dialog's copy on every screen), so the assertion is on
-// the hint <div> specifically, not on the substring appearing anywhere at all.
-func TestRenderAccountCurrentCarriesDataForTheInformationalDialog(t *testing.T) {
-	h := RenderAccount(AccountVM{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true})
-	if !strings.Contains(h, `data-current="1"`) {
-		t.Fatalf("askRemove needs to know this is the account in use:\n%s", h)
-	}
-	if strings.Contains(h, `<div class="hint">`) {
-		t.Fatalf("no hint div at all for the account in use; the dialog carries the sentence instead:\n%s", h)
-	}
-}
-
-func TestRenderAccountHidesRemoveWhenItIsTheOnlyProfile(t *testing.T) {
-	h := RenderAccount(AccountVM{Folder: "Claude", Name: "Claude", Convos: 5, OnlyOne: true})
-	if strings.Contains(h, "Remove this account") {
-		t.Fatal("removing the last profile would leave an empty panel with no way back")
-	}
-}
-
 // TestAskRemoveWordsTheConversationCountNaturally pins all three branches of
 // askRemove's conversation-count wording at once, because there is no JS
 // runtime in this test suite to execute the ternary and observe its output —
@@ -829,8 +968,12 @@ func TestRenderAccountHidesRemoveWhenItIsTheOnlyProfile(t *testing.T) {
 // never-signed-in profile is the single most likely account to be removed,
 // so zero is not a rare edge case here. The confirmation is one sentence with
 // no separate warning line (see TestRemoveConfirmationHasNoWarningBlock).
+//
+// askRemove is shared JS in shell(), identical on every page, so any page
+// carrying it proves the same thing; RenderList is what actually reaches it
+// now that the row menu replaced the deleted Account settings screen.
 func TestAskRemoveWordsTheConversationCountNaturally(t *testing.T) {
-	h := RenderAccount(AccountVM{Folder: "Claude", Name: "Some name", Convos: 1})
+	h := RenderList([]ProfileVM{{Folder: "Claude", Name: "Some name", Convos: 1, SignedIn: true}}, false, "")
 	for _, want := range []string{
 		`n === 0 ? 'It comes off your list. Nothing is deleted, and you can sign in to it again any time.'`,
 		`n === 1 ? 'It comes off your list. Its 1 conversation is kept, not deleted. Signing in to this account again starts a new copy of it, without that conversation.'`,
@@ -851,7 +994,7 @@ func TestAskRemoveWordsTheConversationCountNaturally(t *testing.T) {
 // back into it on their own. Both facts must still be present, and true, but
 // must not be joined so one implies the other.
 func TestAskRemoveDoesNotPromiseConversationsComeBack(t *testing.T) {
-	h := RenderAccount(AccountVM{Folder: "Claude", Name: "Some name", Convos: 34})
+	h := RenderList([]ProfileVM{{Folder: "Claude", Name: "Some name", Convos: 34, SignedIn: true}}, false, "")
 	fn := jsFunctions(h)["askRemove"]
 	if strings.Contains(fn, "not deleted, and you can add it back") {
 		t.Fatalf("the kept fact and the sign-in-again fact must not be joined into one implying sentence:\n%s", fn)
@@ -869,7 +1012,7 @@ func TestAskRemoveDoesNotPromiseConversationsComeBack(t *testing.T) {
 // from an explicitly empty one, since both are falsy, so askConfirm has to
 // check arguments.length instead.
 func TestRemoveConfirmationHasNoWarningBlock(t *testing.T) {
-	h := RenderAccount(AccountVM{Folder: "Claude", Name: "Some name", Convos: 3})
+	h := RenderList([]ProfileVM{{Folder: "Claude", Name: "Some name", Convos: 3, SignedIn: true}}, false, "")
 	fn := jsFunctions(h)["askRemove"]
 	if !strings.Contains(fn, `what, 'Remove', '', 'destructive'`) {
 		t.Fatalf("askRemove must pass an empty warn string to askConfirm:\n%s", fn)
@@ -888,7 +1031,7 @@ func TestRemoveConfirmationHasNoWarningBlock(t *testing.T) {
 // branch to an informational dialog instead, with the exact copy the design
 // specifies and no second modal (askConfirm is reused with an empty action).
 func TestAskRemoveOpensInformationalDialogForTheAccountInUse(t *testing.T) {
-	h := RenderAccount(AccountVM{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true})
+	h := RenderList([]ProfileVM{{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true, SignedIn: true}}, false, "")
 	fn := jsFunctions(h)["askRemove"]
 	if !strings.Contains(fn, `el.dataset.current === '1'`) {
 		t.Fatalf("askRemove must branch on the current-account marker:\n%s", fn)
@@ -927,7 +1070,7 @@ func TestInformationalDialogHasNoCancelAndDoesNotSend(t *testing.T) {
 // a dialog but is not destructive, and painting their confirm button red too
 // would turn red into the colour of "confirm".
 func TestRemovalIsTheOnlyDestructiveConfirmation(t *testing.T) {
-	h := RenderAccount(AccountVM{Folder: "Claude_Old", Name: "Old one", Convos: 3})
+	h := RenderList([]ProfileVM{{Folder: "Claude_Old", Name: "Old one", Convos: 3, SignedIn: true}}, false, "")
 
 	// Filled red, per the design: a background, not merely red lettering.
 	if !strings.Contains(h, ".btn-danger{background:linear-gradient(135deg,#d5566d,#c0392b);color:#fff") {

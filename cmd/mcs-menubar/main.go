@@ -41,9 +41,8 @@ var (
 	plat     platform.Platform
 	switcher *core.Switcher
 
-	mu           sync.Mutex
-	currentView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge" | "removed" | "debug"
-	renameFolder string   // the folder being renamed in the "rename" view
+	mu          sync.Mutex
+	currentView = "list" // "list" | "rescan" | "settings" | "sync" | "newprofile" | "merge" | "removed" | "debug"
 
 	// debugComment survives the reload that every action triggers. Without it,
 	// pressing Copy wipes what the user just typed.
@@ -345,12 +344,6 @@ func goPanelAction(caction, cfolder *C.char) {
 			}
 			reloadPanel()
 		}()
-	case "showRename":
-		mu.Lock()
-		renameFolder = arg
-		currentView = "rename"
-		mu.Unlock()
-		reloadPanel()
 	case "renameSave":
 		var pair []string
 		if json.Unmarshal([]byte(arg), &pair) == nil && len(pair) == 2 {
@@ -477,7 +470,7 @@ func goPanelAction(caction, cfolder *C.char) {
 		// Read before the goroutine starts: once RemoveProfile has moved the
 		// directory, neither the display name nor the conversation count can be
 		// looked up again — buildProfiles no longer has a row for it.
-		before := accountVM(folder)
+		beforeName, beforeConvos := removalRow(folder)
 		setBusyStatus(true, "Removing…")
 		reloadPanel()
 		go func() {
@@ -486,7 +479,7 @@ func goPanelAction(caction, cfolder *C.char) {
 			// hosts cannot drift on what a clean removal, a partial failure and
 			// an outright failure each do — the way this codebase already
 			// shipped a platform difference once.
-			outcome := panelui.DecideRemovalOutcome(folder, before.Name, before.Convos, dest, err)
+			outcome := panelui.DecideRemovalOutcome(folder, beforeName, beforeConvos, dest, err)
 			if outcome.ShowList {
 				setBusyStatus(false, outcome.ListStatus)
 				setView("list")
@@ -703,11 +696,6 @@ func reloadPanel() {
 		htmlStr = panelui.RenderRescan(accounts, panelui.ComputePreselect(accounts, core.LoadManaged()))
 	case "sync":
 		htmlStr = panelui.RenderSync(buildProfiles(), getStatus(), getBusy())
-	case "rename":
-		mu.Lock()
-		f := renameFolder
-		mu.Unlock()
-		htmlStr = panelui.RenderAccount(accountVM(f))
 	case "newprofile":
 		mu.Lock()
 		vm := newProfileVM
@@ -813,19 +801,19 @@ func buildProfiles() []panelui.ProfileVM {
 	return panelui.BuildProfiles(mustFindProfiles(), core.LoadManaged(), pendingFolders(), running, cachedPlan)
 }
 
-// accountVM finds the row the account screen is about. Built from the same list
-// the panel shows, so the conversation count on the confirmation is the number
-// the user was already looking at.
-func accountVM(folder string) panelui.AccountVM {
-	profiles := buildProfiles()
-	vm := panelui.AccountVM{Folder: folder, Name: core.DisplayName(folder), OnlyOne: len(profiles) <= 1}
-	for _, p := range profiles {
+// removalRow looks up the display name and conversation count for a folder
+// about to be removed, from the same list the panel shows, so the removal
+// outcome quotes the number the user was already looking at. Read before
+// RemoveProfile runs: once it has moved the directory, buildProfiles no
+// longer has a row for it.
+func removalRow(folder string) (name string, convos int) {
+	name = core.DisplayName(folder)
+	for _, p := range buildProfiles() {
 		if p.Folder == folder {
-			vm.Name, vm.Convos, vm.Current = p.Name, p.Convos, p.Current
-			break
+			return p.Name, p.Convos
 		}
 	}
-	return vm
+	return name, 0
 }
 
 // pendingFolders is the folder names of profiles awaiting their one-time sign-in,
