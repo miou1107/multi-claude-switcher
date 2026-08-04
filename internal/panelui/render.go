@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/core/diagnostics"
 )
 
 // ProfileVM is one row in the account-list view.
@@ -140,6 +141,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .rninput:focus{border-color:#7c6cf0}
 .hint{font-size:12px;color:#6b6580;line-height:1.5;margin-top:11px}
 .hintw{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-top:10px}
+.dbgnote{background:#e9f5ee;color:#1a7a3d;font-size:11.5px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-bottom:9px}
+.dbgbox{background:#fff;border-radius:12px;padding:11px 12px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:10.5px;line-height:1.65;color:#514b66;max-height:210px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.dbgarea{width:100%;height:60px;font:inherit;font-size:12px;padding:10px 12px;border:2px solid #e0dcf3;border-radius:12px;background:#fff;color:#241f38;outline:none;resize:none}
+.dbgarea:focus{border-color:#7c6cf0}
 .errbox{background:#fde4e4;color:#a32d2d;font-size:12px;font-weight:700;padding:9px 12px;border-radius:11px;margin-bottom:11px}
 .modal-bg{position:fixed;inset:0;background:rgba(30,20,50,.32);display:none;align-items:center;justify-content:center;z-index:10;padding:20px}
 .modal-bg.on{display:flex}
@@ -200,10 +205,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
   // working in is not a single-click operation, and a warning that one code path
   // can skip is not a warning.
   var _pending=null;
-  function askConfirm(action, arg, title, body, okLabel){
+  function askConfirm(action, arg, title, body, okLabel, warn){
     _pending={a:action, arg:arg};
     document.getElementById('mcsModalTitle').textContent=title;
     document.getElementById('mcsModalBody').textContent=body;
+    document.querySelector('#mcsModal .warn').textContent=
+      warn || 'Anything unsaved in Claude is interrupted.';
     document.getElementById('mcsModalOk').textContent=okLabel;
     document.getElementById('mcsModal').classList.add('on');
     // Cancel takes the focus, not Continue. Enter on an unread dialog must not
@@ -213,6 +220,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
   function askSwitch(folder, name){
     askConfirm('switch', folder, 'Switch to '+name+'?',
       'Claude closes and reopens signed in as '+name+'.', 'Switch');
+  }
+  function askReport(){
+    askConfirm('reportProblem', document.getElementById('dbgc').value,
+      'Open a GitHub issue?',
+      'The report above and your comment are copied to your clipboard, and your browser opens a new issue on the MCS repository. Paste it there and you can still edit it before submitting.',
+      'Copy and open',
+      'GitHub issues are public. What is copied is exactly what you saw on the screen behind this dialog, with your email address, account IDs, user name and home folder already replaced with stand-ins.');
   }
   // The folders arrive via data-* and are joined here, never interpolated into the
   // inline handler — a folder with an apostrophe would otherwise break the parse.
@@ -233,6 +247,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     // Inside a text input (Rename), Esc backs out to the list instead of
     // killing the panel — hiding on Windows would discard the typed name.
     var ae=document.activeElement;
+    // The Debug comment box is the one exception: showList jumps past
+    // Settings, which the back button does not, and — same as pressing that
+    // back button used to — discarded whatever the user had typed, since it
+    // was never sent to Go until Copy or Report a problem. Sending it as the
+    // arg here mirrors the back button's fix: showSettings on the Go side
+    // saves it before switching the view away.
+    if(ae && ae.id==='dbgc') { send('showSettings', ae.value); return; }
     if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA')) { send('showList',''); return; }
     // Otherwise, Esc hides the whole panel (matches NSPopover click-outside).
     send('hidePanel','');
@@ -424,9 +445,53 @@ func RenderSettings(vm SettingsVM) string {
   <button class="sbtn" onclick="send('openLog','')">Open log folder</button>
   <button class="sbtn" onclick="send('openBackups','')">Open backup folder</button>
   <button class="sbtn" onclick="send('openArchive','')">Open archive folder</button>
+  <button class="sbtn" onclick="send('showDebug','')">Debug info…</button>
   <button class="sbtn danger" onclick="send('quit','')">Quit Multi-Claude Switcher</button>
 </div>
 <div class="about">v` + html.EscapeString(vm.Version) + `</div>`
+	return shell(body)
+}
+
+// DebugVM is the Debug info view: what MCS knows about this machine, already
+// masked, and a box to say what went wrong.
+//
+// There used to be a Gathering flag here, for the window between showDebug
+// clearing the report cache and the background gather filling it back in.
+// That window no longer reaches this view at all: showDebug now gathers
+// first, while Settings shows a busy banner, and only switches to this view
+// once the report is ready — so RenderDebug is never asked to draw a report
+// that has not finished gathering, and there is nothing left for a
+// placeholder to guard against.
+type DebugVM struct {
+	Report  string
+	Comment string
+	Status  string // transient feedback, e.g. after Copy
+}
+
+// RenderDebug shows the report before it goes anywhere.
+//
+// There is no unmask switch and no "include the log" checkbox, so what is on
+// screen is exactly what is copied — one version of the truth, and no way to
+// publish something the user was not shown.
+func RenderDebug(vm DebugVM) string {
+	esc := html.EscapeString
+	status := ""
+	if vm.Status != "" {
+		status = `<div class="status">` + esc(vm.Status) + `</div>`
+	}
+	reportBox := `<div class="dbgbox">` + esc(vm.Report) + `</div>`
+	body := `<div class="header">
+  <button class="back" onclick="send('showSettings', document.getElementById('dbgc').value)">‹</button>
+  <div class="htext"><h1>Debug info</h1><p>Exactly what a report contains</p></div>
+</div>` + status + `
+<div class="dbgnote">Your email address, account IDs, user name and home folder are replaced with stand-ins like account-1 below. A name you gave a profile folder yourself can still show. ` + esc(diagnostics.UnregisteredMarker) + ` marks something that looked like an address or an ID and was blocked.</div>
+` + reportBox + `
+<div class="hint">What went wrong? (optional)</div>
+<textarea class="dbgarea" id="dbgc" placeholder="Switching to my work account left the personal one closed…">` + esc(vm.Comment) + `</textarea>
+<div class="footer">
+  <button class="btn btn-light" style="flex:none;padding:10px 14px" onclick="send('copyDebug', document.getElementById('dbgc').value)">Copy</button>
+  <button class="btn btn-primary" onclick="askReport()">Report a problem</button>
+</div>`
 	return shell(body)
 }
 

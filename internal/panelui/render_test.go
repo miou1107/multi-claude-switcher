@@ -621,3 +621,106 @@ func TestRenderSettingsOffersTheArchiveFolder(t *testing.T) {
 		t.Fatalf("want the openArchive action:\n%s", html)
 	}
 }
+
+// TestRenderDebugShowsWhatWillBePublished pins the three things the screen
+// exists for: the report itself, a way to say what went wrong, and a statement
+// of what was replaced with stand-ins. The notice is not decoration — it is the only place
+// the user is told the report was masked at all.
+func TestRenderDebugShowsWhatWillBePublished(t *testing.T) {
+	h := RenderDebug(DebugVM{Report: "MCS 0.11.2\naccount-1", Comment: ""})
+
+	for _, want := range []string{
+		"MCS 0.11.2",
+		"account-1",
+		// Assert on the element, not the word: shell()'s askReport literal
+		// contains "already replaced with stand-ins" and "Copy and open", so
+		// asserting on that wording, or on "Copy", would be true on every page
+		// ever rendered (shell() is shared by all views) and these two
+		// assertions would still pass with the .dbgnote block or the Copy
+		// button deleted outright.
+		`class="dbgnote"`,
+		`send('showSettings', document.getElementById('dbgc').value)`,
+		`id="dbgc"`,
+		"Report a problem",
+		`send('copyDebug'`,
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("missing %q from the debug view", want)
+		}
+	}
+}
+
+// TestRenderDebugEscapesTheReportAndTheComment stops a log line containing
+// markup from rewriting the panel it is displayed in.
+func TestRenderDebugEscapesTheReportAndTheComment(t *testing.T) {
+	h := RenderDebug(DebugVM{
+		Report:  `<script>alert(1)</script>`,
+		Comment: `</textarea><img src=x onerror=alert(1)>`,
+	})
+	if strings.Contains(h, "<script>alert(1)</script>") {
+		t.Error("the report was not escaped")
+	}
+	if strings.Contains(h, "</textarea><img") {
+		t.Error("the comment was not escaped")
+	}
+	if !strings.Contains(h, "&lt;script&gt;") {
+		t.Error("the report should still be readable once escaped")
+	}
+}
+
+// TestRenderDebugExplainsTheUnregisteredMarker: a user who sees
+// "[redacted: unregistered]" in their own report needs to know it means MCS
+// found something it did not recognise and blocked it, not that MCS is
+// hiding something else from them.
+func TestRenderDebugExplainsTheUnregisteredMarker(t *testing.T) {
+	h := RenderDebug(DebugVM{Report: "[redacted: unregistered]"})
+	if !strings.Contains(h, "[redacted: unregistered]") {
+		t.Fatalf("fixture broken: report marker missing:\n%s", h)
+	}
+	if !strings.Contains(h, "marks something that looked like an address or an ID and was blocked") {
+		t.Errorf("the notice must explain what the marker means:\n%s", h)
+	}
+}
+
+// TestRenderDebugBackButtonKeepsTheComment pins the fix for the data loss the
+// back button shared with Esc (see the keydown handler in shell()): both used
+// to send showSettings with no argument, discarding whatever the user had
+// typed since it was never sent to Go until Copy or Report a problem.
+//
+// This only proves the back button's onclick reads the live textarea at
+// click time — it says nothing about whether a comment handed to Go that way
+// actually survives a return trip to this view. That half is
+// TestRenderDebugPutsTheSavedCommentInTheTextarea below: together they cover
+// both ends of the round trip that showSettings/showDebug do between them.
+func TestRenderDebugBackButtonKeepsTheComment(t *testing.T) {
+	h := RenderDebug(DebugVM{Report: "MCS 0.11.2"})
+	if !strings.Contains(h, `send('showSettings', document.getElementById('dbgc').value)`) {
+		t.Errorf("the back button must carry the comment back to Go:\n%s", h)
+	}
+}
+
+// TestRenderDebugPutsTheSavedCommentInTheTextarea proves the other half of
+// the round trip: a Comment saved by a previous Debug visit (back button or
+// Esc, both routed through showSettings, saved by the host, and no longer
+// cleared when showDebug runs again) must come back out inside the textarea,
+// not just travel through JS untouched. Without this, a renderer that always
+// emitted an empty textarea would still pass every other Debug test — the
+// bug this pins was exactly that omission.
+func TestRenderDebugPutsTheSavedCommentInTheTextarea(t *testing.T) {
+	h := RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "still happening after the update"})
+	if !strings.Contains(h, `id="dbgc"`) {
+		t.Fatalf("fixture broken: no textarea with id=dbgc:\n%s", h)
+	}
+	if !strings.Contains(h, `>still happening after the update</textarea>`) {
+		t.Errorf("a saved comment must be rendered inside the textarea:\n%s", h)
+	}
+}
+
+// TestRenderSettingsOffersDebugInfo keeps the screen reachable. A view nothing
+// links to is a view nobody uses.
+func TestRenderSettingsOffersDebugInfo(t *testing.T) {
+	h := RenderSettings(SettingsVM{Version: "0.11.2"})
+	if !strings.Contains(h, `send('showDebug','')`) {
+		t.Error("Settings must offer Debug info")
+	}
+}

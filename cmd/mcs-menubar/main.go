@@ -31,6 +31,8 @@ import (
 	"unsafe"
 
 	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/core/diagnostics"
+	"github.com/miou1107/multi-claude-switcher/internal/clip"
 	"github.com/miou1107/multi-claude-switcher/internal/panelui"
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
@@ -40,8 +42,33 @@ var (
 	switcher *core.Switcher
 
 	mu           sync.Mutex
-	currentView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge"
+	currentView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge" | "debug"
 	renameFolder string   // the folder being renamed in the "rename" view
+
+	// debugComment survives the reload that every action triggers. Without it,
+	// pressing Copy wipes what the user just typed.
+	debugComment string
+
+	// debugReportCache and debugReportMasker are the report showDebug most
+	// recently built, reused by copyDebug, reportProblem and reloadPanel's own
+	// "debug" case rather than each rebuilding it. Building gathers every
+	// profile's leveldb identity and session tree plus every log file's tail —
+	// heavy enough that this repo already caches leveldb reads elsewhere — and
+	// without this cache a single Copy or Report click gathered it twice: once
+	// to act on, once again when the reload that follows redrew the same
+	// screen.
+	//
+	// There used to be a debugReportReady flag here, false from the moment
+	// showDebug cleared the cache until the gather that followed filled it
+	// back in, because the view switched to "debug" before the gather had
+	// finished. That window is gone: showDebug now gathers to completion
+	// (while Settings shows a busy banner, guarded by the same busy flag as
+	// backup/sync/merge) and only then sets the view to "debug" and reloads.
+	// By the time this view — or copyDebug, or reportProblem — can be reached
+	// at all, the cache is already populated, so there is no "not ready" state
+	// left to track or to refuse against.
+	debugReportCache  string
+	debugReportMasker *diagnostics.Masker
 
 	// newProfileVM carries the pending name screen's context between the action
 	// that opened it and the render that draws it, including the validation error
@@ -144,6 +171,42 @@ func getStatus() string {
 	return statusMsg
 }
 
+func setDebugComment(s string) {
+	mu.Lock()
+	debugComment = s
+	mu.Unlock()
+}
+
+func getDebugComment() string {
+	mu.Lock()
+	defer mu.Unlock()
+	return debugComment
+}
+
+// debugReport builds the report and hands back the masker that produced it, so
+// the user's comment and the issue title are masked with the same registrations
+// rather than a fresh, empty one.
+func debugReport() (string, *diagnostics.Masker) {
+	in := buildDiagnostics()
+	return diagnostics.Build(in), diagnostics.NewMaskerFor(in)
+}
+
+// setDebugReportCache and getDebugReportCache guard debugReportCache /
+// debugReportMasker with the same mutex as the comment they are cached
+// alongside.
+func setDebugReportCache(report string, m *diagnostics.Masker) {
+	mu.Lock()
+	debugReportCache = report
+	debugReportMasker = m
+	mu.Unlock()
+}
+
+func getDebugReportCache() (string, *diagnostics.Masker) {
+	mu.Lock()
+	defer mu.Unlock()
+	return debugReportCache, debugReportMasker
+}
+
 //export goPanelReady
 func goPanelReady() { reloadPanel() }
 
@@ -201,6 +264,15 @@ func goPanelAction(caction, cfolder *C.char) {
 		// want a message set it and render the list themselves without this action
 		go reloadPanel()
 	case "showSettings":
+		// Shared by the plain Settings gear and the Debug view's back button
+		// (and its Esc equivalent), which pass the live comment textarea value
+		// as arg so leaving Debug does not discard what was typed. showDebug no
+		// longer clears the saved comment on entry, so this save is what makes
+		// a later Debug visit come back with the text still there. Every other
+		// caller passes "", which must not clobber a comment saved this way.
+		if arg != "" {
+			setDebugComment(arg)
+		}
 		setView("settings")
 		setStatus("")
 		reloadPanel()
@@ -380,9 +452,79 @@ func goPanelAction(caction, cfolder *C.char) {
 			setView("list")
 			reloadPanel()
 		}()
+	case "showDebug":
+		// Guarded like backup, sync and merge: the gather below is heavy (a
+		// leveldb copy per profile, a session-tree walk, every log tail), and a
+		// second click while one is already running must not start another.
+		if getBusy() {
+			return
+		}
+		// Gathered to completion before the view switches, not after. The old
+		// shape cleared the cache, switched to "debug" immediately, and
+		// gathered on a goroutine — which rendered the (empty) debug view, with
+		// its comment box, before the report existed. A user who started typing
+		// what went wrong the instant they saw that box lost it the moment the
+		// finished gather's reloadPanel redrew the same view from an empty
+		// getDebugComment(). Staying on the current view with a busy banner
+		// keeps the comment box off screen until there is a finished report to
+		// show next to it.
+		setBusyStatus(true, "Gathering debug info…")
+		reloadPanel()
+		go func() {
+			report, m := debugReport()
+			setDebugReportCache(report, m)
+			setBusyStatus(false, "")
+			setView("debug")
+			reloadPanel()
+		}()
+	case "reportProblem":
+		// Guarded like backup, sync and merge. Without this, mashing the button
+		// stacked concurrent clip.Set/open calls.
+		if getBusy() {
+			return
+		}
+		setDebugComment(arg)
+		report, m := getDebugReportCache()
+		setBusyStatus(true, "Copying report…")
+		reloadPanel()
+		go func() {
+			full := diagnostics.AppendComment(report, arg, m)
+			if err := clip.Set(full); err != nil {
+				// The browser is not opened: an issue form with nothing to paste is
+				// worse than no browser at all. The comment is left in place too —
+				// this is exactly the moment the user still needs it, to retry Copy
+				// or Report a problem once whatever broke clip.Set is fixed.
+				setBusyStatus(false, "Couldn't copy the report: "+err.Error())
+				reloadPanel()
+				return
+			}
+			_ = exec.Command("open", diagnostics.IssueURL(arg, m)).Start()
+			// The comment has done its job: it is in the clipboard body and in the
+			// prefilled issue title. Clearing it here, rather than on Debug's next
+			// entry, means a stale "still happening" does not sit in the box the
+			// next time something unrelated goes wrong.
+			setDebugComment("")
+			setBusyStatus(false, "Report copied. Paste it into the issue.")
+			reloadPanel()
+		}()
+	case "copyDebug":
+		if getBusy() {
+			return
+		}
+		setDebugComment(arg)
+		report, _ := getDebugReportCache()
+		setBusyStatus(true, "Copying…")
+		reloadPanel()
+		go func() {
+			if err := clip.Set(report); err != nil {
+				setBusyStatus(false, "Couldn't copy: "+err.Error())
+			} else {
+				setBusyStatus(false, "Copied.")
+			}
+			reloadPanel()
+		}()
 	case "openLog":
-		home, _ := os.UserHomeDir()
-		_ = exec.Command("open", filepath.Join(home, ".multi-claude-switcher", "logs")).Start()
+		_ = exec.Command("open", core.LogDir()).Start()
 	case "openBackups":
 		home, _ := os.UserHomeDir()
 		_ = exec.Command("open", filepath.Join(home, ".multi-claude-switcher", "backups")).Start()
@@ -554,6 +696,18 @@ func reloadPanel() {
 			Status:     getStatus(),
 			Busy:       getBusy(),
 		})
+	case "debug":
+		// Reused, not rebuilt: showDebug is the only path into this view, and it
+		// only sets the view once the gather that fills debugReportCache has
+		// already finished (see the doc comment on debugReportCache), so this
+		// always has a real report to draw. Rebuilding here as well as in
+		// copyDebug/reportProblem was the double gather this replaced.
+		report, _ := getDebugReportCache()
+		htmlStr = panelui.RenderDebug(panelui.DebugVM{
+			Report:  report,
+			Comment: getDebugComment(),
+			Status:  getStatus(),
+		})
 	default:
 		htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())
 	}
@@ -563,6 +717,12 @@ func reloadPanel() {
 }
 
 func main() {
+	// Without this the menu-bar process logs to stderr only, which a bundled .app
+	// discards: there was no log file on macOS at all. Diagnostics reports include
+	// the log, so an unlogged host produces an empty section.
+	if c, _, err := core.SetupLogging("mcs-menubar"); err == nil {
+		defer func() { _ = c.Close() }()
+	}
 	plat = platform.New()
 	switcher = core.NewSwitcher(plat, core.NewBackupManager(""))
 	startUpdateChecker() // periodic background self-update

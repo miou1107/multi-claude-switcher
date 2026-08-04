@@ -30,6 +30,8 @@ import (
 
 	webview2 "github.com/jchv/go-webview2"
 	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/core/diagnostics"
+	"github.com/miou1107/multi-claude-switcher/internal/clip"
 	"github.com/miou1107/multi-claude-switcher/internal/panelui"
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
@@ -45,8 +47,33 @@ var (
 	panelSwitcher *core.Switcher
 
 	panelMu    sync.Mutex
-	panelView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge"
+	panelView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge" | "debug"
 	panelStale string   // profile folder being renamed
+
+	// panelDebugComment survives the reload that every action triggers. Without
+	// it, pressing Copy wipes what the user just typed.
+	panelDebugComment string
+
+	// panelDebugReportCache and panelDebugReportMasker are the report showDebug
+	// most recently built, reused by copyDebug, reportProblem and reloadPanel's
+	// own "debug" case rather than each rebuilding it. Building gathers every
+	// profile's leveldb identity and session tree plus every log file's tail —
+	// heavy enough that this repo already caches leveldb reads elsewhere — and
+	// without this cache a single Copy or Report click gathered it twice: once
+	// to act on, once again when the reload that follows redrew the same
+	// screen.
+	//
+	// There used to be a panelDebugReportReady flag here, false from the
+	// moment showDebug cleared the cache until the gather that followed
+	// filled it back in, because the view switched to "debug" before the
+	// gather had finished. That window is gone: showDebug now gathers to
+	// completion (while Settings shows a busy banner, guarded by the same
+	// busy flag as backup/sync/merge) and only then sets the view to "debug"
+	// and reloads. By the time this view — or copyDebug, or reportProblem —
+	// can be reached at all, the cache is already populated, so there is no
+	// "not ready" state left to track or to refuse against.
+	panelDebugReportCache  string
+	panelDebugReportMasker *diagnostics.Masker
 
 	// panelNewProfileVM carries the pending name screen's context between the
 	// action that opened it and the render that draws it, including the validation
@@ -306,6 +333,15 @@ func dispatchAction(action, arg string) {
 		// that want a message set it and render the list themselves without this action
 		go reloadPanel()
 	case "showSettings":
+		// Shared by the plain Settings gear and the Debug view's back button
+		// (and its Esc equivalent), which pass the live comment textarea value
+		// as arg so leaving Debug does not discard what was typed. showDebug no
+		// longer clears the saved comment on entry, so this save is what makes
+		// a later Debug visit come back with the text still there. Every other
+		// caller passes "", which must not clobber a comment saved this way.
+		if arg != "" {
+			panelSetDebugComment(arg)
+		}
 		panelSetView("settings")
 		panelSetStatus("")
 		reloadPanel()
@@ -378,9 +414,79 @@ func dispatchAction(action, arg string) {
 		}
 		panelSetView("list")
 		go reloadPanel()
+	case "showDebug":
+		// Guarded like backup, sync and merge: the gather below is heavy (a
+		// leveldb copy per profile, a session-tree walk, every log tail), and a
+		// second click while one is already running must not start another.
+		if panelGetBusy() {
+			return
+		}
+		// Gathered to completion before the view switches, not after. The old
+		// shape cleared the cache, switched to "debug" immediately, and
+		// gathered on a goroutine — which rendered the (empty) debug view, with
+		// its comment box, before the report existed. A user who started typing
+		// what went wrong the instant they saw that box lost it the moment the
+		// finished gather's reloadPanel redrew the same view from an empty
+		// panelGetDebugComment(). Staying on the current view with a busy banner
+		// keeps the comment box off screen until there is a finished report to
+		// show next to it.
+		panelSetBusy(true, "Gathering debug info…")
+		reloadPanel()
+		go func() {
+			report, m := panelDebugReport()
+			setPanelDebugReportCache(report, m)
+			panelSetBusy(false, "")
+			panelSetView("debug")
+			reloadPanel()
+		}()
+	case "reportProblem":
+		// Guarded like backup, sync and merge. Without this, mashing the button
+		// stacked concurrent clip.Set/open calls.
+		if panelGetBusy() {
+			return
+		}
+		panelSetDebugComment(arg)
+		report, m := getPanelDebugReportCache()
+		panelSetBusy(true, "Copying report…")
+		reloadPanel()
+		go func() {
+			full := diagnostics.AppendComment(report, arg, m)
+			if err := clip.Set(full); err != nil {
+				// The browser is not opened: an issue form with nothing to paste is
+				// worse than no browser at all. The comment is left in place too —
+				// this is exactly the moment the user still needs it, to retry Copy
+				// or Report a problem once whatever broke clip.Set is fixed.
+				panelSetBusy(false, "Couldn't copy the report: "+err.Error())
+				reloadPanel()
+				return
+			}
+			_ = openURL(diagnostics.IssueURL(arg, m))
+			// The comment has done its job: it is in the clipboard body and in the
+			// prefilled issue title. Clearing it here, rather than on Debug's next
+			// entry, means a stale "still happening" does not sit in the box the
+			// next time something unrelated goes wrong.
+			panelSetDebugComment("")
+			panelSetBusy(false, "Report copied. Paste it into the issue.")
+			reloadPanel()
+		}()
+	case "copyDebug":
+		if panelGetBusy() {
+			return
+		}
+		panelSetDebugComment(arg)
+		report, _ := getPanelDebugReportCache()
+		panelSetBusy(true, "Copying…")
+		reloadPanel()
+		go func() {
+			if err := clip.Set(report); err != nil {
+				panelSetBusy(false, "Couldn't copy: "+err.Error())
+			} else {
+				panelSetBusy(false, "Copied.")
+			}
+			reloadPanel()
+		}()
 	case "openLog":
-		home, _ := os.UserHomeDir()
-		_ = exec.Command("explorer.exe", filepath.Join(home, ".multi-claude-switcher", "logs")).Start()
+		_ = exec.Command("explorer.exe", core.LogDir()).Start()
 	case "openBackups":
 		home, _ := os.UserHomeDir()
 		_ = exec.Command("explorer.exe", filepath.Join(home, ".multi-claude-switcher", "backups")).Start()
@@ -615,6 +721,18 @@ func reloadPanel() {
 			Status:     panelGetStatus(),
 			Busy:       panelGetBusy(),
 		})
+	case "debug":
+		// Reused, not rebuilt: showDebug is the only path into this view, and it
+		// only sets the view once the gather that fills panelDebugReportCache
+		// has already finished (see the doc comment on panelDebugReportCache),
+		// so this always has a real report to draw. Rebuilding here as well as
+		// in copyDebug/reportProblem was the double gather this replaced.
+		report, _ := getPanelDebugReportCache()
+		htmlStr = panelui.RenderDebug(panelui.DebugVM{
+			Report:  report,
+			Comment: panelGetDebugComment(),
+			Status:  panelGetStatus(),
+		})
 	default:
 		htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus())
 	}
@@ -637,6 +755,42 @@ func panelGetStatus() string {
 	panelStatusMu.Lock()
 	defer panelStatusMu.Unlock()
 	return panelStatusMsg
+}
+
+func panelSetDebugComment(s string) {
+	panelMu.Lock()
+	panelDebugComment = s
+	panelMu.Unlock()
+}
+
+func panelGetDebugComment() string {
+	panelMu.Lock()
+	defer panelMu.Unlock()
+	return panelDebugComment
+}
+
+// panelDebugReport builds the report and hands back the masker that produced
+// it, so the user's comment and the issue title are masked with the same
+// registrations rather than a fresh, empty one.
+func panelDebugReport() (string, *diagnostics.Masker) {
+	in := panelBuildDiagnostics()
+	return diagnostics.Build(in), diagnostics.NewMaskerFor(in)
+}
+
+// setPanelDebugReportCache and getPanelDebugReportCache guard
+// panelDebugReportCache / panelDebugReportMasker with the same mutex as the
+// comment they are cached alongside.
+func setPanelDebugReportCache(report string, m *diagnostics.Masker) {
+	panelMu.Lock()
+	panelDebugReportCache = report
+	panelDebugReportMasker = m
+	panelMu.Unlock()
+}
+
+func getPanelDebugReportCache() (string, *diagnostics.Masker) {
+	panelMu.Lock()
+	defer panelMu.Unlock()
+	return panelDebugReportCache, panelDebugReportMasker
 }
 
 func panelSetBusy(b bool, s string) {

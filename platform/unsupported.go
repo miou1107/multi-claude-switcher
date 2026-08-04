@@ -49,3 +49,7 @@ func (p *unsupportedPlatform) PrepareArchive(keepIdentity, archiveIdentity strin
 }
 
 func (p *unsupportedPlatform) ArchiveDir() string { return "" }
+
+// InstallKind reports "unsupported" since this platform has no Claude Desktop
+// build to name.
+func (p *unsupportedPlatform) InstallKind() string { return "unsupported" }

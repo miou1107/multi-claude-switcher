@@ -93,6 +93,28 @@ cannot be read from either profile, sync keeps the paths exactly as it did befor
 rather than filing conversations somewhere arbitrary. Being wrong there costs
 visibility, never data.
 
+## Confirmed against something outside the heuristic
+
+The evidence above is one source read two ways: the stamps, checked against which
+folder the app's own log said it loaded. That is weaker than it looks, because a
+wrong reading of the stamps would agree with itself.
+
+There is an independent source. The Claude Code process running inside a profile
+carries its organization in its own command line:
+
+```
+--plugin-dir …\local-agent-mode-sessions\skills-plugin\<orgUuid>\<accountUuid>
+```
+
+Checked on a Windows machine whose profiles carried **three** organization stamps
+each, not the two this was originally measured on, the organization named there is
+the one the newest stamp names, on both profiles. The newest-wins rule had never
+been exercised past two candidates before that.
+
+On the same machine, the account receiving a sync went from 2 conversations to 101
+in the folder it actually reads. The 99 that appeared were already on disk,
+filed under the source's organization; nothing was downloaded or recreated.
+
 See `platform/activeorg.go` and the organization re-bucketing in `core/sync.go`.
 
 ## The lesson worth keeping

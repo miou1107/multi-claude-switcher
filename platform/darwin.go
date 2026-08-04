@@ -294,3 +294,6 @@ func (d *DarwinPlatform) ArchiveDir() string {
 	}
 	return filepath.Join(home, ".multi-claude-switcher", "archive")
 }
+
+// InstallKind is always "macos" here: Claude Desktop on macOS ships only one way.
+func (d *DarwinPlatform) InstallKind() string { return "macos" }

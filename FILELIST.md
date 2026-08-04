@@ -170,4 +170,22 @@
 - `docs/superpowers/specs/2026-07-28-windows-warm-panel-design.md` — Design spec for keeping the Windows panel process alive parked off-screen so a tray click moves an existing window instead of starting one (lifecycle, tray↔panel protocol, content freshness).
 - `docs/superpowers/specs/2026-07-30-ghost-account-recovery-design.md` — Design spec for recovering accounts that were signed out inside Claude Desktop (give the orphaned conversations their own profile), plus duplicate-account detection and merge-to-archive so one account never holds two profiles.
 - `docs/superpowers/plans/2026-07-30-ghost-account-recovery.md` — Implementation plan for the ghost-account-recovery spec: 17 TDD tasks across core, platform, the shared panel renderer, and both webview hosts.
+- `docs/superpowers/specs/2026-08-04-debug-info-and-problem-report-design.md` — Design spec for the Debug info screen and the clipboard-plus-prefilled-issue problem report (what is collected, stable-pseudonym masking, why nothing is uploaded).
+- `docs/superpowers/plans/2026-08-04-debug-info-and-problem-report.md` — Implementation plan for the Debug info spec: 11 TDD tasks across the new core/diagnostics package, platform version reading, the shared panel renderer, clipboard helpers and both webview hosts.
+- `core/diagnostics/mask.go` — Stable-pseudonym masking for debug reports: registration by value, boundary-aware user-name matching, home-prefix rewriting on both path separators.
+- `core/diagnostics/mask_test.go` — Unit tests for the masker: value registration, boundary rules, home-prefix rewriting, and the ordering that keeps one pass from mismasking another's output.
+- `core/diagnostics/sweep.go` — Shape-based backstop that blanks any email or UUID which escaped registration, so a field nobody registered fails a test instead of reaching a public issue.
+- `core/diagnostics/sweep_test.go` — Unit tests for the sweep: email and UUID shapes, hyphenated and bare, with and without hex neighbors.
+- `platform/claudeversion.go` — Reads the Claude Desktop version and the bundled Claude Code CLI version a profile last saw, from `config.json` and its `claude-code/<version>` directory.
+- `platform/claudeversion_test.go` — Unit tests for both version reads and the numeric (not lexical) version comparison that picks the newest `claude-code` directory.
+- `core/diagnostics/report.go` — Builds the debug report: environment, profiles, path shape without path values, and the tail of every log file, then runs the whole thing through the sweep once at the end.
+- `core/diagnostics/report_test.go` — Unit tests for the report: masking end to end, path shape reporting, log tail bounds, and the missing/unreadable-log cases.
+- `core/diagnostics/issue.go` — Builds the prefilled GitHub new-issue URL (masked, swept, single-line, length-capped, escaped title) and appends the user's own comment to the clipboard body, masked and swept the same way.
+- `core/diagnostics/issue_test.go` — Unit tests for the issue URL and the appended comment, including both guarded against a nil masker.
+- `internal/clip/clip_darwin.go` — macOS clipboard write (`pbcopy`, forced to a UTF-8 locale), awaited before the browser opens.
+- `internal/clip/clip_windows.go` — Windows clipboard write (`Set-Clipboard`, payload carried over stdin as base64 UTF-16 to dodge the command-line length cap and PowerShell's own syntax characters), awaited before the browser opens.
+- `internal/clip/clip_other.go` — Clipboard stub for unsupported platforms: reports failure rather than pretending to write.
+- `internal/clip/clip_windows_test.go` — Unit test for the UTF-16LE encoding step the Windows clipboard write depends on (ASCII, BMP, and surrogate-pair characters).
+- `cmd/mcs-menubar/diagnostics.go` — Gathers the macOS host's `diagnostics.Input`: versions, environment, and every profile's account, org, and running state.
+- `cmd/mcs-tray/paneldiagnostics_windows.go` — Gathers the Windows host's `diagnostics.Input`, the same shape as the macOS gatherer.
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.

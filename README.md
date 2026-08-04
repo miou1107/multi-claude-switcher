@@ -149,6 +149,22 @@ handling, and the warnings that used to appear before syncing into one are gone.
 
 [What was tested, before and after →](docs/team-accounts.md)
 
+## Reporting a problem
+
+Settings → **Debug info** shows what the switcher knows about your machine:
+versions, what each account looks like on disk, and the tail of every log file.
+**Report a problem** copies that report to your clipboard and opens a new GitHub
+issue for you to paste it into.
+
+Nothing is sent anywhere on its own. You see the report first, you paste it, and
+you submit it under your own account. Email addresses, account IDs, your user
+name and your home path are replaced with stand-ins such as `account-1` and
+`org-A` before the report reaches the screen, so the relationships stay readable
+while the values do not leave. A shape-based check runs after that replacement
+and blanks out anything that still looks like an address or an account ID, so a
+value nobody thought to register still does not reach the screen. Issues are
+public.
+
 ## FAQ and recovery
 
 **Why do I only see one account in the list?**

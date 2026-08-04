@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+- **A Debug info screen, and a way to report a problem from it.** Settings now
+  shows what MCS knows about your machine: its own version, which Claude Desktop
+  build you have, what each account looks like on disk, and the tail of every log
+  file. "Report a problem" copies that report to your clipboard and opens a new
+  issue on the project's GitHub page for you to paste it into, so you see exactly
+  what is published before anything is, and you submit it yourself. Email
+  addresses, account IDs, your user name and your home path are replaced with
+  stable stand-ins first, and there is no way to turn that off.
+
+### Fixed
+- **There is a log file on macOS.** The menu-bar app never opened one, so
+  everything it logged went nowhere and "Open log folder" showed an empty folder
+  on a machine that had been running for months.
+
 ## [0.11.2] - 2026-08-04
 
 ### Fixed
