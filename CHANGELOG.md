@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-08-04
+
+### Added
+- **Remove an account.** Reached from the pencil on an account row, which now
+  opens an Account settings screen (renaming lives there too), with the remove
+  button at the bottom, styled as destructive. The confirmation states plainly
+  that the folder moves to the archive folder, openable from Settings, and
+  that using the account again means signing in to it once more. Nothing is
+  ever deleted. Removal is refused for an account Claude currently has open,
+  so a different account can be removed without quitting Claude, and, on the
+  Windows Store build, for the account occupying the shared slot, an install
+  MCS has not recorded slot state for yet, and an account whose conversations
+  are still queued to move into a newly added account. The button is hidden
+  entirely when only one account is listed. A result screen afterwards names
+  the archived folder and offers to open it, or, on failure, states that
+  nothing was moved and the account is still listed.
+
 ## [0.12.0] - 2026-08-04
 
 ### Added

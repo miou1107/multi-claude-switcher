@@ -53,6 +53,8 @@
 - `core/archive_test.go` — Unit tests for archiving (the profile leaves the scan path, retries on a busy directory).
 - `core/merge.go` — Merges two profiles signed in to one account: `MergePreview` computes the union total and the conflicts before the user commits, and `MergeDuplicates` snapshots the keeper, syncs the other's conversations in, and archives it. The total is the union, never the sum, so a record both hold counts once.
 - `core/merge_test.go` — Unit tests for the merge plan and execution (union total, conflict counting, keeper snapshot, the loser archived not deleted).
+- `core/removeprofile.go` — Removes an account from the switcher: resolves and refuses via `platform.PrepareRemove` and `DetectRunningProfiles`, archives the profile folder via `ArchiveProfile` (nothing is ever deleted), then clears `managed.json`, `names.json`, `pending.json` and `active.json` for the removed identity, reporting any registry that could not be updated rather than swallowing it.
+- `core/removeprofile_test.go` — Unit tests for `RemoveProfile`: the happy path archives the folder and clears every registry; refusals for an account Claude has open, one running-process detection could not check, and a profile that no longer exists; the last-active account is still removable once nothing is running; and a failed move leaves the folder and every registry exactly as they were.
 - `core/logging.go` — Persistent per-component logging to ~/.multi-claude-switcher/logs (stderr + file).
 - `core/names.go` — User-chosen profile display names, stored in ~/.multi-claude-switcher/names.json.
 - `core/loginitem_darwin.go` — Start-at-login LaunchAgent management on macOS (install/remove per-user plist).
@@ -173,6 +175,7 @@
 - `docs/superpowers/specs/2026-08-04-debug-info-and-problem-report-design.md` — Design spec for the Debug info screen and the clipboard-plus-prefilled-issue problem report (what is collected, stable-pseudonym masking, why nothing is uploaded).
 - `docs/superpowers/plans/2026-08-04-debug-info-and-problem-report.md` — Implementation plan for the Debug info spec: 11 TDD tasks across the new core/diagnostics package, platform version reading, the shared panel renderer, clipboard helpers and both webview hosts.
 - `docs/superpowers/specs/2026-08-04-remove-account-design.md` — Design spec for removing an account from the switcher: archive rather than delete, what it refuses and why, and the screens for the confirmation and the result.
+- `docs/superpowers/plans/2026-08-04-remove-account.md` — Implementation plan for the remove-account spec: 8 tasks across `platform.PrepareRemove`, `core.RemoveProfile`, the panel's Account settings and result screens, and both webview hosts.
 - `core/diagnostics/mask.go` — Stable-pseudonym masking for debug reports: registration by value, boundary-aware user-name matching, home-prefix rewriting on both path separators.
 - `core/diagnostics/mask_test.go` — Unit tests for the masker: value registration, boundary rules, home-prefix rewriting, and the ordering that keeps one pass from mismasking another's output.
 - `core/diagnostics/sweep.go` — Shape-based backstop that blanks any email or UUID which escaped registration, so a field nobody registered fails a test instead of reaching a public issue.

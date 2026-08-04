@@ -97,8 +97,21 @@ is no way to move a running instance to a different account.
 
 **Rescan** finds accounts already on the machine, including any you have not
 signed into yet. **Rename** gives a profile a name you will actually recognise.
+
+**Remove** is reached from the pencil on an account row, at the bottom of the
+Account settings screen it opens. It takes the account off the list by
+archiving its profile folder, never deleting it, and you can open that archive
+folder any time from Settings. To use the account again, just sign in to it
+once more. The button is hidden entirely when it is the only account listed.
+Otherwise removal is refused for an account Claude currently has open right
+now, which is why removing a *different* account never requires quitting
+Claude first, and, on the Windows Store build, for the account currently
+occupying the one shared account slot, for an install MCS has not finished
+scanning yet, and for an account whose conversations are still queued to move
+into one you just added.
+
 **Settings** holds the two toggles, a manual backup, update check, shortcuts to
-the log and backup folders, and Quit.
+the log, backup, and archive folders, and Quit.
 
 Press **Esc** or click outside to close the panel. On Windows the tray icon
 toggles it, and right-clicking gives you **Quit**, which is your way out if the
