@@ -7,6 +7,11 @@
   Closing Claude Desktop closes every account at once, but only one was ever
   reopened, so a second account you had open was taken away without a word. Every
   account that was open is now put back, except the one you switched away from.
+- **Which account a switch leaves closed is no longer a guess.** With more than
+  one account open, the switcher had no record of which one you were on and used
+  whichever the system named first, so switching to a third account closed one of
+  the two arbitrarily. The account you were last switched to is now remembered,
+  and the record is ignored once that account is no longer open.
 - **The account you are on is recognised even when you did not open it from the
   switcher (macOS).** Claude Desktop only carries the marker the switcher matches
   on when the switcher itself launched it. Opened from the Dock, from Spotlight,

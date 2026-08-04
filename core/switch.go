@@ -85,7 +85,14 @@ func (s *Switcher) ClaimPendingRelaunch() []string {
 // logged in: then it backs up BOTH profiles (bidirectional align writes both)
 // and unions their sessions. With auto sync OFF (default) the switch moves no
 // data at all — a pure account switch.
-func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
+//
+// dstIdentity is the target's profile identity, recorded once the target is up so
+// the next switch knows which account the user is on rather than guessing from
+// process order. It is taken as a parameter because it is NOT derivable from
+// dstProfilePath: on the Store build every profile shares one slot directory.
+// Passing "" records nothing, which is right for a caller that cannot name the
+// account and wrong for every caller that can.
+func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath, dstIdentity string) error {
 	log.Printf("[Safe Switch] Starting switch from %s to %s...", srcProfilePath, dstProfilePath)
 
 	// Step 0: the target has to be real before anything else happens. Closing the
@@ -151,6 +158,18 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 		}
 		return fmt.Errorf("failed to launch target profile: %w", primaryErr)
 	}
+	// The target is up: this is where the user now is, whatever happens to the
+	// align below. Recorded here rather than by each host because every caller
+	// moves the user — the CLI's `mcs switch` too — and a caller that forgot would
+	// leave a record naming an account the user is no longer on, which is worse
+	// than no record at all: a wrong record that names a RUNNING profile survives
+	// the staleness check and sends the next switch after the wrong account.
+	if dstIdentity != "" {
+		if err := SaveActiveProfile(dstIdentity); err != nil {
+			log.Printf("[Safe Switch] Could not record the active account: %v", err)
+		}
+	}
+
 	if othersErr != nil {
 		// The switch itself worked: the target is open and this is the account the
 		// user asked for. Returning this would make every caller announce a failed
@@ -171,14 +190,16 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath string) error {
 // switch's source and target: accounts the user has open that this switch is not
 // about, and that terminating will close as collateral.
 //
-// KNOWN LIMITATION: srcProfilePath is the one profile deliberately left closed, so
-// which account that is now matters more than it used to. The GUI hosts derive it
-// from DetectRunningProfile, which reports whichever running profile the process
-// list happened to name first. With two accounts open and a switch to a third, the
-// account left closed is therefore arbitrary. Every account still comes back
-// except one, which is strictly better than the previous behaviour (only one came
-// back at all), but picking it deterministically needs a record of which account
-// the user last activated rather than a guess from process order.
+// srcProfilePath is the one profile deliberately left closed, so which account it
+// names matters. Callers get it from SourceProfilePath, which answers from the
+// record MCS keeps of the account it last put the user on (see activeprofile.go).
+//
+// REMAINING GAP: that record only covers accounts MCS itself opened. Claude opened
+// by hand, on a profile MCS has never switched to, leaves no record, and the source
+// falls back to whichever running profile the process list names first. So the
+// arbitrary choice survives for users who never switch through MCS at all, which is
+// a much smaller set than before and one where every account still comes back
+// except one.
 //
 // A failure to enumerate is not fatal. The switch still owes its target, and
 // reopening one account is a far better outcome than refusing to switch.

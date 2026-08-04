@@ -589,7 +589,7 @@ func doSwitch(folder string) {
 	if target == nil {
 		return
 	}
-	_ = switcher.SafeSwitch(sourceProfilePath(target.Path, profiles), target.Path)
+	_ = switcher.SafeSwitch(sourceProfilePath(target.Path, profiles), target.Path, target.Name)
 }
 
 // buildProfiles lists the managed accounts for the list view.
@@ -700,16 +700,5 @@ func recoverySuggestedName(row core.ScannedAccount) string {
 }
 
 func sourceProfilePath(targetPath string, profiles []*platform.ProfileInfo) string {
-	if running, err := plat.DetectRunningProfile(); err == nil && running != "" && running != targetPath {
-		return running
-	}
-	for _, p := range profiles {
-		if p.Path != targetPath && p.HasSessionsDir {
-			return p.Path
-		}
-	}
-	if len(profiles) > 0 {
-		return profiles[0].Path
-	}
-	return filepath.Join(plat.AppSupportDir(), "Claude")
+	return core.SourceProfilePath(plat, targetPath, profiles)
 }

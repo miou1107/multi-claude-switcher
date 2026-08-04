@@ -117,6 +117,8 @@
 - `core/switch_test.go` — Unit tests for Safe Switch (aborts on backup failure; reopens a bystander account but not the source).
 - `core/settings.go` — User settings store (~/.multi-claude-switcher/settings.json): auto sync toggle + warning-dismissed flag.
 - `core/settings_test.go` — Unit tests for settings round-trip, defaults, and no-clobber.
+- `core/activeprofile.go` — Records which account MCS last switched the user to (`~/.multi-claude-switcher/active.json`) and answers "which account is the user on" from it, falling back to what is running when the record is absent or stale. This is what decides the one profile a switch deliberately leaves closed, which used to come from process order.
+- `core/activeprofile_test.go` — Tests for the record (round trip, damaged file reads as unknown) and for the choice it drives: the last-activated account wins while it is open, a stale record is ignored, nothing running falls back to the first profile with sessions.
 - `core/align.go` — Manual directional align (ManualAlign): close → backup → sync → reopen every account that was open, since an align changes no account.
 - `core/align_test.go` — Unit tests for ManualAlign (returns to running profile; reopens all of them when several were open; no relaunch when nothing ran).
 - `cmd/mcs-tray/autosync.go` — Tray Auto Sync toggle: enable-time warning dialog and choice parsing.

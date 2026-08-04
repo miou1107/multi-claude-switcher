@@ -194,7 +194,7 @@ func onReady() {
 
 				// Find current running profile or default source
 				srcPath := getSourceProfilePath(target.Path, profiles)
-				err := switcher.SafeSwitch(srcPath, target.Path)
+				err := switcher.SafeSwitch(srcPath, target.Path, target.Name)
 				if err != nil {
 					log.Printf("Switch error: %v", err)
 					notify("Switch failed", err.Error())
@@ -496,20 +496,5 @@ func showAbout() {
 }
 
 func getSourceProfilePath(targetPath string, profiles []*platform.ProfileInfo) string {
-	// Prefer the profile the user is actually running right now: that is the
-	// account being left behind, whose sessions should flow into the target.
-	if running, err := plat.DetectRunningProfile(); err == nil && running != "" && running != targetPath {
-		return running
-	}
-
-	// Otherwise fall back to the first other profile that has sessions.
-	for _, p := range profiles {
-		if p.Path != targetPath && p.HasSessionsDir {
-			return p.Path
-		}
-	}
-	if len(profiles) > 0 {
-		return profiles[0].Path
-	}
-	return filepath.Join(plat.AppSupportDir(), "Claude")
+	return core.SourceProfilePath(plat, targetPath, profiles)
 }

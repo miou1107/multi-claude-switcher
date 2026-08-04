@@ -859,7 +859,7 @@ func doSwitchPanel(folder string) string {
 	if target == nil {
 		return "Switch failed: account not found."
 	}
-	if err := panelSwitcher.SafeSwitch(panelSourceProfilePath(target.Path, profiles), target.Path); err != nil {
+	if err := panelSwitcher.SafeSwitch(panelSourceProfilePath(target.Path, profiles), target.Path, target.Name); err != nil {
 		log.Printf("switch to %s failed: %v", folder, err)
 		return "Switch failed: " + err.Error()
 	}
@@ -867,18 +867,7 @@ func doSwitchPanel(folder string) string {
 }
 
 func panelSourceProfilePath(targetPath string, profiles []*platform.ProfileInfo) string {
-	if running, err := panelPlat.DetectRunningProfile(); err == nil && running != "" && running != targetPath {
-		return running
-	}
-	for _, p := range profiles {
-		if p.Path != targetPath && p.HasSessionsDir {
-			return p.Path
-		}
-	}
-	if len(profiles) > 0 {
-		return profiles[0].Path
-	}
-	return filepath.Join(panelPlat.AppSupportDir(), "Claude")
+	return core.SourceProfilePath(panelPlat, targetPath, profiles)
 }
 
 // doPanelBackupAll snapshots every profile that has session data.
