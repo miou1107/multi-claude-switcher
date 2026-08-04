@@ -632,11 +632,17 @@ func TestRenderDebugShowsWhatWillBePublished(t *testing.T) {
 	for _, want := range []string{
 		"MCS 0.11.2",
 		"account-1",
-		"removed",
+		// Assert on the element, not the word: shell()'s askReport literal
+		// contains "...already removed." and "Copy and open", so
+		// strings.Contains(html, "removed") or "Copy" is true on every page
+		// ever rendered (shell() is shared by all views) and these two
+		// assertions would still pass with the .dbgnote block or the Copy
+		// button deleted outright.
+		`class="dbgnote"`,
 		`send('showSettings','')`,
 		`id="dbgc"`,
 		"Report a problem",
-		"Copy",
+		`send('copyDebug'`,
 	} {
 		if !strings.Contains(h, want) {
 			t.Errorf("missing %q from the debug view", want)
