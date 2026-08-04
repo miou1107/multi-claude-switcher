@@ -517,7 +517,7 @@ func RenderRescan(accounts []core.ScannedAccount, preselected map[string]bool) s
 	esc := html.EscapeString
 	var cards strings.Builder
 	for _, a := range accounts {
-		date := "—"
+		date := "No date yet"
 		if !a.LastUpdated.IsZero() {
 			date = a.LastUpdated.Format("2006-01-02")
 		}
