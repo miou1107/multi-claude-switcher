@@ -724,3 +724,40 @@ func TestRenderSettingsOffersDebugInfo(t *testing.T) {
 		t.Error("Settings must offer Debug info")
 	}
 }
+
+func TestRenderAccountOffersRemove(t *testing.T) {
+	h := RenderAccount(AccountVM{Folder: "Claude_Old", Name: "Old one", Convos: 34})
+	if !strings.Contains(h, "Remove this account") {
+		t.Fatal("no remove button on the account screen")
+	}
+	if !strings.Contains(h, "sbtn danger") {
+		t.Fatal("the remove button is not styled as destructive")
+	}
+	if !strings.Contains(h, "Account settings") {
+		t.Fatal("the screen is still titled as rename-only")
+	}
+	if !strings.Contains(h, "archived, not deleted") {
+		t.Fatal("the screen does not say the folder is kept")
+	}
+}
+
+// TestRenderAccountDisablesRemoveForTheAccountInUse asserts on the actual
+// disabled button markup, not the bare word "disabled": that word could
+// otherwise appear anywhere in the shell's CSS (e.g. ".sbtn:disabled") and
+// let this pass even if the button on this particular screen were still live.
+func TestRenderAccountDisablesRemoveForTheAccountInUse(t *testing.T) {
+	h := RenderAccount(AccountVM{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true})
+	if !strings.Contains(h, `sbtn danger" disabled`) {
+		t.Fatal("remove is not disabled for the account in use")
+	}
+	if !strings.Contains(h, "Switch to another account first") {
+		t.Fatal("no reason given for the disabled button")
+	}
+}
+
+func TestRenderAccountHidesRemoveWhenItIsTheOnlyProfile(t *testing.T) {
+	h := RenderAccount(AccountVM{Folder: "Claude", Name: "Claude", Convos: 5, OnlyOne: true})
+	if strings.Contains(h, "Remove this account") {
+		t.Fatal("removing the last profile would leave an empty panel with no way back")
+	}
+}

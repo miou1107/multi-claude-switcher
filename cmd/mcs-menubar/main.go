@@ -660,7 +660,7 @@ func reloadPanel() {
 		mu.Lock()
 		f := renameFolder
 		mu.Unlock()
-		htmlStr = panelui.RenderRename(f, core.DisplayName(f))
+		htmlStr = panelui.RenderAccount(accountVM(f))
 	case "newprofile":
 		mu.Lock()
 		vm := newProfileVM
@@ -759,6 +759,21 @@ func buildProfiles() []panelui.ProfileVM {
 	// the copies drifted — SignedIn was set in one and not the other, which left the
 	// sync screen unable to offer any pair at all on macOS.
 	return panelui.BuildProfiles(mustFindProfiles(), core.LoadManaged(), pendingFolders(), running, cachedPlan)
+}
+
+// accountVM finds the row the account screen is about. Built from the same list
+// the panel shows, so the conversation count on the confirmation is the number
+// the user was already looking at.
+func accountVM(folder string) panelui.AccountVM {
+	profiles := buildProfiles()
+	vm := panelui.AccountVM{Folder: folder, Name: core.DisplayName(folder), OnlyOne: len(profiles) <= 1}
+	for _, p := range profiles {
+		if p.Folder == folder {
+			vm.Name, vm.Convos, vm.Current = p.Name, p.Convos, p.Current
+			break
+		}
+	}
+	return vm
 }
 
 // pendingFolders is the folder names of profiles awaiting their one-time sign-in,

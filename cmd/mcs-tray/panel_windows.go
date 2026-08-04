@@ -685,7 +685,7 @@ func reloadPanel() {
 	case "sync":
 		htmlStr = panelui.RenderSync(panelBuildProfiles(), panelGetStatus(), panelGetBusy())
 	case "rename":
-		htmlStr = panelui.RenderRename(folder, core.DisplayName(folder))
+		htmlStr = panelui.RenderAccount(panelAccountVM(folder))
 	case "newprofile":
 		panelMu.Lock()
 		vm := panelNewProfileVM
@@ -876,6 +876,21 @@ func panelBuildProfiles() []panelui.ProfileVM {
 	running, _ := panelPlat.DetectRunningProfile()
 	// Shared with the macOS host on purpose: see panelui.BuildProfiles.
 	return panelui.BuildProfiles(panelMustFindProfiles(), core.LoadManaged(), panelPendingFolders(), running, panelCachedPlan)
+}
+
+// panelAccountVM finds the row the account screen is about. Built from the same
+// list the panel shows, so the conversation count on the confirmation is the
+// number the user was already looking at.
+func panelAccountVM(folder string) panelui.AccountVM {
+	profiles := panelBuildProfiles()
+	vm := panelui.AccountVM{Folder: folder, Name: core.DisplayName(folder), OnlyOne: len(profiles) <= 1}
+	for _, p := range profiles {
+		if p.Folder == folder {
+			vm.Name, vm.Convos, vm.Current = p.Name, p.Convos, p.Current
+			break
+		}
+	}
+	return vm
 }
 
 // panelPendingFolders is the folder names of profiles awaiting their one-time

@@ -140,6 +140,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .rninput{width:100%;font:inherit;font-size:15px;padding:13px 15px;border:2px solid #e0dcf3;border-radius:14px;background:#fff;color:#241f38;outline:none}
 .rninput:focus{border-color:#7c6cf0}
 .hint{font-size:12px;color:#6b6580;line-height:1.5;margin-top:11px}
+.dangerzone{border-top:1px solid #ece9f4;margin-top:18px;padding-top:14px}
 .hintw{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-top:10px}
 .dbgnote{background:#e9f5ee;color:#1a7a3d;font-size:11.5px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-bottom:9px}
 .dbgbox{background:#fff;border-radius:12px;padding:11px 12px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:10.5px;line-height:1.65;color:#514b66;max-height:210px;overflow:auto;white-space:pre-wrap;word-break:break-word}
@@ -227,6 +228,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
       'The report above and your comment are copied to your clipboard, and your browser opens a new issue on the MCS repository. Paste it there and you can still edit it before submitting.',
       'Copy and open',
       'GitHub issues are public. What is copied is exactly what you saw on the screen behind this dialog, with your email address, account IDs, user name and home folder already replaced with stand-ins.');
+  }
+  // The folder and name travel as data-* and are read back with dataset, never
+  // interpolated into the inline handler: a name with an apostrophe would
+  // otherwise break the parse (the v0.9.1 bug).
+  function askRemove(el){
+    var n = parseInt(el.dataset.convos, 10) || 0;
+    var what = n === 1 ? 'its 1 conversation' : 'all ' + n + ' conversations';
+    askConfirm('removeProfile', el.dataset.folder, 'Remove '+el.dataset.name+'?',
+      'It disappears from the switcher. Its folder, with '+what+', moves to the archive folder you can open from Settings.',
+      'Remove',
+      'To use this account again you have to sign in to it again.');
   }
   // The folders arrive via data-* and are joined here, never interpolated into the
   // inline handler — a folder with an apostrophe would otherwise break the parse.
@@ -590,19 +602,47 @@ func RenderRescan(accounts []core.ScannedAccount, preselected map[string]bool) s
 	return shell(body)
 }
 
-// RenderRename is the in-panel Rename view: a text field for a friendlier
-// display name for one account.
-func RenderRename(folder, current string) string {
+// AccountVM drives the per-account screen: renaming, and removal.
+type AccountVM struct {
+	Folder  string // the identity, the key every action carries
+	Name    string // display name
+	Convos  int    // conversations in its own account bucket
+	Current bool   // Claude is running on it: remove is disabled
+	OnlyOne bool   // the only profile listed: remove is hidden
+}
+
+// RenderAccount is the in-panel screen reached from the pencil on an account row.
+// It was the Rename screen; removal lives at the bottom of it rather than as a bin
+// icon beside the pencil, because two small adjacent icons is the arrangement most
+// likely to be mis-tapped, and the delete-button rule is red and away from edit.
+//
+// Disabling for Current is a courtesy, not the guard. core.RemoveProfile asks what
+// Claude has open at the moment of the action, because this screen may have been
+// drawn before the user opened Claude on the account it is about.
+func RenderAccount(vm AccountVM) string {
 	esc := html.EscapeString
+
+	remove := ""
+	if !vm.OnlyOne {
+		btn := fmt.Sprintf(`<button class="sbtn danger" data-folder="%s" data-name="%s" data-convos="%d" onclick="askRemove(this)">Remove this account</button>`,
+			esc(vm.Folder), esc(vm.Name), vm.Convos)
+		note := `<div class="hint">Removing takes this account off the list. Its folder is archived, not deleted.</div>`
+		if vm.Current {
+			btn = `<button class="sbtn danger" disabled>Remove this account</button>`
+			note = `<div class="hint">Switch to another account first, then you can remove it.</div>`
+		}
+		remove = `<div class="dangerzone">` + note + btn + `</div>`
+	}
+
 	body := `<div class="header">
   <button class="back" onclick="send('showList','')">‹</button>
-  <div class="htext"><h1>Rename account</h1><p>Give this account a friendlier name</p></div>
+  <div class="htext"><h1>Account settings</h1><p>Rename or remove this account</p></div>
 </div>
-<input id="rn" class="rninput" type="text" value="` + esc(current) + `" placeholder="Display name">
+<input id="rn" class="rninput" type="text" value="` + esc(vm.Name) + `" placeholder="Display name">
 <div class="footer">
   <button class="btn btn-light" onclick="send('showList','')">Cancel</button>
-  <button class="btn btn-primary" data-folder="` + esc(folder) + `" onclick="renameSave(this.dataset.folder)">Save</button>
-</div>
+  <button class="btn btn-primary" data-folder="` + esc(vm.Folder) + `" onclick="renameSave(this.dataset.folder)">Save</button>
+</div>` + remove + `
 <script>var e=document.getElementById('rn'); e.focus(); e.select();</script>`
 	return shell(body)
 }
