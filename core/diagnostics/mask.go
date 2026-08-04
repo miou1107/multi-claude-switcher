@@ -30,8 +30,8 @@ type Masker struct {
 }
 
 type boundedRule struct {
-	re   *regexp.Regexp
-	with string
+	re          *regexp.Regexp
+	replacement string
 }
 
 type homeRule struct {
@@ -130,8 +130,8 @@ func (m *Masker) RegisterBoundedWord(value, replacement string) {
 	}
 	sep := `[^\p{L}\p{N}` + regexp.QuoteMeta(guardString) + `]`
 	m.bounded = append(m.bounded, boundedRule{
-		re:   regexp.MustCompile(`(?i)(^|` + sep + `)` + regexp.QuoteMeta(value) + `($|` + sep + `)`),
-		with: "${1}" + replacement + "${2}",
+		re:          regexp.MustCompile(`(?i)(^|` + sep + `)` + regexp.QuoteMeta(value) + `($|` + sep + `)`),
+		replacement: replacement,
 	})
 }
 
@@ -147,6 +147,12 @@ var homeSepInQuoted = regexp.MustCompile(`\\\\|/`)
 // RegisterHome rewrites a home directory prefix, keeping everything after it.
 // Case-insensitive and separator-blind, because Windows reports both spellings
 // and mixes them inside one string.
+//
+// The prefix must be followed by a separator or the end of the string. Without
+// that trailing boundary, "/Users/adam" also matches the start of
+// "/Users/adamson", rewriting a sibling account's home and leaking the
+// residue of its name ("~son") into the output — corruption plus a privacy
+// leak, on any machine where one login name happens to prefix another's.
 func (m *Masker) RegisterHome(home, replacement string) {
 	if home == "" {
 		return
@@ -154,7 +160,7 @@ func (m *Masker) RegisterHome(home, replacement string) {
 	pat := regexp.QuoteMeta(home)
 	pat = homeSepInQuoted.ReplaceAllString(pat, `[\\/]`)
 	m.homes = append(m.homes, homeRule{
-		re:   regexp.MustCompile(`(?i)` + pat),
+		re:   regexp.MustCompile(`(?i)` + pat + `([\\/]|$)`),
 		with: replacement,
 	})
 }
@@ -202,13 +208,32 @@ func (m *Masker) Apply(s string) string {
 		s = strings.ReplaceAll(s, v, guard(m.byValue[v]))
 	}
 	for _, h := range m.homes {
-		s = h.re.ReplaceAllStringFunc(s, func(string) string { return guard(h.with) })
+		s = h.re.ReplaceAllStringFunc(s, func(match string) string {
+			// The trailing separator (or end-of-string empty match) is part of
+			// the match so the boundary check applies, but it belongs to
+			// whatever comes after the home, not to the home itself — put it
+			// back after the replacement instead of consuming it.
+			groups := h.re.FindStringSubmatch(match)
+			return guard(h.with) + groups[1]
+		})
 	}
 	for _, b := range m.bounded {
 		// Twice: adjacent matches share the separator the pattern consumes, so a
-		// single pass leaves the second of "…/admin/admin/…" behind.
-		s = b.re.ReplaceAllString(s, b.with)
-		s = b.re.ReplaceAllString(s, b.with)
+		// single pass leaves the second of "…/admin/admin/…" behind. Each pass
+		// is done with ReplaceAllStringFunc rather than the "${1}"+with+"${2}"
+		// template ReplaceAllString would need, for two reasons: the
+		// replacement text must be inserted literally (a caller-supplied
+		// replacement like "$USER" is data, not a "$1"-style expansion
+		// operator), and the inserted text must be guarded so the second pass
+		// — looking for the very same bounded word — cannot mistake its own
+		// first pass's output for a fresh match, the same hazard the value and
+		// home passes are already guarded against.
+		replaceBounded := func(match string) string {
+			groups := b.re.FindStringSubmatch(match)
+			return groups[1] + guard(b.replacement) + groups[2]
+		}
+		s = b.re.ReplaceAllStringFunc(s, replaceBounded)
+		s = b.re.ReplaceAllStringFunc(s, replaceBounded)
 	}
 	if strings.Contains(s, guardString) {
 		s = strings.ReplaceAll(s, guardString, "")

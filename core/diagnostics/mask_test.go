@@ -148,3 +148,89 @@ func TestMaskerBoundedWordDoesNotCorruptGeneratedPseudonyms(t *testing.T) {
 		t.Errorf("got  %q\nwant %q", got, want)
 	}
 }
+
+// TestMaskerBoundedWordDoesNotEatItsOwnReplacement is the double-pass hazard a
+// code-review pass on Task 3 caught: the bounded pass runs its regex twice
+// (to catch adjacent matches), and guards the value/home insertions from the
+// earlier passes, but never guards its own output. So the second pass over a
+// replacement that itself contains the registered word matches its own first
+// pass's insertion, and two bounded rules can chain into each other through
+// their own outputs.
+func TestMaskerBoundedWordDoesNotEatItsOwnReplacement(t *testing.T) {
+	m := NewMasker()
+	m.RegisterBoundedWord("A", "user-a")
+
+	got := m.Apply("Section A, item-A, Track A-1")
+	want := "Section user-a, item-user-a, Track user-a-1"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
+// TestMaskerBoundedWordDoesNotChainIntoAnotherBoundedRule is the second half
+// of the same hazard: one rule's replacement text can satisfy a later rule's
+// own pattern, letting registrations mask each other's output instead of just
+// the caller's text. "adam" is registered to become "user", and a later rule
+// separately masks bare "user" to "host". The inserted "user" (from the first
+// rule) must survive the second rule untouched; only the caller's own,
+// pre-existing "user" is fair game for the second rule.
+func TestMaskerBoundedWordDoesNotChainIntoAnotherBoundedRule(t *testing.T) {
+	m := NewMasker()
+	m.RegisterBoundedWord("adam", "user")
+	m.RegisterBoundedWord("user", "host")
+
+	got := m.Apply("login adam on host user")
+	want := "login user on host host"
+	if got != want {
+		t.Errorf("got  %q\nwant %q (bounded rules must not chain through each other's output)", got, want)
+	}
+}
+
+// TestMaskerBoundedWordInsertsReplacementLiterally is the ReplaceAllString
+// hazard: Go's regexp treats "$" in the replacement template as an expansion
+// operator ("$1", "$USER", "${1}"), not a literal character. A caller-supplied
+// replacement like "$USER" is exactly the kind of value an OS environment
+// variable convention would hand this function, and it must survive intact.
+func TestMaskerBoundedWordInsertsReplacementLiterally(t *testing.T) {
+	m := NewMasker()
+	m.RegisterBoundedWord("adam", "$USER")
+
+	got := m.Apply("hi adam ok")
+	want := "hi $USER ok"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
+// TestMaskerHomePrefixDoesNotRewriteASiblingsHome is the missing trailing
+// boundary: without one, RegisterHome("/Users/adam", "~") matches the prefix
+// of "/Users/adamson" too, corrupting an unrelated sibling account's path and
+// leaking the residue of its name. Covered on both platforms' spellings,
+// since Windows reports the same hazard with its own separator and prefix.
+func TestMaskerHomePrefixDoesNotRewriteASiblingsHome(t *testing.T) {
+	unix := NewMasker()
+	unix.RegisterHome("/Users/adam", "~")
+
+	unixCases := []struct{ in, want string }{
+		{"/Users/adamson/Library", "/Users/adamson/Library"},
+		{"/Users/adam/Library", "~/Library"},
+	}
+	for _, c := range unixCases {
+		if got := unix.Apply(c.in); got != c.want {
+			t.Errorf("Apply(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+
+	windows := NewMasker()
+	windows.RegisterHome(`C:\Users\Adam`, "%USERPROFILE%")
+
+	windowsCases := []struct{ in, want string }{
+		{`C:\Users\Adamson\AppData`, `C:\Users\Adamson\AppData`},
+		{`C:\Users\Adam\AppData`, `%USERPROFILE%\AppData`},
+	}
+	for _, c := range windowsCases {
+		if got := windows.Apply(c.in); got != c.want {
+			t.Errorf("Apply(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
