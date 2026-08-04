@@ -470,10 +470,6 @@ func goPanelAction(caction, cfolder *C.char) {
 		go func() {
 			out := panelui.RemovedVM{Folder: folder, Name: before.Name, Convos: before.Convos}
 			dest, err := core.RemoveProfile(plat, folder)
-			// leftoverStatus carries a partial-failure complaint through to the
-			// status line; every other outcome clears the busy banner silently and
-			// lets the "removed" screen itself (success or failure) do the talking.
-			leftoverStatus := ""
 			switch {
 			case dest != "":
 				// Route on the destination, not the error. RemoveProfile can return both:
@@ -483,12 +479,17 @@ func goPanelAction(caction, cfolder *C.char) {
 				// an account that has, in fact, already moved.
 				out.ArchiveDir = filepath.Base(dest)
 				if err != nil {
-					leftoverStatus = err.Error()
+					// RegistryNote, not the status line: the "removed" screen's only exits
+					// are showList (which clears the status before anything renders) and
+					// openArchive (which does not reload the panel at all), so a status
+					// string set here would never be seen. This has to live on the VM the
+					// screen itself draws from.
+					out.RegistryNote = err.Error()
 				}
 			default:
 				out.Err = err.Error()
 			}
-			setBusyStatus(false, leftoverStatus)
+			setBusyStatus(false, "")
 			mu.Lock()
 			removedVM = out
 			currentView = "removed"

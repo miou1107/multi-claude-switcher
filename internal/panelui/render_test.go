@@ -791,6 +791,39 @@ func TestRenderRemovedNamesWhereItWent(t *testing.T) {
 	}
 }
 
+// TestRenderRemovedShowsARegistryComplaintOnSuccess pins the partial-failure
+// case: the folder moved (ArchiveDir is set, so this is the success variant),
+// but a registry write afterward failed. That complaint has to land somewhere
+// the user can actually read it — the status line does not survive either of
+// this screen's two exits (showList clears it before rendering, openArchive
+// never reloads the panel at all) — so it has to be on the VM this screen
+// draws from.
+func TestRenderRemovedShowsARegistryComplaintOnSuccess(t *testing.T) {
+	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 3, ArchiveDir: "Claude_Old-20260804-142233",
+		RegistryNote: "its display name is still recorded, and a later account reusing this identity would inherit it"})
+	if !strings.Contains(h, "Old one removed") {
+		t.Fatal("a partial failure must still read as a success: the folder did move")
+	}
+	if strings.Contains(h, "was not removed") {
+		t.Fatal("a partial failure must not draw the failure screen: the folder did move")
+	}
+	if !strings.Contains(h, "its display name is still recorded, and a later account reusing this identity would inherit it") {
+		t.Fatalf("the registry complaint is not shown anywhere on the success screen:\n%s", h)
+	}
+}
+
+// TestRenderRemovedHasNoRegistryComplaintByDefault guards against the note
+// leaking onto the ordinary, clean success screen it is absent from.
+func TestRenderRemovedHasNoRegistryComplaintByDefault(t *testing.T) {
+	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 3, ArchiveDir: "Claude_Old-20260804-142233"})
+	// class="hintw" (the rendered block), not the bare word: the stylesheet in
+	// the page shell always defines the .hintw rule, so matching "hintw" alone
+	// would find the CSS even when no such block is on the page.
+	if strings.Contains(h, `class="hintw"`) {
+		t.Fatalf("no registry complaint was set, so no hintw block should render:\n%s", h)
+	}
+}
+
 func TestRenderRemovedSaysNothingMovedOnFailure(t *testing.T) {
 	h := RenderRemoved(RemovedVM{Folder: "Claude_Old", Name: "Old one",
 		Err: "Claude may still be holding its files."})

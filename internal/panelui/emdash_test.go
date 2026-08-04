@@ -106,6 +106,14 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 	// can never reach in the same call.
 	removedFailed := RenderRemoved(RemovedVM{Folder: "Claude_Old", Name: "Old one",
 		Err: "Claude may still be holding its files."})
+	// A non-empty RegistryNote is the partial-failure success branch: the
+	// folder moved (ArchiveDir is set) but a registry write afterward did not.
+	// The plain fixture above never sets RegistryNote, so this is the only call
+	// that reaches the hintw block this test is here to cover.
+	removedWithRegistryNote := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34,
+		ArchiveDir: "Claude_Old-20260804-142233",
+		RegistryNote: "Its display name could not be cleared from the switcher's records. " +
+			"If a later account reuses this identity, rename it if the old name reappears."})
 
 	views := map[string]string{
 		"debug":                 RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "typed", Status: "Copied"}),
@@ -123,6 +131,7 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		"sync_empty":            syncEmpty,
 		"removed":               removed,
 		"removed_failed":        removedFailed,
+		"removed_registry_note": removedWithRegistryNote,
 	}
 	for name, h := range views {
 		text := tags.ReplaceAllString(h, " ")

@@ -876,17 +876,23 @@ func ComputePreselect(accounts []core.ScannedAccount, managed []string) map[stri
 // RemovedVM drives the screen shown after a removal, in either outcome.
 //
 // A partial failure can hand back both an ArchiveDir and an Err: the folder
-// moved but a registry write did not. That case is not represented here yet
-// (Err alone decides which branch below draws) — it is left to the caller in
-// Task 6, which is asked to treat a non-empty destination as success and fold
-// the registry complaint into the success screen, rather than let this view
-// draw "nothing moved" underneath a folder that in fact did.
+// moved but a registry write did not. RegistryNote is that case: the caller
+// (cmd/mcs-menubar) sets it, not Err, when the destination is non-empty, so
+// this always draws the success variant underneath a folder that did in fact
+// move, with the leftover complaint on the screen itself rather than in a
+// status line the user may never look at again.
 type RemovedVM struct {
-	Folder     string // for Try again after a failure
-	Name       string
-	Convos     int
-	ArchiveDir string // base name of where it landed; empty on failure
-	Err        string // empty on success
+	Folder string // for Try again after a failure
+	Name   string
+	Convos int
+	// ArchiveDir is the base name of where it landed; empty on failure.
+	ArchiveDir string
+	// Err is empty on success.
+	Err string
+	// RegistryNote is set only alongside a non-empty ArchiveDir: the folder
+	// moved but something it left behind (its display name, its managed
+	// listing, ...) could not be cleared. Empty renders nothing.
+	RegistryNote string
 }
 
 // RenderRemoved reports the outcome on its own screen rather than as a line at
@@ -925,10 +931,20 @@ func RenderRemoved(vm RemovedVM) string {
 	} else if vm.Convos > 1 {
 		what = fmt.Sprintf("Its %d conversations are untouched", vm.Convos)
 	}
+	// A registry that could not be cleared is not styled as an error: the folder
+	// really did move, which is the thing this screen exists to confirm. But it
+	// cannot be silent either — a display name left behind is inherited, without
+	// warning, by any later account that reuses this identity, and this screen is
+	// the only place that will ever say so.
+	registryNote := ""
+	if vm.RegistryNote != "" {
+		registryNote = `<div class="hintw">` + esc(vm.RegistryNote) + `</div>`
+	}
 	body := `<div class="header">
   <div class="htext"><h1>` + esc(vm.Name) + ` removed</h1><p>It is off the switcher</p></div>
 </div>
 <div class="hint">` + esc(what) + `, in a folder called <b>` + esc(vm.ArchiveDir) + `</b> inside your archive.</div>
+` + registryNote + `
 <button class="sbtn" onclick="send('openArchive','')">Open archive folder</button>
 <div class="footer">
   <button class="btn btn-primary" onclick="send('showList','')">Done</button>
