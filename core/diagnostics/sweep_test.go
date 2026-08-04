@@ -13,15 +13,40 @@ func TestSweepCatchesWhatRegistrationMissed(t *testing.T) {
 		{"a bare uuid", "bucket 6c7b2c78-0d0a-4ab6-bffa-e9e6fe671d61 has 12 files"},
 		{"a uuid inside a path", "open ~/sessions/6c7b2c78-0d0a-4ab6-bffa-e9e6fe671d61/x.json"},
 		{"an uppercase uuid", "ORG 6C7B2C78-0D0A-4AB6-BFFA-E9E6FE671D61"},
+		// Go's \b treats "_" as a word character, so it never fires between "_"
+		// and a hex digit. local_<uuid>.json is the real filename shape every
+		// Claude Code session file on this repo's disk uses (see core/*_test.go
+		// writeSessionFile calls), and that path shows up in sync/conflict/skip
+		// log lines a diagnostics report carries verbatim.
+		{"a uuid preceded by an underscore, the real session filename shape", "synced local_6c7b2c78-0d0a-4ab6-bffa-e9e6fe671d61.json"},
+		{"a uuid flanked by alphanumeric characters on both sides", "id=x6c7b2c78-0d0a-4ab6-bffa-e9e6fe671d61x done"},
+		// An unhyphenated 32-hex-digit run is not something a report has any
+		// other reason to contain, so it must be caught even though this app
+		// only ever writes canonically hyphenated UUIDs.
+		{"an unhyphenated uuid", "raw id 6c7b2c780d0a4ab6bffae9e6fe671d61 seen"},
 	}
 	for _, c := range cases {
 		got := Sweep(c.in)
 		if !strings.Contains(got, UnregisteredMarker) {
 			t.Errorf("%s: Sweep(%q) = %q, want it redacted", c.name, c.in, got)
 		}
-		if strings.Contains(got, "stranger@example.com") || strings.Contains(strings.ToLower(got), "6c7b2c78-0d0a-4ab6-bffa-e9e6fe671d61") {
+		if strings.Contains(got, "stranger@example.com") ||
+			strings.Contains(strings.ToLower(got), "6c7b2c78-0d0a-4ab6-bffa-e9e6fe671d61") ||
+			strings.Contains(strings.ToLower(got), "6c7b2c780d0a4ab6bffae9e6fe671d61") {
 			t.Errorf("%s: the value survived: %q", c.name, got)
 		}
+	}
+}
+
+// TestSweepDoesNotOverreachOnBareHex guards the false-positive side of the
+// unhyphenated-uuid rule: a 32-hex-digit run with hex-character neighbours on
+// either side is a longer, unrelated hex string, not a standalone identifier,
+// and must not be redacted.
+func TestSweepDoesNotOverreachOnBareHex(t *testing.T) {
+	in := "checksum a6c7b2c780d0a4ab6bffae9e6fe671d61b ok"
+	got := Sweep(in)
+	if got != in {
+		t.Errorf("Sweep redacted a hex run that was not a standalone uuid: %q -> %q", in, got)
 	}
 }
 
