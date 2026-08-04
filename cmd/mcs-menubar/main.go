@@ -42,7 +42,7 @@ var (
 	switcher *core.Switcher
 
 	mu           sync.Mutex
-	currentView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge" | "debug"
+	currentView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge" | "removed" | "debug"
 	renameFolder string   // the folder being renamed in the "rename" view
 
 	// debugComment survives the reload that every action triggers. Without it,
@@ -76,6 +76,8 @@ var (
 	newProfileVM panelui.NewProfileVM
 	// mergeFolders is the pair being resolved in the "merge" view.
 	mergeFolders [2]string
+	// removedVM holds the outcome of the last removal, drawn by the "removed" view.
+	removedVM panelui.RemovedVM
 
 	planMu    sync.Mutex
 	planCache = map[string]string{} // profile path -> plan label (leveldb read is heavy; cache it)
@@ -452,6 +454,47 @@ func goPanelAction(caction, cfolder *C.char) {
 			setView("list")
 			reloadPanel()
 		}()
+	case "removeProfile":
+		// arg is the folder identity, straight from askRemove's confirm dialog (or
+		// the failure screen's Try again, which round-trips the same value).
+		if getBusy() {
+			return
+		}
+		folder := arg
+		// Read before the goroutine starts: once RemoveProfile has moved the
+		// directory, neither the display name nor the conversation count can be
+		// looked up again — buildProfiles no longer has a row for it.
+		before := accountVM(folder)
+		setBusyStatus(true, "Removing…")
+		reloadPanel()
+		go func() {
+			out := panelui.RemovedVM{Folder: folder, Name: before.Name, Convos: before.Convos}
+			dest, err := core.RemoveProfile(plat, folder)
+			// leftoverStatus carries a partial-failure complaint through to the
+			// status line; every other outcome clears the busy banner silently and
+			// lets the "removed" screen itself (success or failure) do the talking.
+			leftoverStatus := ""
+			switch {
+			case dest != "":
+				// Route on the destination, not the error. RemoveProfile can return both:
+				// the folder moved but a registry write afterward failed, which is a
+				// partial success, not the "nothing was moved" screen — that is the one
+				// case where showing the failure screen would send the user looking for
+				// an account that has, in fact, already moved.
+				out.ArchiveDir = filepath.Base(dest)
+				if err != nil {
+					leftoverStatus = err.Error()
+				}
+			default:
+				out.Err = err.Error()
+			}
+			setBusyStatus(false, leftoverStatus)
+			mu.Lock()
+			removedVM = out
+			currentView = "removed"
+			mu.Unlock()
+			reloadPanel()
+		}()
 	case "showDebug":
 		// Guarded like backup, sync and merge: the gather below is heavy (a
 		// leveldb copy per profile, a session-tree walk, every log tail), and a
@@ -688,6 +731,11 @@ func reloadPanel() {
 			break
 		}
 		htmlStr = panelui.RenderMerge(a, b, plan, getStatus(), getBusy())
+	case "removed":
+		mu.Lock()
+		vm := removedVM
+		mu.Unlock()
+		htmlStr = panelui.RenderRemoved(vm)
 	case "settings":
 		htmlStr = panelui.RenderSettings(panelui.SettingsVM{
 			AutoSync:   core.AutoSyncOnSwitch(),
