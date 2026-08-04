@@ -25,12 +25,16 @@ const issueBody = "Paste the report here (Cmd+V / Ctrl+V).\n"
 // it. It is then flattened to one line, capped, and escaped — a comment
 // containing & or # must not be able to truncate the URL or reach a shell.
 //
-// Only NewMaskerFor produces the masker today, so m is never nil in practice.
-// But IssueURL is exported and its signature promises nothing about that, so a
-// nil m is guarded here rather than left to panic inside Masker.Apply. The
-// guard drops the comment entirely instead of falling back to it verbatim:
-// with no masker there is no way to know the comment is safe to publish, and
-// a quietly unmasked title is worse than the generic fallback title below.
+// NewMaskerFor is the only thing that produces the masker in the hosts today,
+// but the debug report cache (see debugReportCache in cmd/mcs-menubar and its
+// Windows twin) makes a nil m reachable in practice: showDebug clears the
+// cache before the gather that produces the masker completes, and a click in
+// that window calls in with whatever the cache holds. IssueURL is exported
+// besides, and its signature promises nothing about m being non-nil, so a nil
+// m is guarded here rather than left to panic inside Masker.Apply. The guard
+// drops the comment entirely instead of falling back to it verbatim: with no
+// masker there is no way to know the comment is safe to publish, and a
+// quietly unmasked title is worse than the generic fallback title below.
 func IssueURL(comment string, m *Masker) string {
 	title := ""
 	if m != nil {
@@ -67,8 +71,15 @@ func IssueURL(comment string, m *Masker) string {
 // own accounts, home, user and host name); Sweep is what catches an address or
 // a UUID belonging to someone else that a user's own pasted comment can carry,
 // and which no registration here could ever have known about.
+//
+// A nil m is guarded the same way IssueURL guards it, and for the same
+// reason: the debug report cache makes nil reachable here (see the doc
+// comment on IssueURL), and with no masker there is no way to know the
+// comment is safe to publish. The guard drops the comment rather than publish
+// it unmasked; the report itself is returned unchanged since it was already
+// masked and swept by Build before it reached the cache.
 func AppendComment(report, comment string, m *Masker) string {
-	if comment == "" {
+	if comment == "" || m == nil {
 		return report
 	}
 	return report + "\n---\n" + Sweep(m.Apply(comment)) + "\n"

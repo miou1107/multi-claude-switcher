@@ -450,6 +450,14 @@ type DebugVM struct {
 	Report  string
 	Comment string
 	Status  string // transient feedback, e.g. after Copy
+
+	// Gathering is true for the window between showDebug clearing the report
+	// cache and the background gather filling it back in. The cache is
+	// cleared first, deliberately, so a stale snapshot from a previous visit
+	// can never be rendered or copied — but that leaves Report empty for a
+	// real reason, not because gathering found nothing, so the box must say
+	// so rather than render as if a finished, empty report were being shown.
+	Gathering bool
 }
 
 // RenderDebug shows the report before it goes anywhere.
@@ -463,12 +471,16 @@ func RenderDebug(vm DebugVM) string {
 	if vm.Status != "" {
 		status = `<div class="status">` + esc(vm.Status) + `</div>`
 	}
+	reportBox := `<div class="dbgbox">` + esc(vm.Report) + `</div>`
+	if vm.Gathering {
+		reportBox = `<div class="dbgbox">Gathering the report…</div>`
+	}
 	body := `<div class="header">
   <button class="back" onclick="send('showSettings','')">‹</button>
   <div class="htext"><h1>Debug info</h1><p>Exactly what a report contains</p></div>
 </div>` + status + `
 <div class="dbgnote">Email addresses, account IDs and your user name are removed before anything leaves this screen.</div>
-<div class="dbgbox">` + esc(vm.Report) + `</div>
+` + reportBox + `
 <div class="hint">What went wrong? (optional)</div>
 <textarea class="dbgarea" id="dbgc" placeholder="Switching to my work account left the personal one closed…">` + esc(vm.Comment) + `</textarea>
 <div class="footer">

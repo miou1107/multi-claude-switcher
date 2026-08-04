@@ -668,6 +668,23 @@ func TestRenderDebugEscapesTheReportAndTheComment(t *testing.T) {
 	}
 }
 
+// TestRenderDebugGatheringShowsPlaceholder is a round-3 finding. showDebug now
+// clears the report cache before the gather starts (so a stale snapshot from
+// an earlier visit can never be rendered or copied), which means the very
+// first render of this view has an empty Report. Without a placeholder that
+// looks identical to a report that gathered nothing at all — an empty box
+// with the busy banner cleared — and Copy/Report a problem would act on that
+// emptiness instead of refusing.
+func TestRenderDebugGatheringShowsPlaceholder(t *testing.T) {
+	h := RenderDebug(DebugVM{Report: "", Gathering: true})
+	if !strings.Contains(h, "Gathering") {
+		t.Errorf("gathering state should say so instead of showing an empty box:\n%s", h)
+	}
+	if strings.Contains(h, `<div class="dbgbox"></div>`) {
+		t.Error("the report box must not render empty while still gathering")
+	}
+}
+
 // TestRenderSettingsOffersDebugInfo keeps the screen reachable. A view nothing
 // links to is a view nobody uses.
 func TestRenderSettingsOffersDebugInfo(t *testing.T) {
