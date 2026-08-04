@@ -172,6 +172,7 @@
 - `docs/superpowers/plans/2026-07-30-ghost-account-recovery.md` — Implementation plan for the ghost-account-recovery spec: 17 TDD tasks across core, platform, the shared panel renderer, and both webview hosts.
 - `docs/superpowers/specs/2026-08-04-debug-info-and-problem-report-design.md` — Design spec for the Debug info screen and the clipboard-plus-prefilled-issue problem report (what is collected, stable-pseudonym masking, why nothing is uploaded).
 - `docs/superpowers/plans/2026-08-04-debug-info-and-problem-report.md` — Implementation plan for the Debug info spec: 11 TDD tasks across the new core/diagnostics package, platform version reading, the shared panel renderer, clipboard helpers and both webview hosts.
+- `docs/superpowers/specs/2026-08-04-remove-account-design.md` — Design spec for removing an account from the switcher: archive rather than delete, what it refuses and why, and the screens for the confirmation and the result.
 - `core/diagnostics/mask.go` — Stable-pseudonym masking for debug reports: registration by value, boundary-aware user-name matching, home-prefix rewriting on both path separators.
 - `core/diagnostics/mask_test.go` — Unit tests for the masker: value registration, boundary rules, home-prefix rewriting, and the ordering that keeps one pass from mismasking another's output.
 - `core/diagnostics/sweep.go` — Shape-based backstop that blanks any email or UUID which escaped registration, so a field nobody registered fails a test instead of reaching a public issue.
