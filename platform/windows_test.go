@@ -176,6 +176,19 @@ func TestRunningProfilesInProcsWindows(t *testing.T) {
 			want: []string{work},
 		},
 		{
+			// Electron does not quote the value consistently. Taken from a real
+			// Windows command line: the crashpad handler passes it bare with more
+			// flags after it, while every other helper quotes it. Matching only the
+			// quoted form would miss a running profile whose only surviving process
+			// is the crashpad handler.
+			name: "unquoted value, as the crashpad handler passes it",
+			procs: []string{
+				`"C:\Program Files\Claude\Claude.exe" --type=crashpad-handler --user-data-dir=` + work +
+					` /prefetch:4 --no-rate-limit --database=` + work + `\Crashpad`,
+			},
+			want: []string{work},
+		},
+		{
 			name:  "a process with no profile path is not attributed to one",
 			procs: []string{`"C:\Program Files\Claude\Claude.exe"`},
 			want:  nil,
