@@ -30,7 +30,7 @@ Nothing is deleted, ever. No `os.RemoveAll` path is added by this work.
 Two refusals, at two layers, because the reasons are different.
 
 **The account in use** — `core` refuses when the identity matches
-`core.ActiveProfile()`. On macOS and the Windows standalone build this stops a
+`core.LoadActiveProfile()`. On macOS and the Windows standalone build this stops a
 rename out from under a running Claude. It holds whether or not Claude is
 running, which a check against the running path would not: with Claude closed,
 no profile is "current" and every guard based on that would open.
