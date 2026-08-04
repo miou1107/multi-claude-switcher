@@ -677,7 +677,7 @@ func TestRenderDebugExplainsTheUnregisteredMarker(t *testing.T) {
 	if !strings.Contains(h, "[redacted: unregistered]") {
 		t.Fatalf("fixture broken: report marker missing:\n%s", h)
 	}
-	if !strings.Contains(h, "MCS spotted something") {
+	if !strings.Contains(h, "marks something that looked like an address or an ID and was blocked") {
 		t.Errorf("the notice must explain what the marker means:\n%s", h)
 	}
 }

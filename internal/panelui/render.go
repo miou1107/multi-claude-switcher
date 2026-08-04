@@ -484,7 +484,7 @@ func RenderDebug(vm DebugVM) string {
   <button class="back" onclick="send('showSettings', document.getElementById('dbgc').value)">‹</button>
   <div class="htext"><h1>Debug info</h1><p>Exactly what a report contains</p></div>
 </div>` + status + `
-<div class="dbgnote">Your email address, account IDs, user name and home folder are replaced with stand-ins like account-1 in the report below. Names inside a folder you chose yourself may survive — a profile you named after yourself keeps that name. A line reading ` + esc(diagnostics.UnregisteredMarker) + ` means MCS spotted something that looked like an address or an ID and blocked it; it is not hiding anything else from you.</div>
+<div class="dbgnote">Your email address, account IDs, user name and home folder are replaced with stand-ins like account-1 below. A name you gave a profile folder yourself can still show. ` + esc(diagnostics.UnregisteredMarker) + ` marks something that looked like an address or an ID and was blocked.</div>
 ` + reportBox + `
 <div class="hint">What went wrong? (optional)</div>
 <textarea class="dbgarea" id="dbgc" placeholder="Switching to my work account left the personal one closed…">` + esc(vm.Comment) + `</textarea>
