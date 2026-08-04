@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-04
+
 ### Added
 - **A Debug info screen, and a way to report a problem from it.** Settings now
   shows what MCS knows about your machine: its own version, which Claude Desktop
