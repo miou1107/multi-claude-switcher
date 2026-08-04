@@ -761,3 +761,19 @@ func TestRenderAccountHidesRemoveWhenItIsTheOnlyProfile(t *testing.T) {
 		t.Fatal("removing the last profile would leave an empty panel with no way back")
 	}
 }
+
+// TestAskRemoveWordsTheConversationCountNaturally pins all three branches of
+// askRemove's conversation-count wording at once, because there is no JS
+// runtime in this test suite to execute the ternary and observe its output —
+// the literal source line is the only thing that can be asserted on. Zero
+// gets its own phrase ("no conversations yet") rather than fall through to
+// the plural branch and read "all 0 conversations": a freshly created,
+// never-signed-in profile is the single most likely account to be removed,
+// so zero is not a rare edge case here.
+func TestAskRemoveWordsTheConversationCountNaturally(t *testing.T) {
+	h := RenderAccount(AccountVM{Folder: "Claude", Name: "Some name", Convos: 1})
+	want := `var what = n === 0 ? 'no conversations yet' : n === 1 ? 'its 1 conversation' : 'all ' + n + ' conversations';`
+	if !strings.Contains(h, want) {
+		t.Fatalf("askRemove must phrase zero, one, and many conversations naturally:\n%s", h)
+	}
+}

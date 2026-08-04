@@ -234,7 +234,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
   // otherwise break the parse (the v0.9.1 bug).
   function askRemove(el){
     var n = parseInt(el.dataset.convos, 10) || 0;
-    var what = n === 1 ? 'its 1 conversation' : 'all ' + n + ' conversations';
+    // Zero gets its own wording rather than falling through to "all 0
+    // conversations": a freshly created, never-signed-in slot is the profile
+    // most likely to be the one somebody removes, so this is not a rare edge.
+    var what = n === 0 ? 'no conversations yet' : n === 1 ? 'its 1 conversation' : 'all ' + n + ' conversations';
     askConfirm('removeProfile', el.dataset.folder, 'Remove '+el.dataset.name+'?',
       'It disappears from the switcher. Its folder, with '+what+', moves to the archive folder you can open from Settings.',
       'Remove',
