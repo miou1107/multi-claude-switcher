@@ -223,23 +223,43 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
   // switching, syncing and reporting a problem all close Claude or publish
   // something, but none of them removes an account, and a red button on every
   // dialog would stop meaning anything.
+  //
+  // action==='' makes this an informational dialog: there is nothing to confirm
+  // (Claude being open on the account is not something "Got it" can fix), so
+  // Cancel is hidden and the one button just closes the dialog. This is the only
+  // way an informational dialog is built; there is no second modal.
   var _pending=null;
   function askConfirm(action, arg, title, body, okLabel, warn, kind){
     _pending={a:action, arg:arg};
     document.getElementById('mcsModalTitle').textContent=title;
     document.getElementById('mcsModalBody').textContent=body;
-    document.querySelector('#mcsModal .warn').textContent=
-      warn || 'Anything unsaved in Claude is interrupted.';
+    // warn omitted (arguments.length<6) keeps the shared line every dialog used
+    // to carry unconditionally. An explicitly empty string hides the block
+    // outright: plain "warn || default" cannot tell those two apart, since ''
+    // is falsy the same as undefined, which is exactly what askRemove now
+    // needs: its confirmation says everything once, in the body, with no
+    // second block repeating a warning underneath.
+    var warnText = arguments.length >= 6 ? warn : 'Anything unsaved in Claude is interrupted.';
+    var warnEl = document.querySelector('#mcsModal .warn');
+    warnEl.textContent = warnText;
+    warnEl.style.display = warnText ? '' : 'none';
     var ok=document.getElementById('mcsModalOk');
     // Set both ways round: the dialog is reused, so a plain confirm opened after
     // a removal must not inherit the red button.
     ok.classList.toggle('btn-danger', kind==='destructive');
     ok.classList.toggle('btn-primary', kind!=='destructive');
     document.getElementById('mcsModalOk').textContent=okLabel;
+    // An informational dialog has nothing to cancel out of.
+    document.getElementById('mcsModalCancel').style.display = action === '' ? 'none' : '';
     document.getElementById('mcsModal').classList.add('on');
-    // Cancel takes the focus, not Continue. Enter on an unread dialog must not
-    // close somebody's app.
-    document.getElementById('mcsModalCancel').focus();
+    // Cancel takes the focus, not Continue, so Enter on an unread dialog cannot
+    // close somebody's app. The informational dialog has no Cancel to give it
+    // to, so it focuses OK instead: that button is the only one on screen, and
+    // it only closes the dialog, so focusing it is safe. Leaving focus on
+    // whatever control behind the overlay opened it would let Tab walk the
+    // screen underneath while the dialog is up, and Enter would re-open the
+    // same dialog instead of doing nothing.
+    (action === '' ? ok : document.getElementById('mcsModalCancel')).focus();
   }
   function askSwitch(folder, name){
     askConfirm('switch', folder, 'Switch to '+name+'?',
@@ -256,19 +276,39 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
   // interpolated into the inline handler: a name with an apostrophe would
   // otherwise break the parse (the v0.9.1 bug).
   function askRemove(el){
+    // The button is always live now: a disabled control cannot explain
+    // itself. If Claude is open on this account, remove has nothing to confirm,
+    // so it opens an informational dialog instead of the destructive one, and
+    // "Got it" just closes it.
+    if (el.dataset.current === '1') {
+      askConfirm('', '', 'Claude is open on '+el.dataset.name,
+        'Switch to another account first, then you can remove it.', 'Got it', '');
+      return;
+    }
     var n = parseInt(el.dataset.convos, 10) || 0;
-    // Zero gets its own wording rather than falling through to "all 0
-    // conversations": a freshly created, never-signed-in slot is the profile
-    // most likely to be the one somebody removes, so this is not a rare edge.
-    var what = n === 0 ? 'no conversations yet' : n === 1 ? 'its 1 conversation' : 'all ' + n + ' conversations';
+    // Zero gets its own wording rather than falling through to "0
+    // conversations kept": a freshly created, never-signed-in slot is the
+    // profile most likely to be the one somebody removes, so this is not a
+    // rare edge. For one-or-more, the kept-not-deleted fact and the sign-in-
+    // again fact are two separate sentences on purpose: signing in again
+    // starts a new copy of the account, and does not bring the old
+    // conversations into it, so a single sentence joining the two ("kept, and
+    // you can add it back") would read as a promise this does not keep.
+    // RenderRemoved (the screen after a removal) already gets this right; this
+    // matches its honesty, not its wording, since this dialog asks before the
+    // fact and that one reports after it.
+    var what = n === 0 ? 'It comes off your list. Nothing is deleted, and you can sign in to it again any time.'
+      : n === 1 ? 'It comes off your list. Its 1 conversation is kept, not deleted. Signing in to this account again starts a new copy of it, without that conversation.'
+      : 'It comes off your list. Its ' + n + ' conversations are kept, not deleted. Signing in to this account again starts a new copy of it, without those conversations.';
+    // No warn block: the body above already says everything the warning line
+    // used to repeat, so an empty string here hides it rather than falling
+    // back to the shared "Anything unsaved…" line, which does not apply since
+    // this dialog is not about to close Claude.
     askConfirm('removeProfile', el.dataset.folder, 'Remove '+el.dataset.name+'?',
-      'It disappears from the switcher. Its folder, with '+what+', moves to the archive folder you can open from Settings.',
-      'Remove',
-      'To use this account again you have to sign in to it again.',
-      'destructive');
+      what, 'Remove', '', 'destructive');
   }
   // The folders arrive via data-* and are joined here, never interpolated into the
-  // inline handler — a folder with an apostrophe would otherwise break the parse.
+  // inline handler: a folder with an apostrophe would otherwise break the parse.
   function mergePair(a, b){ send('showMerge', a+'|'+b); }
   function askSync(from, to, fromName, toName, convos){
     var n = parseInt(convos, 10) || 0;
@@ -277,18 +317,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
       'Claude closes, '+what+' from '+fromName+', then Claude reopens where you were.', 'Sync');
   }
   function closeConfirm(){ _pending=null; document.getElementById('mcsModal').classList.remove('on'); }
-  function okConfirm(){ var p=_pending; closeConfirm(); if(p) send(p.a, p.arg); }
+  // An informational dialog (action==='') has nothing to send: it exists only
+  // to be read and closed.
+  function okConfirm(){ var p=_pending; closeConfirm(); if(p && p.a) send(p.a, p.arg); }
   // Enter is intentionally NOT hijacked: browsers activate the focused button on Enter,
-  // so tabbing to Cancel and pressing Enter cancels — hijacking it would silently confirm.
+  // so tabbing to Cancel and pressing Enter cancels; hijacking it would silently confirm.
   document.addEventListener('keydown', function(e){
     if(e.key!=='Escape') return;
     if(document.getElementById('mcsModal').classList.contains('on')) { closeConfirm(); return; }
     // Inside a text input (Rename), Esc backs out to the list instead of
-    // killing the panel — hiding on Windows would discard the typed name.
+    // killing the panel; hiding on Windows would discard the typed name.
     var ae=document.activeElement;
     // The Debug comment box is the one exception: showList jumps past
-    // Settings, which the back button does not, and — same as pressing that
-    // back button used to — discarded whatever the user had typed, since it
+    // Settings, which the back button does not, and, same as pressing that
+    // back button used to, discarded whatever the user had typed, since it
     // was never sent to Go until Copy or Report a problem. Sending it as the
     // arg here mirrors the back button's fix: showSettings on the Go side
     // saves it before switching the view away.
@@ -395,7 +437,7 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 		if dupFolder[p.Folder] {
 			dupPill = `<span class="dup-pill">Duplicate</span>`
 		}
-		editBtn := fmt.Sprintf(`<button class="edit" data-folder="%s" onclick="event.stopPropagation();send('showRename',this.dataset.folder)">✎</button>`, esc(p.Folder))
+		editBtn := fmt.Sprintf(`<button class="edit" aria-label="Account options" data-folder="%s" onclick="event.stopPropagation();send('showRename',this.dataset.folder)">⋯</button>`, esc(p.Folder))
 		if p.Current {
 			cards.WriteString(fmt.Sprintf(`
       <div class="card current"><div class="dotcur"></div>
@@ -638,26 +680,44 @@ type AccountVM struct {
 	OnlyOne bool   // the only profile listed: remove is hidden
 }
 
-// RenderAccount is the in-panel screen reached from the pencil on an account row.
-// It was the Rename screen; removal lives at the bottom of it rather than as a bin
-// icon beside the pencil, because two small adjacent icons is the arrangement most
-// likely to be mis-tapped, and the delete-button rule is red and away from edit.
+// RenderAccount is the in-panel screen reached from the three-dot button on an
+// account row. It was the Rename screen; removal lives at the bottom of it rather
+// than as a bin icon beside the three dots, because two small adjacent icons is
+// the arrangement most likely to be mis-tapped, and the delete-button rule is red
+// and away from edit.
 //
-// Disabling for Current is a courtesy, not the guard. core.RemoveProfile asks what
-// Claude has open at the moment of the action, because this screen may have been
-// drawn before the user opened Claude on the account it is about.
+// The button is always enabled: a disabled control cannot explain itself, and this
+// is the one place Vin's design guidance to keep controls live and respond on use
+// actually bites. data-current tells askRemove to open an informational dialog
+// instead of the destructive confirmation when Claude has this account open — the
+// dialog carries the "switch first" sentence that used to sit here as a hint.
+//
+// That said, disabling was a courtesy, not the guard, and still is not one:
+// core.RemoveProfile asks what Claude has open at the moment of the action,
+// because this screen may have been drawn before the user opened Claude on the
+// account it is about.
 func RenderAccount(vm AccountVM) string {
 	esc := html.EscapeString
 
 	remove := ""
 	if !vm.OnlyOne {
-		btn := fmt.Sprintf(`<button class="sbtn danger" data-folder="%s" data-name="%s" data-convos="%d" onclick="askRemove(this)">Remove this account</button>`,
-			esc(vm.Folder), esc(vm.Name), vm.Convos)
-		note := `<div class="hint">Removing takes this account off the list. Its folder is archived, not deleted.</div>`
+		current := ""
+		// The hint line goes away for the account in use: the informational
+		// dialog askRemove now opens carries that sentence instead, so the
+		// screen would otherwise say it twice.
+		//
+		// "Nothing is deleted" and "signing in again" are two separate
+		// sentences, not one: signing in to this account again starts a new
+		// copy of it, and does not bring its old conversations along, so
+		// joining the two ("kept, and you can add it back") would read as a
+		// promise this does not keep.
+		note := `<div class="hint">Removing takes this account off your list. Nothing is deleted. Signing in to it again starts a new copy of the account.</div>`
 		if vm.Current {
-			btn = `<button class="sbtn danger" disabled>Remove this account</button>`
-			note = `<div class="hint">Switch to another account first, then you can remove it.</div>`
+			current = ` data-current="1"`
+			note = ""
 		}
+		btn := fmt.Sprintf(`<button class="sbtn danger" data-folder="%s" data-name="%s" data-convos="%d"%s onclick="askRemove(this)">Remove this account</button>`,
+			esc(vm.Folder), esc(vm.Name), vm.Convos, current)
 		remove = `<div class="dangerzone">` + note + btn + `</div>`
 	}
 
@@ -897,31 +957,45 @@ func ComputePreselect(accounts []core.ScannedAccount, managed []string) map[stri
 	return pre
 }
 
-// RemovedVM drives the screen shown after a removal, in either outcome.
-//
-// Err is the whole of the success/failure decision: the hosts set it only when
-// the folder did NOT move. A partial failure, where the folder moved but a
-// registry write afterward did not, sets RegistryNote instead, so this still
-// draws the success variant underneath a folder that did in fact move, with the
-// leftover complaint on the screen itself rather than in a status line the user
-// may never look at again.
+// RemovedVM drives the screen shown when a removal did not go cleanly: it
+// failed outright, or it moved the folder but left something behind. A clean
+// removal no longer reaches this screen at all — it goes straight back to the
+// list with a status banner instead, since the row disappearing from the list
+// is confirmation enough. See RenderList and both hosts' removeProfile case.
 type RemovedVM struct {
 	Folder string // for Try again after a failure
 	Name   string
 	Convos int
-	// Err is empty on success.
+	// Err is set when the folder did NOT move at all: the whole removal failed.
 	Err string
-	// RegistryNote is set only on the success path: the folder moved but
-	// something it left behind (its display name, its managed listing, ...)
-	// could not be cleared. Empty renders nothing.
+	// RegistryNote is set when the folder DID move but something it left
+	// behind (its display name, its managed listing, ...) could not be
+	// cleared. The hosts never set both Err and RegistryNote, and never
+	// construct a RemovedVM with neither set: a removal that left nothing
+	// behind returns to the list instead of reaching this screen. RenderRemoved
+	// enforces the latter itself rather than trusting callers to keep it true.
 	RegistryNote string
 }
 
-// RenderRemoved reports the outcome on its own screen rather than as a line at
-// the top of a changed list. A removal that reports itself in one line is the
-// case where the user cannot tell whether it happened, which for a
-// destructive-looking action is the one thing the screen has to answer.
+// RenderRemoved is the screen shown when a removal could not be completed
+// (Err set), or completed but left something behind (RegistryNote set) — the
+// two cases that still have something to say once a clean removal returns
+// straight to the list with a banner instead of a screen of its own. A
+// removal that only reported itself in a line at the top of a changed list is
+// the case where the user cannot tell whether it happened, which for a
+// destructive-looking action is the one thing this screen has to answer.
+//
+// It panics if neither Err nor RegistryNote is set. That is not a screen this
+// function draws any more, not merely one nothing currently asks for: a clean
+// removal with nothing left behind is routed straight back to the list by
+// DecideRemovalOutcome before either host ever builds a RemovedVM, so a caller
+// reaching here with both empty has a bug, and rendering a "removed" screen
+// for data no code path can produce would hide that bug rather than surface
+// it.
 func RenderRemoved(vm RemovedVM) string {
+	if vm.Err == "" && vm.RegistryNote == "" {
+		panic("panelui: RenderRemoved called with neither Err nor RegistryNote set; a clean removal must go through DecideRemovalOutcome's ShowList path instead")
+	}
 	esc := html.EscapeString
 
 	if vm.Err != "" {
@@ -946,12 +1020,16 @@ func RenderRemoved(vm RemovedVM) string {
 	// One sentence, saying the only two things the user needs: where it went, and
 	// that it is not gone. The archived folder's own name and a button to open the
 	// archive both used to be here; they made the screen busy for a fact almost
-	// nobody acts on, and Settings already has a way into that folder.
+	// nobody acts on, and Settings already has a way into that folder. This line
+	// only reaches the screen alongside a registry complaint now — a clean removal
+	// with nothing left behind returns straight to the list instead — but it still
+	// answers the question this screen exists for: the folder did move.
 	//
-	// Mirrors askRemove's own zero/one/many wording in the shell script: zero gets
-	// its own phrase rather than falling through to a plural that would read
-	// "0 conversations", and a freshly created, never-signed-in profile is not a
-	// rare case to remove.
+	// Same zero/one/many shape as askRemove's own wording in the shell script
+	// (worded differently there, since that one asks before the fact and this one
+	// reports after it): zero gets its own phrase rather than falling through to a
+	// plural that would read "0 conversations", and a freshly created,
+	// never-signed-in profile is not a rare case to remove.
 	what := "Its folder is in your archive, not deleted."
 	if vm.Convos == 1 {
 		what = "Its 1 conversation is in your archive, not deleted."

@@ -481,30 +481,22 @@ func goPanelAction(caction, cfolder *C.char) {
 		setBusyStatus(true, "Removing…")
 		reloadPanel()
 		go func() {
-			out := panelui.RemovedVM{Folder: folder, Name: before.Name, Convos: before.Convos}
 			dest, err := core.RemoveProfile(plat, folder)
-			switch {
-			case dest != "":
-				// Route on the destination, not the error. RemoveProfile can return both:
-				// the folder moved but a registry write afterward failed, which is a
-				// partial success, not the "nothing was moved" screen — that is the one
-				// case where showing the failure screen would send the user looking for
-				// an account that has, in fact, already moved.
-				if err != nil {
-					// RegistryNote, not the status line: the "removed" screen's only exit
-					// is showList, which clears the status before anything renders, so a
-					// status string set here would never be seen. This has to live on the
-					// VM the screen itself draws from.
-					out.RegistryNote = err.Error()
-				}
-			default:
-				out.Err = err.Error()
+			// The decision lives in panelui, shared with mcs-tray, so the two
+			// hosts cannot drift on what a clean removal, a partial failure and
+			// an outright failure each do — the way this codebase already
+			// shipped a platform difference once.
+			outcome := panelui.DecideRemovalOutcome(folder, before.Name, before.Convos, dest, err)
+			if outcome.ShowList {
+				setBusyStatus(false, outcome.ListStatus)
+				setView("list")
+			} else {
+				setBusyStatus(false, "")
+				mu.Lock()
+				removedVM = outcome.Removed
+				currentView = "removed"
+				mu.Unlock()
 			}
-			setBusyStatus(false, "")
-			mu.Lock()
-			removedVM = out
-			currentView = "removed"
-			mu.Unlock()
 			reloadPanel()
 		}()
 	case "showDebug":

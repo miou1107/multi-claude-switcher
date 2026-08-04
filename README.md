@@ -98,17 +98,21 @@ is no way to move a running instance to a different account.
 **Rescan** finds accounts already on the machine, including any you have not
 signed into yet. **Rename** gives a profile a name you will actually recognise.
 
-**Remove** is reached from the pencil on an account row, at the bottom of the
-Account settings screen it opens. It takes the account off the list by
-archiving its profile folder, never deleting it, and you can open that archive
-folder any time from Settings. To use the account again, just sign in to it
-once more. The button is hidden entirely when it is the only account listed.
-Otherwise removal is refused for an account Claude currently has open right
-now, which is why removing a *different* account never requires quitting
-Claude first, and, on the Windows Store build, for the account currently
+**Remove** is reached from the three-dot button on an account row, at the
+bottom of the Account settings screen it opens. It takes the account off the
+list by archiving its profile folder, never deleting it, and you can open that
+archive folder any time from Settings. To use the account again, just sign in
+to it once more. The button is hidden entirely when it is the only account
+listed. For the account Claude currently has open, the button still works,
+but pressing it just tells you to switch to another account first, which is
+why removing a *different* account never requires quitting Claude at all. On
+the Windows Store build, removal is also refused for the account currently
 occupying the one shared account slot, for an install MCS has not finished
 scanning yet, and for an account whose conversations are still queued to move
-into one you just added.
+into one you just added. A clean removal drops you straight back on the
+account list with a banner saying so; a removal that could not go through, or
+that went through but left something behind, still gets its own screen with
+the reason.
 
 **Settings** holds the two toggles, a manual backup, update check, shortcuts to
 the log, backup, and archive folders, and Quit.

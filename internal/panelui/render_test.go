@@ -135,6 +135,21 @@ func TestRenderListFlagsProfileAwaitingSignIn(t *testing.T) {
 	}
 }
 
+// TestRenderListRowButtonIsThreeDotsNotAPencil pins the redesign: a pencil
+// glyph reads as "rename" to everyone, which is exactly why nobody found
+// removal behind it. The three-dot glyph, the .edit class, the data-folder
+// attribute and the showRename action all have to survive the swap — only the
+// glyph and its accessible name change.
+func TestRenderListRowButtonIsThreeDotsNotAPencil(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", Current: true, SignedIn: true}}, false, "")
+	if strings.Contains(html, ">✎<") {
+		t.Fatal("the pencil glyph must be gone")
+	}
+	if !strings.Contains(html, `<button class="edit" aria-label="Account options" data-folder="Claude" onclick="event.stopPropagation();send('showRename',this.dataset.folder)">⋯</button>`) {
+		t.Fatalf("want the three-dot button with its aria-label, class, data-folder and action intact:\n%s", html)
+	}
+}
+
 func TestRenderListShowsAStatusMessage(t *testing.T) {
 	// A merge that could not be computed, a recovery that came too late, or a merge
 	// that succeeded all end back on the list. Without a banner the list re-renders
@@ -283,14 +298,33 @@ func TestRenderSyncAsksBeforeClosingClaude(t *testing.T) {
 }
 
 // TestConfirmDialogFocusesCancel: Enter on a dialog the user has not read must not
-// close their Claude, so the safe button holds the focus.
+// close their Claude, so the safe button holds the focus — unless there is no
+// Cancel to give it to (the informational dialog, see
+// TestInformationalDialogFocusesOKNotAHiddenCancel), which is the one case
+// where OK is the only, non-destructive button and focusing it is safe.
 func TestConfirmDialogFocusesCancel(t *testing.T) {
 	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
-	if !strings.Contains(html, "getElementById('mcsModalCancel').focus()") {
-		t.Error("the confirmation must open with Cancel focused")
+	if !strings.Contains(html, `: document.getElementById('mcsModalCancel')).focus();`) {
+		t.Error("the confirmation must open with Cancel focused when Cancel is shown")
 	}
 	if strings.Contains(html, "getElementById('mcsModalOk').focus()") {
-		t.Error("focusing Continue makes Enter destructive on an unread dialog")
+		t.Error("focusing Continue unconditionally makes Enter destructive on an unread dialog")
+	}
+}
+
+// TestInformationalDialogFocusesOKNotAHiddenCancel pins the fix for a dialog
+// that used to focus nothing at all: hiding Cancel with display:none and then
+// unconditionally calling .focus() on it is a no-op, since a hidden element
+// cannot take focus. That left focus on whatever was behind the overlay (the
+// "Remove this account" button that opened it), so Tab walked the screen
+// underneath while the dialog was up, and Enter re-fired that button and
+// re-opened the same dialog. There is no JS runtime in this test suite, so the
+// source of askConfirm's closing focus call is the only thing that can be
+// asserted on, the same way TestConfirmDialogFocusesCancel reads it.
+func TestInformationalDialogFocusesOKNotAHiddenCancel(t *testing.T) {
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	if !strings.Contains(html, `(action === '' ? ok : document.getElementById('mcsModalCancel')).focus();`) {
+		t.Fatalf("askConfirm must focus OK when Cancel is hidden, and Cancel otherwise:\n%s", html)
 	}
 }
 
@@ -736,22 +770,46 @@ func TestRenderAccountOffersRemove(t *testing.T) {
 	if !strings.Contains(h, "Account settings") {
 		t.Fatal("the screen is still titled as rename-only")
 	}
-	if !strings.Contains(h, "archived, not deleted") {
-		t.Fatal("the screen does not say the folder is kept")
+	want := `<div class="hint">Removing takes this account off your list. Nothing is deleted. Signing in to it again starts a new copy of the account.</div>`
+	if !strings.Contains(h, want) {
+		t.Fatalf("want the hint rendered without implementation words like folder/archive, and without implying a fresh sign-in restores the old conversations:\n%s", h)
 	}
 }
 
-// TestRenderAccountDisablesRemoveForTheAccountInUse asserts on the actual
-// disabled button markup, not the bare word "disabled": that word could
-// otherwise appear anywhere in the shell's CSS (e.g. ".sbtn:disabled") and
-// let this pass even if the button on this particular screen were still live.
-func TestRenderAccountDisablesRemoveForTheAccountInUse(t *testing.T) {
-	h := RenderAccount(AccountVM{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true})
-	if !strings.Contains(h, `sbtn danger" disabled`) {
-		t.Fatal("remove is not disabled for the account in use")
+// TestRenderAccountNeverDisablesRemove pins the redesign: a disabled control
+// cannot explain itself, so the button stays live in every state, including
+// for the account Claude currently has open. Asserting on the actual disabled
+// button markup, not the bare word "disabled" (which the shell's own CSS
+// always contains, e.g. ".sbtn:disabled"), is what makes the negative
+// assertion meaningful.
+func TestRenderAccountNeverDisablesRemove(t *testing.T) {
+	notCurrent := RenderAccount(AccountVM{Folder: "Claude_Old", Name: "Old one", Convos: 34})
+	if strings.Contains(notCurrent, `sbtn danger" disabled`) {
+		t.Fatal("remove must not be disabled outside the account in use")
 	}
-	if !strings.Contains(h, "Switch to another account first") {
-		t.Fatal("no reason given for the disabled button")
+	current := RenderAccount(AccountVM{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true})
+	if strings.Contains(current, `sbtn danger" disabled`) {
+		t.Fatal("remove must not be disabled even for the account in use: it opens an informational dialog instead")
+	}
+	if !strings.Contains(current, `onclick="askRemove(this)"`) {
+		t.Fatalf("the button for the account in use must still be clickable:\n%s", current)
+	}
+}
+
+// TestRenderAccountCurrentCarriesDataForTheInformationalDialog pins the marker
+// askRemove reads to decide which dialog to open, and that the hint div that
+// used to sit next to a disabled button is gone now that the dialog says the
+// same sentence instead — otherwise the screen would say it twice. The
+// sentence itself is unavoidably present in the page as JS source (the shared
+// shell embeds every dialog's copy on every screen), so the assertion is on
+// the hint <div> specifically, not on the substring appearing anywhere at all.
+func TestRenderAccountCurrentCarriesDataForTheInformationalDialog(t *testing.T) {
+	h := RenderAccount(AccountVM{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true})
+	if !strings.Contains(h, `data-current="1"`) {
+		t.Fatalf("askRemove needs to know this is the account in use:\n%s", h)
+	}
+	if strings.Contains(h, `<div class="hint">`) {
+		t.Fatalf("no hint div at all for the account in use; the dialog carries the sentence instead:\n%s", h)
 	}
 }
 
@@ -766,15 +824,94 @@ func TestRenderAccountHidesRemoveWhenItIsTheOnlyProfile(t *testing.T) {
 // askRemove's conversation-count wording at once, because there is no JS
 // runtime in this test suite to execute the ternary and observe its output —
 // the literal source line is the only thing that can be asserted on. Zero
-// gets its own phrase ("no conversations yet") rather than fall through to
-// the plural branch and read "all 0 conversations": a freshly created,
+// gets its own sentence ("Nothing is deleted") rather than fall through to
+// the plural branch and read "Its 0 conversations": a freshly created,
 // never-signed-in profile is the single most likely account to be removed,
-// so zero is not a rare edge case here.
+// so zero is not a rare edge case here. The confirmation is one sentence with
+// no separate warning line (see TestRemoveConfirmationHasNoWarningBlock).
 func TestAskRemoveWordsTheConversationCountNaturally(t *testing.T) {
 	h := RenderAccount(AccountVM{Folder: "Claude", Name: "Some name", Convos: 1})
-	want := `var what = n === 0 ? 'no conversations yet' : n === 1 ? 'its 1 conversation' : 'all ' + n + ' conversations';`
-	if !strings.Contains(h, want) {
-		t.Fatalf("askRemove must phrase zero, one, and many conversations naturally:\n%s", h)
+	for _, want := range []string{
+		`n === 0 ? 'It comes off your list. Nothing is deleted, and you can sign in to it again any time.'`,
+		`n === 1 ? 'It comes off your list. Its 1 conversation is kept, not deleted. Signing in to this account again starts a new copy of it, without that conversation.'`,
+		`'It comes off your list. Its ' + n + ' conversations are kept, not deleted. Signing in to this account again starts a new copy of it, without those conversations.'`,
+	} {
+		if !strings.Contains(h, want) {
+			t.Fatalf("askRemove must phrase zero, one, and many conversations naturally, missing %q:\n%s", want, h)
+		}
+	}
+}
+
+// TestAskRemoveDoesNotPromiseConversationsComeBack pins finding 4 of the
+// review: the previous copy ("Its N conversations are not deleted, and you
+// can add it back by signing in to it again") joined the kept-not-deleted
+// fact and the sign-in-again fact into one sentence, which reads as a promise
+// that signing in again restores the old conversations. It does not: signing
+// in again starts a new profile, and the archived conversations do not come
+// back into it on their own. Both facts must still be present, and true, but
+// must not be joined so one implies the other.
+func TestAskRemoveDoesNotPromiseConversationsComeBack(t *testing.T) {
+	h := RenderAccount(AccountVM{Folder: "Claude", Name: "Some name", Convos: 34})
+	fn := jsFunctions(h)["askRemove"]
+	if strings.Contains(fn, "not deleted, and you can add it back") {
+		t.Fatalf("the kept fact and the sign-in-again fact must not be joined into one implying sentence:\n%s", fn)
+	}
+	if !strings.Contains(fn, "kept, not deleted") || !strings.Contains(fn, "starts a new copy of it, without those conversations") {
+		t.Fatalf("both facts must still be stated, honestly: kept, and a fresh sign-in does not bring them along:\n%s", fn)
+	}
+}
+
+// TestRemoveConfirmationHasNoWarningBlock pins the collapse from three
+// implementation-vocabulary statements (title, body, warning) down to a title
+// and a body: askRemove now passes an empty warn string, which askConfirm must
+// treat as "hide the block" rather than falling back to the shared "Anything
+// unsaved…" line — plain `warn || default` cannot tell an omitted argument
+// from an explicitly empty one, since both are falsy, so askConfirm has to
+// check arguments.length instead.
+func TestRemoveConfirmationHasNoWarningBlock(t *testing.T) {
+	h := RenderAccount(AccountVM{Folder: "Claude", Name: "Some name", Convos: 3})
+	fn := jsFunctions(h)["askRemove"]
+	if !strings.Contains(fn, `what, 'Remove', '', 'destructive'`) {
+		t.Fatalf("askRemove must pass an empty warn string to askConfirm:\n%s", fn)
+	}
+	if !strings.Contains(h, `warnEl.style.display = warnText ? '' : 'none';`) {
+		t.Fatalf("askConfirm must hide the warning block when warn is empty:\n%s", h)
+	}
+	if !strings.Contains(h, `arguments.length >= 6 ? warn : 'Anything unsaved in Claude is interrupted.'`) {
+		t.Fatalf("askConfirm must distinguish an omitted warn from an explicitly empty one:\n%s", h)
+	}
+}
+
+// TestAskRemoveOpensInformationalDialogForTheAccountInUse pins the redesign of
+// item 2: pressing the (now always-live) remove button while Claude has the
+// account open must not reach the destructive confirmation at all. It has to
+// branch to an informational dialog instead, with the exact copy the design
+// specifies and no second modal (askConfirm is reused with an empty action).
+func TestAskRemoveOpensInformationalDialogForTheAccountInUse(t *testing.T) {
+	h := RenderAccount(AccountVM{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true})
+	fn := jsFunctions(h)["askRemove"]
+	if !strings.Contains(fn, `el.dataset.current === '1'`) {
+		t.Fatalf("askRemove must branch on the current-account marker:\n%s", fn)
+	}
+	if !strings.Contains(fn, `askConfirm('', '', 'Claude is open on '+el.dataset.name,`) {
+		t.Fatalf("the informational dialog must use action='' and the specified title:\n%s", fn)
+	}
+	if !strings.Contains(fn, `'Switch to another account first, then you can remove it.', 'Got it', '');`) {
+		t.Fatalf("the informational dialog must have the specified body and a single 'Got it' button:\n%s", fn)
+	}
+}
+
+// TestInformationalDialogHasNoCancelAndDoesNotSend pins the two mechanics an
+// action, an informational dialog, needs: askConfirm hides Cancel rather than leaving a
+// button with nothing to cancel, and okConfirm, on an informational dialog,
+// closes without calling send at all — there is nothing to confirm.
+func TestInformationalDialogHasNoCancelAndDoesNotSend(t *testing.T) {
+	h := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	if !strings.Contains(h, `document.getElementById('mcsModalCancel').style.display = action === '' ? 'none' : '';`) {
+		t.Fatalf("askConfirm must hide Cancel for an informational dialog:\n%s", h)
+	}
+	if !strings.Contains(h, `function okConfirm(){ var p=_pending; closeConfirm(); if(p && p.a) send(p.a, p.arg); }`) {
+		t.Fatalf("okConfirm must not send when there is no action:\n%s", h)
 	}
 }
 
@@ -837,18 +974,41 @@ func jsFunctions(h string) map[string]string {
 	return out
 }
 
-// TestRenderRemovedSaysItIsArchivedNotDeleted pins the two things the success
-// screen exists to say, and nothing more. It used to also print the archived
+// TestRenderRemovedRefusesAScreenWithNothingToSay pins finding 2 of the
+// review: a clean removal with nothing left behind is no longer merely
+// unreached by convention, it is refused. RenderRemoved panics rather than
+// silently drawing a complete "removed" screen for a RemovedVM no production
+// code path builds any more (DecideRemovalOutcome routes that case to
+// ShowList instead, before either host ever constructs a RemovedVM) — a
+// caller reaching here with both Err and RegistryNote empty has a bug, and
+// rendering something anyway would hide it instead of surfacing it.
+func TestRenderRemovedRefusesAScreenWithNothingToSay(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("RenderRemoved must panic for a RemovedVM with neither Err nor RegistryNote set")
+		}
+	}()
+	RenderRemoved(RemovedVM{Name: "Old one", Convos: 34})
+}
+
+// TestRenderRemovedSaysItIsArchivedNotDeleted pins the two things this screen
+// exists to say, and nothing more. It used to also print the archived
 // folder's generated name and carry a button into the archive; both were dropped
 // as clutter for a fact almost nobody acts on, and Settings still has a way in.
 // Asserting on their ABSENCE is what stops them creeping back.
+//
+// A RegistryNote is set here because a clean removal with nothing left behind
+// no longer reaches this screen at all (RenderRemoved refuses to draw one at
+// all now, see TestRenderRemovedRefusesAScreenWithNothingToSay), so the only
+// way left to reach the "<name> removed" wording this test pins is the
+// partial-failure branch.
 func TestRenderRemovedSaysItIsArchivedNotDeleted(t *testing.T) {
-	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34})
+	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34, RegistryNote: "its name is still recorded"})
 	if !strings.Contains(h, "Old one removed") {
-		t.Fatal("the result screen does not say what happened")
+		t.Fatal("the screen does not say what happened")
 	}
 	if !strings.Contains(h, "in your archive, not deleted") {
-		t.Fatalf("the result screen does not say the folder is kept:\n%s", h)
+		t.Fatalf("the screen does not say the folder is kept:\n%s", h)
 	}
 	if strings.Contains(h, "openArchive") {
 		t.Fatal("the open-archive button is back on the result screen")
@@ -899,18 +1059,6 @@ func TestRenderRemovedSplitsARegistryComplaintIntoLines(t *testing.T) {
 	}
 }
 
-// TestRenderRemovedHasNoRegistryComplaintByDefault guards against the note
-// leaking onto the ordinary, clean success screen it is absent from.
-func TestRenderRemovedHasNoRegistryComplaintByDefault(t *testing.T) {
-	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 3})
-	// class="hintw" (the rendered block), not the bare word: the stylesheet in
-	// the page shell always defines the .hintw rule, so matching "hintw" alone
-	// would find the CSS even when no such block is on the page.
-	if strings.Contains(h, `class="hintw"`) {
-		t.Fatalf("no registry complaint was set, so no hintw block should render:\n%s", h)
-	}
-}
-
 func TestRenderRemovedSaysNothingMovedOnFailure(t *testing.T) {
 	h := RenderRemoved(RemovedVM{Folder: "Claude_Old", Name: "Old one",
 		Err: "Claude may still be holding its files."})
@@ -930,16 +1078,19 @@ func TestRenderRemovedSaysNothingMovedOnFailure(t *testing.T) {
 // TestAskRemoveWordsTheConversationCountNaturally: zero, one, and many each read
 // differently rather than falling through to a plural that would say "0
 // conversations" or "1 conversations".
+// A RegistryNote is set on all three so each call reaches the branch that is
+// still live: a clean removal with nothing left behind (Convos alone, no
+// note) no longer reaches this screen at all (item 4).
 func TestRenderRemovedWordsTheConversationCountNaturally(t *testing.T) {
-	zero := RenderRemoved(RemovedVM{Name: "Fresh"})
+	zero := RenderRemoved(RemovedVM{Name: "Fresh", RegistryNote: "left something behind"})
 	if !strings.Contains(zero, "Its folder is in your archive, not deleted.") {
 		t.Fatalf("zero conversations must not read as a count:\n%s", zero)
 	}
-	one := RenderRemoved(RemovedVM{Name: "Solo", Convos: 1})
+	one := RenderRemoved(RemovedVM{Name: "Solo", Convos: 1, RegistryNote: "left something behind"})
 	if !strings.Contains(one, "Its 1 conversation is in your archive, not deleted.") {
 		t.Fatalf("one conversation must not be pluralized:\n%s", one)
 	}
-	many := RenderRemoved(RemovedVM{Name: "Busy", Convos: 5})
+	many := RenderRemoved(RemovedVM{Name: "Busy", Convos: 5, RegistryNote: "left something behind"})
 	if !strings.Contains(many, "Its 5 conversations are in your archive, not deleted.") {
 		t.Fatalf("many conversations must be pluralized:\n%s", many)
 	}
