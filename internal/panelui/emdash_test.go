@@ -101,7 +101,7 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 	// to say anything else at all.
 	syncEmpty := RenderSync([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, "", false)
 
-	removed := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34, ArchiveDir: "Claude_Old-20260804-142233"})
+	removed := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34})
 	// Err set draws the failure branch instead, which the success fixture above
 	// can never reach in the same call.
 	//
@@ -115,14 +115,13 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 	removedFailed := RenderRemoved(RemovedVM{Folder: "Claude_Old", Name: "Old one",
 		Err: `couldn't archive Old one: Claude may still be holding its files. ` +
 			`Fully quit Claude and try again. (rename /Users/x/Library/Application Support/Claude_Old: permission denied)`})
-	// A non-empty RegistryNote is the partial-failure success branch: the
-	// folder moved (ArchiveDir is set) but a registry write afterward did not.
-	// The plain fixture above never sets RegistryNote, so this is the only call
-	// that reaches the hintw block this test is here to cover.
+	// A non-empty RegistryNote is the partial-failure success branch: the folder
+	// moved but a registry write afterward did not. The plain fixture above never
+	// sets RegistryNote, so this is the only call that reaches the hintw block
+	// this test is here to cover.
 	// Two entries, newline-separated, as errors.Join really hands them over: the
 	// multi-line branch is the one that draws a line per complaint.
 	removedWithRegistryNote := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34,
-		ArchiveDir: "Claude_Old-20260804-142233",
 		RegistryNote: "Old one was removed, but some of what the switcher had recorded about it could not be cleared.\n" +
 			"The switcher's own account list still mentions it. Nothing needs doing: the panel only shows accounts whose folder is still there. (write managed.json: permission denied)\n" +
 			"Its name is still recorded as \"Old one\". If you sign in to this account again later it will come back under that name, which you can change with Rename. (write names.json: permission denied)"})

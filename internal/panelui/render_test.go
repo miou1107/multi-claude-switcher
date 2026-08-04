@@ -837,28 +837,35 @@ func jsFunctions(h string) map[string]string {
 	return out
 }
 
-func TestRenderRemovedNamesWhereItWent(t *testing.T) {
-	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34, ArchiveDir: "Claude_Old-20260804-142233"})
+// TestRenderRemovedSaysItIsArchivedNotDeleted pins the two things the success
+// screen exists to say, and nothing more. It used to also print the archived
+// folder's generated name and carry a button into the archive; both were dropped
+// as clutter for a fact almost nobody acts on, and Settings still has a way in.
+// Asserting on their ABSENCE is what stops them creeping back.
+func TestRenderRemovedSaysItIsArchivedNotDeleted(t *testing.T) {
+	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34})
 	if !strings.Contains(h, "Old one removed") {
 		t.Fatal("the result screen does not say what happened")
 	}
-	if !strings.Contains(h, "Claude_Old-20260804-142233") {
-		t.Fatal("the result screen does not name the archived folder")
+	if !strings.Contains(h, "in your archive, not deleted") {
+		t.Fatalf("the result screen does not say the folder is kept:\n%s", h)
 	}
-	if !strings.Contains(h, "openArchive") {
-		t.Fatal("no way to go and look at the archived folder")
+	if strings.Contains(h, "openArchive") {
+		t.Fatal("the open-archive button is back on the result screen")
+	}
+	if strings.Contains(h, "folder called") {
+		t.Fatal("the archived folder's generated name is back on the result screen")
 	}
 }
 
 // TestRenderRemovedShowsARegistryComplaintOnSuccess pins the partial-failure
-// case: the folder moved (ArchiveDir is set, so this is the success variant),
-// but a registry write afterward failed. That complaint has to land somewhere
-// the user can actually read it — the status line does not survive either of
-// this screen's two exits (showList clears it before rendering, openArchive
-// never reloads the panel at all) — so it has to be on the VM this screen
-// draws from.
+// case: the folder moved (Err is empty, so this is the success variant), but a
+// registry write afterward failed. That complaint has to land somewhere the user
+// can actually read it. The status line does not survive this screen's only exit,
+// showList, which clears it before rendering, so it has to be on the VM this
+// screen draws from.
 func TestRenderRemovedShowsARegistryComplaintOnSuccess(t *testing.T) {
-	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 3, ArchiveDir: "Claude_Old-20260804-142233",
+	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 3,
 		RegistryNote: "its display name is still recorded, and a later account reusing this identity would inherit it"})
 	if !strings.Contains(h, "Old one removed") {
 		t.Fatal("a partial failure must still read as a success: the folder did move")
@@ -877,7 +884,7 @@ func TestRenderRemovedShowsARegistryComplaintOnSuccess(t *testing.T) {
 // not be cleared read as a single run-on sentence, and the reader cannot tell
 // where one ends.
 func TestRenderRemovedSplitsARegistryComplaintIntoLines(t *testing.T) {
-	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 3, ArchiveDir: "Claude_Old-1",
+	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 3,
 		RegistryNote: "Old one was removed, but some of it could not be cleared.\n" +
 			"The switcher's own account list still mentions it.\n" +
 			"Its name is still recorded as \"Old one\"."})
@@ -885,7 +892,7 @@ func TestRenderRemovedSplitsARegistryComplaintIntoLines(t *testing.T) {
 		t.Fatalf("want one line per joined entry, got %d:\n%s", n, h)
 	}
 	// A blank entry (a trailing newline, say) must not draw an empty line.
-	h = RenderRemoved(RemovedVM{Name: "Old one", ArchiveDir: "Claude_Old-1",
+	h = RenderRemoved(RemovedVM{Name: "Old one",
 		RegistryNote: "Only one thing went wrong.\n"})
 	if n := strings.Count(h, `class="noteline"`); n != 1 {
 		t.Fatalf("a trailing newline must not draw an empty line, got %d:\n%s", n, h)
@@ -895,7 +902,7 @@ func TestRenderRemovedSplitsARegistryComplaintIntoLines(t *testing.T) {
 // TestRenderRemovedHasNoRegistryComplaintByDefault guards against the note
 // leaking onto the ordinary, clean success screen it is absent from.
 func TestRenderRemovedHasNoRegistryComplaintByDefault(t *testing.T) {
-	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 3, ArchiveDir: "Claude_Old-20260804-142233"})
+	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 3})
 	// class="hintw" (the rendered block), not the bare word: the stylesheet in
 	// the page shell always defines the .hintw rule, so matching "hintw" alone
 	// would find the CSS even when no such block is on the page.
@@ -924,16 +931,16 @@ func TestRenderRemovedSaysNothingMovedOnFailure(t *testing.T) {
 // differently rather than falling through to a plural that would say "0
 // conversations" or "1 conversations".
 func TestRenderRemovedWordsTheConversationCountNaturally(t *testing.T) {
-	zero := RenderRemoved(RemovedVM{Name: "Fresh", ArchiveDir: "Claude_Fresh-1"})
-	if !strings.Contains(zero, "Its conversations are untouched") {
+	zero := RenderRemoved(RemovedVM{Name: "Fresh"})
+	if !strings.Contains(zero, "Its folder is in your archive, not deleted.") {
 		t.Fatalf("zero conversations must not read as a count:\n%s", zero)
 	}
-	one := RenderRemoved(RemovedVM{Name: "Solo", Convos: 1, ArchiveDir: "Claude_Solo-1"})
-	if !strings.Contains(one, "Its 1 conversation is untouched") {
+	one := RenderRemoved(RemovedVM{Name: "Solo", Convos: 1})
+	if !strings.Contains(one, "Its 1 conversation is in your archive, not deleted.") {
 		t.Fatalf("one conversation must not be pluralized:\n%s", one)
 	}
-	many := RenderRemoved(RemovedVM{Name: "Busy", Convos: 5, ArchiveDir: "Claude_Busy-1"})
-	if !strings.Contains(many, "Its 5 conversations are untouched") {
+	many := RenderRemoved(RemovedVM{Name: "Busy", Convos: 5})
+	if !strings.Contains(many, "Its 5 conversations are in your archive, not deleted.") {
 		t.Fatalf("many conversations must be pluralized:\n%s", many)
 	}
 }

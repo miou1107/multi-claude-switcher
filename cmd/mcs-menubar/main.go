@@ -490,13 +490,11 @@ func goPanelAction(caction, cfolder *C.char) {
 				// partial success, not the "nothing was moved" screen — that is the one
 				// case where showing the failure screen would send the user looking for
 				// an account that has, in fact, already moved.
-				out.ArchiveDir = filepath.Base(dest)
 				if err != nil {
-					// RegistryNote, not the status line: the "removed" screen's only exits
-					// are showList (which clears the status before anything renders) and
-					// openArchive (which does not reload the panel at all), so a status
-					// string set here would never be seen. This has to live on the VM the
-					// screen itself draws from.
+					// RegistryNote, not the status line: the "removed" screen's only exit
+					// is showList, which clears the status before anything renders, so a
+					// status string set here would never be seen. This has to live on the
+					// VM the screen itself draws from.
 					out.RegistryNote = err.Error()
 				}
 			default:

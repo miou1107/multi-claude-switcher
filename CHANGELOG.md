@@ -15,9 +15,9 @@
   Windows Store build, for the account occupying the shared slot, an install
   MCS has not recorded slot state for yet, and an account whose conversations
   are still queued to move into a newly added account. The button is hidden
-  entirely when only one account is listed. A result screen afterwards names
-  the archived folder and offers to open it, or, on failure, states that
-  nothing was moved and the account is still listed.
+  entirely when only one account is listed. A result screen afterwards confirms
+  that the folder is in your archive rather than deleted, or, on failure, states
+  that nothing was moved and the account is still listed.
 
 ### Fixed
 - **Windows knows an account is open even when you did not open it from MCS.**

@@ -899,23 +899,21 @@ func ComputePreselect(accounts []core.ScannedAccount, managed []string) map[stri
 
 // RemovedVM drives the screen shown after a removal, in either outcome.
 //
-// A partial failure can hand back both an ArchiveDir and an Err: the folder
-// moved but a registry write did not. RegistryNote is that case: the caller
-// (cmd/mcs-menubar) sets it, not Err, when the destination is non-empty, so
-// this always draws the success variant underneath a folder that did in fact
-// move, with the leftover complaint on the screen itself rather than in a
-// status line the user may never look at again.
+// Err is the whole of the success/failure decision: the hosts set it only when
+// the folder did NOT move. A partial failure, where the folder moved but a
+// registry write afterward did not, sets RegistryNote instead, so this still
+// draws the success variant underneath a folder that did in fact move, with the
+// leftover complaint on the screen itself rather than in a status line the user
+// may never look at again.
 type RemovedVM struct {
 	Folder string // for Try again after a failure
 	Name   string
 	Convos int
-	// ArchiveDir is the base name of where it landed; empty on failure.
-	ArchiveDir string
 	// Err is empty on success.
 	Err string
-	// RegistryNote is set only alongside a non-empty ArchiveDir: the folder
-	// moved but something it left behind (its display name, its managed
-	// listing, ...) could not be cleared. Empty renders nothing.
+	// RegistryNote is set only on the success path: the folder moved but
+	// something it left behind (its display name, its managed listing, ...)
+	// could not be cleared. Empty renders nothing.
 	RegistryNote string
 }
 
@@ -945,15 +943,20 @@ func RenderRemoved(vm RemovedVM) string {
 		return shell(body)
 	}
 
-	// Mirrors askRemove's own zero/one/many wording in the shell script: zero
-	// gets its own phrase rather than falling through to a plural that would
-	// read "0 conversations", and a freshly created, never-signed-in profile is
-	// not a rare case to remove.
-	what := "Its conversations are untouched"
+	// One sentence, saying the only two things the user needs: where it went, and
+	// that it is not gone. The archived folder's own name and a button to open the
+	// archive both used to be here; they made the screen busy for a fact almost
+	// nobody acts on, and Settings already has a way into that folder.
+	//
+	// Mirrors askRemove's own zero/one/many wording in the shell script: zero gets
+	// its own phrase rather than falling through to a plural that would read
+	// "0 conversations", and a freshly created, never-signed-in profile is not a
+	// rare case to remove.
+	what := "Its folder is in your archive, not deleted."
 	if vm.Convos == 1 {
-		what = "Its 1 conversation is untouched"
+		what = "Its 1 conversation is in your archive, not deleted."
 	} else if vm.Convos > 1 {
-		what = fmt.Sprintf("Its %d conversations are untouched", vm.Convos)
+		what = fmt.Sprintf("Its %d conversations are in your archive, not deleted.", vm.Convos)
 	}
 	// A registry that could not be cleared is not styled as an error: the folder
 	// really did move, which is the thing this screen exists to confirm. But it
@@ -977,9 +980,8 @@ func RenderRemoved(vm RemovedVM) string {
 	body := `<div class="header">
   <div class="htext"><h1>` + esc(vm.Name) + ` removed</h1><p>It is off the switcher</p></div>
 </div>
-<div class="hint">` + esc(what) + `, in a folder called <b>` + esc(vm.ArchiveDir) + `</b> inside your archive.</div>
+<div class="hint">` + esc(what) + `</div>
 ` + registryNote + `
-<button class="sbtn" onclick="send('openArchive','')">Open archive folder</button>
 <div class="footer">
   <button class="btn btn-primary" onclick="send('showList','')">Done</button>
 </div>`
