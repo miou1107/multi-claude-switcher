@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func fullInput(t *testing.T) Input {
@@ -302,5 +303,102 @@ func TestNewMaskerForFallsBackToHomeBasenameWhenUserNameIsEmpty(t *testing.T) {
 	got := m.Apply("seen under /Volumes/Backup/" + base + "/data")
 	if strings.Contains(got, base) {
 		t.Errorf("an empty UserName must still be masked via the home directory's basename: %q", got)
+	}
+}
+
+// TestBuildFallsBackToAccountUUIDWhenEmailIsEmpty is the finding-1 fix.
+// core.ScanAccounts copies a live LevelDB and swallows its own read error
+// (core/scan.go), so a signed-in profile reaches Build with Email empty while
+// AccountUUID is not. Before the fix, m.Apply(p.Email) on an empty string
+// returned "", so the summary line read "Claude_work — " with a dangling
+// separator, while AccountUUID was still registered and the org line below it
+// (and any log line quoting the bare UUID) read as "account-2" — a pseudonym
+// nothing in the summary ever named. The fallback must produce the same
+// pseudonym from either field, and the dangling separator must be gone.
+func TestBuildFallsBackToAccountUUIDWhenEmailIsEmpty(t *testing.T) {
+	in := fullInput(t)
+	in.Profiles[0].Email = ""
+	got := Build(in)
+
+	if strings.Contains(got, "Claude — \n") || strings.Contains(got, "Claude —\n") {
+		t.Errorf("a signed-in profile with no readable email must not leave a dangling separator:\n%s", got)
+	}
+	// AccountUUID still ties this profile to account-1 (fullInput registers
+	// email and UUID together), so falling back to the UUID must produce the
+	// very same pseudonym the org line and the log already use for it.
+	if !strings.Contains(got, "Claude — account-1 — running") {
+		t.Errorf("falling back to AccountUUID must still surface the account's pseudonym:\n%s", got)
+	}
+}
+
+// TestBuildSuppressesDanglingOrgSeparator covers the other half of the same
+// finding: a signed-in profile with no org UUID must not print
+// "    · N convos" with nothing before the separator either.
+func TestBuildSuppressesDanglingOrgSeparator(t *testing.T) {
+	in := fullInput(t)
+	in.Profiles[0].OrgUUID = ""
+	got := Build(in)
+	if strings.Contains(got, "  · 252 convos") {
+		t.Errorf("an empty org must not leave a dangling separator before the convo count:\n%s", got)
+	}
+	if !strings.Contains(got, "252 convos") {
+		t.Errorf("the convo count must still be printed:\n%s", got)
+	}
+}
+
+// TestBuildReportsProfilePathDepthWithoutTheValue pins the emitted
+// "Profile path: under home, depth N" line: the design specified it, it was
+// never implemented, and Input.Path was being gathered by both hosts for
+// nothing. The value itself must never appear.
+func TestBuildReportsProfilePathDepthWithoutTheValue(t *testing.T) {
+	in := fullInput(t)
+	got := Build(in)
+	// fullInput's profile path is <home>/Library/Application Support/Claude —
+	// three segments below home.
+	if !strings.Contains(got, "Profile path: under home, depth 3") {
+		t.Errorf("want a profile-path depth line for a profile under home:\n%s", got)
+	}
+	if strings.Contains(got, in.Profiles[0].Path) {
+		t.Errorf("the raw profile path must not appear, only its shape:\n%s", got)
+	}
+}
+
+// TestBuildLogHeaderStatesTheRealLineCount is the finding-5 fix: the header
+// used to print the logTailLines constant regardless of how many lines the
+// file actually had, so a 3-line log read "(last 200 lines)" — misreading an
+// ordinary short log as truncated, which is exactly the misreading this
+// section exists to prevent.
+func TestBuildLogHeaderStatesTheRealLineCount(t *testing.T) {
+	in := fullInput(t)
+	if err := os.WriteFile(filepath.Join(in.LogDir, "mcs-tray.log"), []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := Build(in)
+	if !strings.Contains(got, "mcs-tray.log (last 3 lines)") {
+		t.Errorf("the header must state the real line count, not the 200-line ceiling:\n%s", got)
+	}
+	if strings.Contains(got, "(last 200 lines)") {
+		t.Errorf("a short log must not claim to be truncated:\n%s", got)
+	}
+}
+
+// TestBuildSanitizesInvalidUTF8InLogLines is the finding-6 fix. A log line is
+// whatever the app being debugged wrote, not necessarily valid UTF-8, and
+// invalid bytes reaching pbcopy are silently discarded along with everything
+// else on the clipboard write (see internal/clip/clip_darwin.go). The report
+// itself must already be valid UTF-8 by the time it gets there.
+func TestBuildSanitizesInvalidUTF8InLogLines(t *testing.T) {
+	in := fullInput(t)
+	bad := append([]byte("valid line\nbroken "), 0xff, 0xfe)
+	bad = append(bad, []byte(" tail\n")...)
+	if err := os.WriteFile(filepath.Join(in.LogDir, "mcs-tray.log"), bad, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := Build(in)
+	if !utf8.ValidString(got) {
+		t.Errorf("the report must be valid UTF-8 even when a log file is not")
+	}
+	if !strings.Contains(got, "valid line") || !strings.Contains(got, "tail") {
+		t.Errorf("the rest of the corrupted line must survive:\n%s", got)
 	}
 }
