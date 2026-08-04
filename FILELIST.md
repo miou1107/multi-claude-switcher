@@ -172,4 +172,5 @@
 - `docs/superpowers/plans/2026-07-30-ghost-account-recovery.md` — Implementation plan for the ghost-account-recovery spec: 17 TDD tasks across core, platform, the shared panel renderer, and both webview hosts.
 - `docs/superpowers/specs/2026-08-04-debug-info-and-problem-report-design.md` — Design spec for the Debug info screen and the clipboard-plus-prefilled-issue problem report (what is collected, stable-pseudonym masking, why nothing is uploaded).
 - `docs/superpowers/plans/2026-08-04-debug-info-and-problem-report.md` — Implementation plan for the Debug info spec: 11 TDD tasks across the new core/diagnostics package, platform version reading, the shared panel renderer, clipboard helpers and both webview hosts.
+- `internal/clip/` — Clipboard writes shared by both hosts (pbcopy on macOS, Set-Clipboard on Windows), awaited so a browser cannot open before the text lands.
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.

@@ -34,8 +34,7 @@ Spec: [`docs/superpowers/specs/2026-08-04-debug-info-and-problem-report-design.m
 | `platform/platform.go` | `InstallKind()` added to the `Platform` interface |
 | `platform/darwin.go`, `windows.go`, `unsupported.go` | `InstallKind()` per platform |
 | `internal/panelui/render.go` | `.dbgbox`/`.dbgarea` CSS, `DebugVM`, `RenderDebug`, Debug info row on Settings |
-| `cmd/mcs-tray/clipboard_darwin.go`, `clipboard_windows.go`, `clipboard_other.go` (new) | `setClipboard(string) error` |
-| `cmd/mcs-menubar/clipboard.go` (new) | `setClipboard` for the macOS menu-bar host |
+| `internal/clip/clip_darwin.go`, `clip_windows.go`, `clip_other.go` (new) | `clip.Set(string) error`, shared by both hosts |
 | `cmd/mcs-menubar/main.go`, `cmd/mcs-tray/panel_windows.go` | gather `Input`, `showDebug` + `reportProblem` actions, `debug` view |
 
 ---
@@ -1706,76 +1705,87 @@ to a public issue tracker."
 ### Task 9: Clipboard
 
 **Files:**
-- Create: `cmd/mcs-tray/clipboard_darwin.go`, `cmd/mcs-tray/clipboard_windows.go`, `cmd/mcs-tray/clipboard_other.go`
-- Create: `cmd/mcs-menubar/clipboard.go`
+- Create: `internal/clip/clip_darwin.go`, `internal/clip/clip_windows.go`, `internal/clip/clip_other.go`
 
 **Interfaces:**
-- Consumes: `psEnc` (`cmd/mcs-tray/dialog_windows.go:15`), `hideConsole` (same file's platform helper).
-- Produces: `func setClipboard(text string) error` in both host packages. Task 10 calls it.
+- Consumes: nothing.
+- Produces: `func clip.Set(text string) error`. Task 10 calls it from both hosts.
+
+Its own package, next to `internal/panelui`, because both hosts need it and the two host packages cannot import each other. Copying six lines into each would be the third place in this repo where the hosts drift apart by being written twice — which is exactly what `panelui.BuildProfiles` exists to have stopped.
 
 The write is awaited. A browser that wins the race against PowerShell puts the user in front of an issue form where paste yields whatever they copied last — content MCS never saw and cannot mask, which is worse than anything masking guards against.
 
 - [ ] **Step 1: Write the macOS implementation**
 
-`cmd/mcs-menubar/clipboard.go`:
+`internal/clip/clip_darwin.go`:
 
 ```go
-package main
+//go:build darwin
+
+// Package clip puts text on the system clipboard, and waits for it to land.
+//
+// Waiting is the point, and the reason this is not a one-liner at each call
+// site. Its caller opens a browser next; a browser that arrives first leaves the
+// user pasting whatever they copied last into a public issue — content the
+// program never saw and could not have masked.
+package clip
 
 import (
 	"os/exec"
 	"strings"
 )
 
-// setClipboard puts text on the clipboard and waits for it to land.
-//
-// Waiting is the point. The caller opens a browser next, and a browser that
-// arrives first leaves the user pasting whatever they copied last into a public
-// issue — content MCS never saw and could not have masked.
-func setClipboard(text string) error {
+// Set writes text to the clipboard, returning only once it is there.
+func Set(text string) error {
 	cmd := exec.Command("pbcopy")
 	cmd.Stdin = strings.NewReader(text)
 	return cmd.Run()
 }
 ```
 
-`cmd/mcs-tray/clipboard_darwin.go` is the same file with `//go:build darwin` on the first line.
-
 - [ ] **Step 2: Write the Windows implementation**
 
-`cmd/mcs-tray/clipboard_windows.go`:
+`internal/clip/clip_windows.go`:
 
 ```go
 //go:build windows
 
-package main
+package clip
 
 import (
 	"encoding/base64"
 	"os/exec"
+	"syscall"
 	"unicode/utf16"
 )
 
-// setClipboard puts text on the clipboard and waits for it to land.
+// Set writes text to the clipboard, returning only once it is there.
 //
 // The text is passed base64-encoded and decoded inside PowerShell rather than
 // quoted into the script: a report contains quotes, backticks, dollar signs and
-// newlines, all of which are PowerShell syntax, and psQuote only handles the
-// first of them.
+// newlines, all of which are PowerShell syntax, and single-quote escaping only
+// handles the first of them.
 //
 // cmd.Run, not Start. Launching PowerShell costs several hundred milliseconds,
 // and the caller opens a browser next; losing that race means the user pastes
 // their previous clipboard into a public issue.
-func setClipboard(text string) error {
-	b64 := base64.StdEncoding.EncodeToString(utf16le(text))
+func Set(text string) error {
 	script := `Set-Clipboard -Value ([System.Text.Encoding]::Unicode.GetString(` +
-		`[System.Convert]::FromBase64String('` + b64 + `')))`
+		`[System.Convert]::FromBase64String('` +
+		base64.StdEncoding.EncodeToString(utf16le(text)) + `')))`
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-STA",
-		"-EncodedCommand", psEnc(script))
-	hideConsole(cmd)
+		"-EncodedCommand", base64.StdEncoding.EncodeToString(utf16le(script)))
+	// CREATE_NO_WINDOW: the hosts are background processes, and a console
+	// flashing up while copying a bug report is the kind of thing users report
+	// as a bug of its own.
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000}
 	return cmd.Run()
 }
 
+// utf16le encodes a string the way PowerShell's -EncodedCommand and
+// System.Text.Encoding.Unicode both expect. Used for the script and the payload
+// alike, which is why it lives here rather than being borrowed from the tray's
+// dialog helpers.
 func utf16le(s string) []byte {
 	u := utf16.Encode([]rune(s))
 	out := make([]byte, 0, len(u)*2)
@@ -1788,25 +1798,27 @@ func utf16le(s string) []byte {
 
 - [ ] **Step 3: Write the stub**
 
-`cmd/mcs-tray/clipboard_other.go`:
+`internal/clip/clip_other.go`:
 
 ```go
 //go:build !darwin && !windows
 
-package main
+package clip
 
 import "errors"
 
-func setClipboard(string) error { return errors.New("clipboard not supported on this platform") }
+// Set reports that there is no clipboard here rather than pretending to write
+// to one: its caller decides not to open a browser on this error.
+func Set(string) error { return errors.New("clipboard not supported on this platform") }
 ```
 
 - [ ] **Step 4: Verify all three targets build**
 
 Run:
 ```bash
-go build ./... && GOOS=windows go build ./... && GOOS=linux go build ./cmd/mcs-tray && go vet ./...
+go build ./... && GOOS=windows go build ./... && GOOS=linux go build ./internal/clip && go vet ./...
 ```
-Expected: no output. `utf16le` duplicating `psEnc`'s loop is deliberate — `psEnc` encodes the *script*, this encodes the *payload*, and merging them couples two unrelated things.
+Expected: no output.
 
 - [ ] **Step 5: Verify the clipboard actually works on this machine**
 
@@ -1839,7 +1851,7 @@ Expected: `read back: "MCS clipboard check ✅\nline two"`
 - [ ] **Step 6: Commit**
 
 ```bash
-git add cmd/mcs-tray/clipboard_darwin.go cmd/mcs-tray/clipboard_windows.go cmd/mcs-tray/clipboard_other.go cmd/mcs-menubar/clipboard.go
+git add internal/clip/
 git commit -m "feat: write to the clipboard, and wait for it
 
 The caller opens a browser next. A browser that wins the race leaves the
@@ -1861,7 +1873,7 @@ syntax."
 - Create: `cmd/mcs-menubar/diagnostics.go`, `cmd/mcs-tray/paneldiagnostics_windows.go`
 
 **Interfaces:**
-- Consumes: `diagnostics.Build`, `diagnostics.Input`, `diagnostics.Profile`, `diagnostics.NewMasker`, `diagnostics.IssueURL` (Tasks 2–7); `panelui.RenderDebug`, `panelui.DebugVM` (Task 8); `setClipboard` (Task 9); `platform.GetProfileClaudeVersion`, `GetProfileClaudeCodeVersion`, `InstallKind` (Task 5).
+- Consumes: `diagnostics.Build`, `diagnostics.Input`, `diagnostics.Profile`, `diagnostics.NewMasker`, `diagnostics.IssueURL` (Tasks 2–7); `panelui.RenderDebug`, `panelui.DebugVM` (Task 8); `clip.Set` (Task 9); `platform.GetProfileClaudeVersion`, `GetProfileClaudeCodeVersion`, `InstallKind` (Task 5).
 - Produces: nothing further consumes these.
 
 Both hosts gather the same `Input` in the same order. The gathering is duplicated rather than shared because each host already duplicates `buildProfiles`, `SettingsVM` and every other view's assembly; a single shared gatherer would need the platform, the profile list and the running path threaded through it, which is what `Input` exists to avoid.
@@ -1883,6 +1895,9 @@ import (
 	"github.com/miou1107/multi-claude-switcher/core/diagnostics"
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
+
+// The clipboard lives in internal/clip so both hosts share one implementation:
+// see that package's doc comment for why the write is awaited.
 
 // buildDiagnostics gathers what the report needs. Raw values throughout: masking
 // happens once, inside diagnostics.Build, so no caller can forget.
@@ -1981,7 +1996,7 @@ In `goPanelAction`, beside `openLog`:
 			if arg != "" {
 				report += "\n---\n" + m.Apply(arg) + "\n"
 			}
-			if err := setClipboard(report); err != nil {
+			if err := clip.Set(report); err != nil {
 				// The browser is not opened: an issue form with nothing to paste is
 				// worse than no browser at all.
 				setStatus("Couldn't copy the report: " + err.Error())
@@ -1996,7 +2011,7 @@ In `goPanelAction`, beside `openLog`:
 		setDebugComment(arg)
 		go func() {
 			report, _ := debugReport()
-			if err := setClipboard(report); err != nil {
+			if err := clip.Set(report); err != nil {
 				setStatus("Couldn't copy: " + err.Error())
 			} else {
 				setStatus("Copied.")
@@ -2136,11 +2151,10 @@ Add, in the order the existing file groups them:
 - `core/diagnostics/report.go` — Builds the debug report: environment, profiles, path shape without path values, and the tail of each log file.
 - `core/diagnostics/issue.go` — Builds the prefilled GitHub new-issue URL (masked, single-line, capped, escaped title).
 - `platform/claudeversion.go` — Reads the Claude Desktop version and the bundled Claude Code CLI version from a profile directory.
-- `cmd/mcs-menubar/clipboard.go` — macOS clipboard write (pbcopy), awaited before the browser opens.
+- `internal/clip/clip_darwin.go` — macOS clipboard write (pbcopy), awaited before the browser opens.
 - `cmd/mcs-menubar/diagnostics.go` — Gathers the macOS host's diagnostics Input.
-- `cmd/mcs-tray/clipboard_darwin.go` — macOS clipboard write for the tray host.
-- `cmd/mcs-tray/clipboard_windows.go` — Windows clipboard write (Set-Clipboard, base64 payload), awaited before the browser opens.
-- `cmd/mcs-tray/clipboard_other.go` — Unsupported-platform clipboard stub.
+- `internal/clip/clip_windows.go` — Windows clipboard write (Set-Clipboard, base64 payload), awaited before the browser opens.
+- `internal/clip/clip_other.go` — Unsupported-platform clipboard stub.
 - `cmd/mcs-tray/paneldiagnostics_windows.go` — Gathers the Windows host's diagnostics Input.
 ```
 
