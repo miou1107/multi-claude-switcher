@@ -253,8 +253,21 @@ func goPanelAction(caction, cfolder *C.char) {
 	arg := C.GoString(cfolder)
 	switch action {
 	case "switch":
+		// Guarded like sync, backup, merge and removal, and like the Windows host
+		// has been since the switch was written there. Two of these at once race
+		// over one directory: both close Claude, and whichever relaunches first
+		// makes the other's work fail on a folder Claude has recreated underneath
+		// it. Against a removal in flight it is worse than a failure, because a
+		// switch onto the account being archived relaunches Claude on the very
+		// directory RemoveProfile is between checking and renaming.
+		if getBusy() {
+			return
+		}
+		setBusyStatus(true, "Closing Claude Desktop and switching…")
+		reloadPanel()
 		go func() {
 			doSwitch(arg)
+			setBusyStatus(false, "")
 			reloadPanel()
 		}()
 	case "showRescan":

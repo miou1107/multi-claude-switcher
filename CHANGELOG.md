@@ -27,6 +27,11 @@
   therefore closed that window without putting it back, and the removal guard
   had nothing to guard on. It is now recognised, the way it already was on
   macOS.
+- **macOS ignores a second click while it is busy switching.** Picking an
+  account while a switch, sync, backup, merge or removal was already running
+  started a second operation on top of the first. Windows has refused that
+  since it was written; macOS now does too, and shows the same "Closing
+  Claude Desktop and switching" line while it works.
 
 ## [0.12.0] - 2026-08-04
 
