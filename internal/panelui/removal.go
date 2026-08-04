@@ -42,6 +42,20 @@ func DecideRemovalOutcome(folder, name string, convos int, dest string, err erro
 		// status before anything renders.
 		return RemovalOutcome{Removed: RemovedVM{Folder: folder, Name: name, Convos: convos, RegistryNote: err.Error()}}
 	default:
-		return RemovalOutcome{Removed: RemovedVM{Folder: folder, Name: name, Convos: convos, Err: err.Error()}}
+		// core.RemoveProfile's contract is that dest == "" always pairs with a
+		// non-nil error, but this function's whole purpose is to stop hosts
+		// from carrying assumptions like that themselves — so it does not
+		// trust the assumption either, including from itself. err == nil here
+		// would nil-pointer-panic on err.Error() inside a render path neither
+		// host recovers around, which is exactly the kind of drift this
+		// function exists to catch, and worse than the panic already rejected
+		// elsewhere in this file's history: that one at least carried a
+		// message saying what went wrong. A generic message is the fallback,
+		// not a crash.
+		msg := "The removal failed, and no reason was given. Try again."
+		if err != nil {
+			msg = err.Error()
+		}
+		return RemovalOutcome{Removed: RemovedVM{Folder: folder, Name: name, Convos: convos, Err: msg}}
 	}
 }

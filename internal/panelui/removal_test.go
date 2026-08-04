@@ -56,3 +56,26 @@ func TestDecideRemovalOutcomeDidNotMove(t *testing.T) {
 		t.Fatalf("got %+v, want %+v", out.Removed, want)
 	}
 }
+
+// TestDecideRemovalOutcomeDidNotMoveWithNoError pins the fallback for a
+// caller that breaks core.RemoveProfile's own contract (dest == "" always
+// pairing with a non-nil error) and passes ("", nil) instead. This function's
+// whole purpose is to stop hosts from carrying assumptions like that
+// themselves, so it must not carry the same assumption about its own
+// caller: err.Error() on a nil err would panic inside a render path neither
+// host recovers around, which is worse than the RenderRemoved panic already
+// rejected elsewhere in this history — that one at least carried a message.
+// A generic, readable Err is the fallback instead of a crash.
+func TestDecideRemovalOutcomeDidNotMoveWithNoError(t *testing.T) {
+	out := DecideRemovalOutcome("Claude_Old", "Old one", 34, "", nil)
+	if out.ShowList {
+		t.Fatalf("dest is empty, so this must not show the plain list banner: %+v", out)
+	}
+	if out.Removed.Err == "" {
+		t.Fatal("a nil err must still produce a non-empty, readable Err, not an empty string")
+	}
+	want := RemovedVM{Folder: "Claude_Old", Name: "Old one", Convos: 34, Err: "The removal failed, and no reason was given. Try again."}
+	if out.Removed != want {
+		t.Fatalf("got %+v, want %+v", out.Removed, want)
+	}
+}

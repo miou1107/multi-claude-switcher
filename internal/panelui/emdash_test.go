@@ -29,19 +29,56 @@ import (
 //     tighten a pattern that is fighting JS syntax it was never meant to
 //     parse.
 //
-//  2. Single-quoted string literals found INSIDE that carved-out <script>
-//     body, comments stripped first. A JS comment is not shown to a user and
-//     must not be flagged (that is what forced code-comment rewording in an
-//     earlier round of this work, for no user-facing benefit) — but the
-//     literal strings askConfirm and its callers pass as title/body/label ARE
-//     exactly what a user reads in a dialog, so they are pulled out of the
-//     script and checked deliberately, rather than left to whatever the
-//     tag-stripping pass happened to leave behind by accident. Comments have
-//     to go first: this file's own JS comments are full of plain-English
-//     apostrophes ("doesn't", "wasn't"), and a naive single-quote scan reads
-//     those as string delimiters too, which misaligns every quote pairing
-//     after the first one and hides real dialog literals behind it — the same
-//     shape of bug as the tag-stripping fix above, one level down.
+//  2. Single-quoted string literals found INSIDE every one of those
+//     carved-out <script> bodies, comments stripped first. A JS comment is
+//     not shown to a user and must not be flagged (that is what forced
+//     code-comment rewording in an earlier round of this work, for no
+//     user-facing benefit) — but the literal strings askConfirm and its
+//     callers pass as title/body/label ARE exactly what a user reads in a
+//     dialog, so they are pulled out of the script and checked deliberately,
+//     rather than left to whatever the tag-stripping pass happened to leave
+//     behind by accident. Comments have to go first: this file's own JS
+//     comments are full of plain-English apostrophes ("doesn't", "wasn't"),
+//     and a naive single-quote scan reads those as string delimiters too,
+//     which misaligns every quote pairing after the first one and hides
+//     real dialog literals behind it — the same shape of bug as the
+//     tag-stripping fix above, one level down.
+//
+//     "Every one" is load-bearing: RenderAccount and RenderNewProfile each
+//     draw a small inline <script> of their own (autofocusing the rename/new
+//     -name input) BEFORE shell()'s big script — the one with askConfirm and
+//     the four dialog helpers — gets appended to the body. An earlier version
+//     of this function used FindStringSubmatch, which returns only the FIRST
+//     match, so on exactly those views (plus "account_current" and
+//     "newprofile_recover", the other fixtures built on the same renderers)
+//     it read the tiny autofocus script and never looked at the shell's at
+//     all — measured directly: an em dash injected into askRemove's copy was
+//     caught on "list" and "settings" but silently missed on "account",
+//     because coverage of the shell's own dialog copy survived only because
+//     other fixtures happened to share it. FindAllStringSubmatch fixes that
+//     by checking every <script> block a page contains, not assuming there
+//     is exactly one.
+//
+// Known blind spots, left in this comment rather than a report nobody
+// reopens, because this guard's whole history is things that were "not live
+// today" until they were:
+//   - Double-quoted strings ("...") and template literals (`...`) are
+//     invisible to quotedLiteral, which only matches '...'. Every dialog
+//     string in shell() today is single-quoted, so nothing is live, but a
+//     future double-quoted or templated literal would not be checked.
+//   - lineComment ("//[^\n]*") does not know about string contents: a `//`
+//     appearing inside a single-quoted literal (e.g. a URL) would eat the
+//     rest of that line, including any later quoted literal on it, before
+//     quotedLiteral ever sees it. Nothing in shell() today puts "//" inside a
+//     string.
+//   - quotedLiteral's negated class ([^'\\]*) does not resolve a JS escape:
+//     a literal containing \' (an escaped apostrophe) ends the match at the
+//     backslash instead of treating \' as one character, splitting the
+//     literal in two. Nothing in shell() today writes \' — every apostrophe
+//     that could appear in real data (a folder or display name) travels as
+//     data-* and is read back with dataset instead of being interpolated
+//     into a JS string at all, which is the whole point of that pattern (see
+//     the v0.9.1 bug notes throughout render.go).
 func emDashViolations(html string) []string {
 	scriptBlock := regexp.MustCompile(`(?s)<script[^>]*>(.*?)</script>`)
 	blockComment := regexp.MustCompile(`(?s)/\*.*?\*/`)
@@ -50,7 +87,6 @@ func emDashViolations(html string) []string {
 	tags := regexp.MustCompile(`</?[a-zA-Z!][^>]*>`)
 
 	var out []string
-	script := scriptBlock.FindStringSubmatch(html)
 	withoutScript := scriptBlock.ReplaceAllString(html, " ")
 	text := tags.ReplaceAllString(withoutScript, " ")
 	for _, line := range strings.Split(text, "\n") {
@@ -58,7 +94,7 @@ func emDashViolations(html string) []string {
 			out = append(out, "rendered text: "+strings.TrimSpace(line))
 		}
 	}
-	if len(script) == 2 {
+	for _, script := range scriptBlock.FindAllStringSubmatch(html, -1) {
 		code := blockComment.ReplaceAllString(script[1], "")
 		code = lineComment.ReplaceAllString(code, "")
 		for _, m := range quotedLiteral.FindAllStringSubmatch(code, -1) {
@@ -99,33 +135,42 @@ func TestEmDashGuardCatchesTextInsideTheOldBlindWindow(t *testing.T) {
 	}
 }
 
-// TestEmDashGuardCoversTheFourDialogHelpers confirms the guard's second pass
-// (quoted literals pulled out of <script>) actually reaches the copy each of
-// askSwitch, askSync, askReport and askRemove passes to askConfirm — the
-// thing "pulling them out deliberately" is supposed to guarantee, rather than
-// something asserted only in the doc comment above.
+// TestEmDashGuardCoversTheFourDialogHelpers confirms coverage by exercising
+// emDashViolations itself, not a second, hand-rolled extraction that could
+// silently diverge from it. An earlier version of this test re-implemented
+// the same regex steps inline instead of calling emDashViolations, which
+// meant it could keep passing even while the real function's bug (only the
+// first <script> block on a page was ever read; see emDashViolations' doc
+// comment) hid the very same copy on every OTHER view that carries more than
+// one script block — a parallel implementation agreeing with itself proves
+// nothing about the function it was supposed to be testing.
+//
+// For each of the four dialog helpers, a known, harmless piece of its real
+// rendered copy is swapped for a version carrying an em dash, and
+// emDashViolations — called on the resulting page, exactly as
+// TestNoEmDashInUserFacingText calls it — must report it. askSwitch and
+// askSync are checked on RenderList (which has only the shell's own script);
+// askReport on RenderDebug; askRemove on RenderAccount, which is one of the
+// views that carries its own small inline <script> ahead of the shell's, and
+// is exactly the shape that hid this bug in the first place.
 func TestEmDashGuardCoversTheFourDialogHelpers(t *testing.T) {
-	h := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
-	scriptBlock := regexp.MustCompile(`(?s)<script[^>]*>(.*?)</script>`)
-	script := scriptBlock.FindStringSubmatch(h)
-	if len(script) != 2 {
-		t.Fatal("fixture broken: no <script> block found")
+	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	debug := RenderDebug(DebugVM{Report: "MCS 0.11.2"})
+	account := RenderAccount(AccountVM{Folder: "Claude", Name: "Some name", Convos: 3})
+
+	cases := []struct{ name, html, from, to string }{
+		{"askSwitch", list, "Claude closes and reopens signed in as", "Claude — closes and reopens signed in as"},
+		{"askSync", list, "then Claude reopens where you were", "then Claude — reopens where you were"},
+		{"askReport", debug, "GitHub issues are public", "GitHub — issues are public"},
+		{"askRemove", account, "It comes off your list", "It — comes off your list"},
 	}
-	// Comments stripped first, same as emDashViolations: this file's own JS
-	// comments carry plain-English apostrophes that would otherwise misalign
-	// every quote pairing that follows.
-	code := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(script[1], "")
-	code = regexp.MustCompile(`//[^\n]*`).ReplaceAllString(code, "")
-	quoted := regexp.MustCompile(`'([^'\\]*)'`).FindAllString(code, -1)
-	joined := strings.Join(quoted, " ")
-	for name, want := range map[string]string{
-		"askSwitch": "Claude closes and reopens signed in as",
-		"askSync":   "then Claude reopens where you were",
-		"askReport": "GitHub issues are public",
-		"askRemove": "It comes off your list",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("%s's copy %q is not among the quoted literals the guard checks", name, want)
+	for _, c := range cases {
+		if !strings.Contains(c.html, c.from) {
+			t.Fatalf("fixture broken: %s's known copy %q was not found on its own rendered page", c.name, c.from)
+		}
+		injected := strings.Replace(c.html, c.from, c.to, 1)
+		if v := emDashViolations(injected); len(v) == 0 {
+			t.Errorf("%s's copy is not reached by emDashViolations: an em dash injected into %q was not caught", c.name, c.from)
 		}
 	}
 }
