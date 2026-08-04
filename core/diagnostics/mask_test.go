@@ -127,6 +127,34 @@ func TestMaskerRewritesTheHomePrefixWithMixedSeparators(t *testing.T) {
 	}
 }
 
+// TestMaskerHandlesWindowsHomeWithSpacedBoundedUserName closes a Task 3
+// ledger gap: no test paired a Windows home directory with a bounded (Task 9)
+// user-name replacement, which is the combination a real Windows machine
+// produces whenever the account's display name contains a space —
+// "C:\Users\Adam Smith" is what Windows actually creates, not "C:\Users\Adam".
+// The home rule and the bounded-word rule both have to fire correctly in the
+// same string: the home prefix consumes "C:\Users\Adam Smith" as one unit
+// (RegisterHome matches literally, space included), and the bounded rule
+// still has to find "Adam Smith" as a whole word elsewhere in the same log
+// line, with either path separator, without either rule corrupting the
+// other's output.
+func TestMaskerHandlesWindowsHomeWithSpacedBoundedUserName(t *testing.T) {
+	m := NewMasker()
+	m.RegisterHome(`C:\Users\Adam Smith`, "%USERPROFILE%")
+	m.RegisterBoundedWord("Adam Smith", "user")
+
+	cases := []struct{ in, want string }{
+		{`C:\Users\Adam Smith\AppData\Roaming\Claude`, `%USERPROFILE%\AppData\Roaming\Claude`},
+		{`C:\Users\Adam Smith/AppData/Roaming/Claude`, `%USERPROFILE%/AppData/Roaming/Claude`},
+		{`seen under D:\WorkData\Adam Smith\logs`, `seen under D:\WorkData\user\logs`},
+	}
+	for _, c := range cases {
+		if got := m.Apply(c.in); got != c.want {
+			t.Errorf("Apply(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // TestMaskerBoundedWordDoesNotCorruptGeneratedPseudonyms is the hazard the
 // Task 2 reviewer raised: Apply accumulates into one string, so a bounded-word
 // rule running after pseudonyms have been inserted can match inside the

@@ -48,7 +48,7 @@ type homeRule struct {
 // ("account-1") is one boundary away from colliding with a short OS user name
 // registered through RegisterBoundedWord — a user named "A" would otherwise
 // see the masker's own output torn open, not just their own name masked.
-const guardRune = ''
+const guardRune = '\ue000'
 
 var guardString = string(guardRune)
 
