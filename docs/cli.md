@@ -38,8 +38,8 @@ changing which account you are signed in on. Backs the target up first.
 ./bin/mcs sync Claude Claude_Profile2
 ```
 
-A Team account can be a source but not a target — see
-[team-accounts.md](team-accounts.md).
+Team accounts sync in both directions like any other. They were once believed not
+to; see [team-accounts.md](team-accounts.md) for what was actually going wrong.
 
 ## `mcs switch <source> <target>`
 

@@ -30,6 +30,8 @@ func (p *unsupportedPlatform) IsAppRunning() (bool, []string, error) {
 
 func (p *unsupportedPlatform) DetectRunningProfile() (string, error) { return "", notSupported() }
 
+func (p *unsupportedPlatform) DetectRunningProfiles() ([]string, error) { return nil, notSupported() }
+
 func (p *unsupportedPlatform) TerminateApp() error { return notSupported() }
 
 func (p *unsupportedPlatform) LaunchProfile(profilePath string) error { return notSupported() }

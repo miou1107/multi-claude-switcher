@@ -12,9 +12,14 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
-// AccountType classifies a profile's logged-in Claude account for sync purposes.
-// Team accounts serve their Code sidebar from an Anthropic server API, so sessions
-// copied into a Team profile locally never appear (import is a no-op).
+// AccountType classifies a profile's logged-in Claude account. It is a label, not
+// a capability: Team accounts sync in both directions like any other.
+//
+// They were believed not to, on the theory that a Team account's Code sidebar came
+// from a server API and ignored local files. Measured again: the sidebar is built
+// from local files, and the imports that "did nothing" had been written under the
+// source account's organization, which the target never reads. See
+// docs/team-accounts.md.
 type AccountType int
 
 const (

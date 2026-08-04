@@ -49,3 +49,80 @@ func TestMatchProfileInProcs(t *testing.T) {
 		})
 	}
 }
+
+// TestRunningProfilesInProcs covers what matchProfileInProcs cannot: which
+// profiles are running when more than one is, and the default profile, which
+// Claude Desktop runs with no --user-data-dir at all whenever it was opened by
+// anything other than MCS (the Dock, Spotlight, a login item, its own updater).
+//
+// The process lines are the shape real `ps aux` output has on this platform:
+// one main process per profile plus a crowd of Electron helpers, some of which
+// repeat --user-data-dir and some of which carry no path at all.
+func TestRunningProfilesInProcs(t *testing.T) {
+	const (
+		claude   = "/Users/x/Library/Application Support/Claude"
+		profile2 = "/Users/x/Library/Application Support/Claude_Profile2"
+
+		mainProc   = "/Applications/Claude.app/Contents/MacOS/Claude"
+		helperProc = "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper"
+		crashpad   = "/Applications/Claude.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler --no-rate-limit"
+	)
+	paths := []string{claude, profile2}
+
+	cases := []struct {
+		name  string
+		procs []string
+		want  []string
+	}{
+		{
+			name:  "default profile runs without --user-data-dir",
+			procs: []string{"501 41981 " + mainProc},
+			want:  []string{claude},
+		},
+		{
+			name: "both profiles running are both reported",
+			procs: []string{
+				"501 42727 " + mainProc + " --user-data-dir=" + profile2,
+				"501 42735 " + helperProc + " --type=gpu-process --user-data-dir=" + profile2 + " --gpu-preferences=x",
+				"501 56075 " + mainProc + " --user-data-dir=" + claude,
+				"501 56080 " + helperProc + " --type=gpu-process --user-data-dir=" + claude + " --gpu-preferences=x",
+			},
+			want: []string{profile2, claude},
+		},
+		{
+			name: "the default profile is seen alongside a flagged one",
+			procs: []string{
+				"501 41981 " + mainProc,
+				"501 42727 " + mainProc + " --user-data-dir=" + profile2,
+			},
+			want: []string{claude, profile2},
+		},
+		{
+			name: "helpers without a path do not count as the default profile",
+			procs: []string{
+				"501 42727 " + mainProc + " --user-data-dir=" + profile2,
+				"501 42737 " + helperProc + " --type=utility --utility-sub-type=network.mojom.NetworkService",
+				"501 42734 " + crashpad,
+			},
+			want: []string{profile2},
+		},
+		{
+			name:  "nothing running",
+			procs: nil,
+			want:  nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := runningProfilesInProcs(tc.procs, paths, claude)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("got %q, want %q", got, tc.want)
+				}
+			}
+		})
+	}
+}

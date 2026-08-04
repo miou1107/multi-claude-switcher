@@ -162,7 +162,7 @@ func main() {
 			return
 		}
 
-		if err := switcher.SafeSwitch(src, dst); err != nil {
+		if err := switcher.SafeSwitch(src, dst, profileIdentityFor(plat, dst)); err != nil {
 			fmt.Printf("Switch failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -192,6 +192,22 @@ func main() {
 	default:
 		printUsage()
 	}
+}
+
+// profileIdentityFor names the profile living at path, or "" when no known
+// profile does. The identity is what MCS records as the active account, and it is
+// not filepath.Base(path): on the Store build every profile shares one directory.
+func profileIdentityFor(plat platform.Platform, path string) string {
+	profiles, err := plat.FindProfiles()
+	if err != nil {
+		return ""
+	}
+	for _, p := range profiles {
+		if platform.SamePath(p.Path, path) {
+			return p.Name
+		}
+	}
+	return ""
 }
 
 func resolveProfilePath(plat platform.Platform, nameOrPath string) string {

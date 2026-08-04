@@ -39,6 +39,57 @@ func TestManualAlignReturnsToRunningProfile(t *testing.T) {
 	}
 }
 
+// TestManualAlignReopensEveryRunningProfile pins the behaviour that makes a
+// sync safe when the user has more than one account open at once. Closing Claude
+// Desktop closes ALL of them (there is one process per profile and MCS kills them
+// together), so reopening only the one MCS happened to detect silently takes an
+// account away from the user. An align changes no account, so it owes them every
+// window it closed.
+func TestManualAlignReopensEveryRunningProfile(t *testing.T) {
+	tempDir := t.TempDir()
+	src := filepath.Join(tempDir, "Src")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfig(t, src, "src-uuid")
+	writeAccountConfig(t, dst, "dst-uuid")
+	writeSessionFile(t, src, filepath.Join("src-uuid", "local_a.json"), `{"v":"work"}`, time.Now())
+
+	bm := NewBackupManager(filepath.Join(tempDir, "backups"))
+	// Both accounts are open, which is normal: MCS launches each profile as its
+	// own instance and nothing closes the previous one.
+	mp := &mockPlatform{running: true, detectedAll: []string{src, dst}}
+	s := NewSwitcher(mp, bm)
+
+	if _, err := s.ManualAlign(src, dst); err != nil {
+		t.Fatalf("ManualAlign failed: %v", err)
+	}
+	assertLaunched(t, mp.launchedPaths, src, dst)
+}
+
+// assertLaunched fails unless exactly the wanted profiles were launched, in any
+// order and without repeats (a repeat leaves the user with two windows on one
+// account).
+func assertLaunched(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	seen := make(map[string]int, len(got))
+	for _, p := range got {
+		seen[p]++
+	}
+	for _, w := range want {
+		switch seen[w] {
+		case 1:
+			delete(seen, w)
+		case 0:
+			t.Errorf("profile %q was closed but never reopened (launched: %q)", w, got)
+		default:
+			t.Errorf("profile %q was launched %d times, want once (launched: %q)", w, seen[w], got)
+			delete(seen, w)
+		}
+	}
+	for extra := range seen {
+		t.Errorf("profile %q was launched but was not running and is not the target (launched: %q)", extra, got)
+	}
+}
+
 func TestManualAlignNoRelaunchWhenNothingRunning(t *testing.T) {
 	tempDir := t.TempDir()
 	src := filepath.Join(tempDir, "Src")

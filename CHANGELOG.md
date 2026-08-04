@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Conversations can be synced into a Claude Team account.** They always could;
+  this tool was putting them in the wrong place. Conversations are filed by
+  account and by organization, and syncing rewrote only the account, leaving them
+  under the organization they came from — a folder the receiving account never
+  reads. The files arrived complete and invisible, which looked exactly like a
+  Team account refusing an import, and was documented as one. Both halves of the
+  path are now rewritten. The warnings shown before syncing into a Team account,
+  and the note marking Team accounts as unable to receive one, are gone.
+- **An account you had open no longer disappears when you switch or sync.**
+  Closing Claude Desktop closes every account at once, but only one was ever
+  reopened, so a second account you had open was taken away without a word. Every
+  account that was open is now put back, except the one you switched away from.
+- **Which account a switch leaves closed is no longer a guess.** With more than
+  one account open, the switcher had no record of which one you were on and used
+  whichever the system named first, so switching to a third account closed one of
+  the two arbitrarily. The account you were last switched to is now remembered,
+  and the record is ignored once that account is no longer open.
+- **The account you are on is recognised even when you did not open it from the
+  switcher (macOS).** Claude Desktop only carries the marker the switcher matches
+  on when the switcher itself launched it. Opened from the Dock, from Spotlight,
+  from a login item, or relaunched by its own updater, your main account was
+  invisible: the switcher reported whichever *other* account was running as the
+  one you were on, showed that account as current, and reopened that one after a
+  sync. This is why a sync could leave you sitting in the wrong account.
+
 ## [0.11.1] - 2026-07-31
 
 ### Fixed

@@ -194,7 +194,7 @@ func onReady() {
 
 				// Find current running profile or default source
 				srcPath := getSourceProfilePath(target.Path, profiles)
-				err := switcher.SafeSwitch(srcPath, target.Path)
+				err := switcher.SafeSwitch(srcPath, target.Path, target.Name)
 				if err != nil {
 					log.Printf("Switch error: %v", err)
 					notify("Switch failed", err.Error())
@@ -227,13 +227,7 @@ func onReady() {
 		go func(m *systray.MenuItem, pr alignPair) {
 			for range m.ClickedCh {
 				dstName := core.DisplayName(pr.dst.Name)
-				confirmed := false
-				if importTargetIsTeam(pr.dst.Path) {
-					confirmed = confirmImportIntoTeam(dstName)
-				} else {
-					confirmed = confirmAlign(core.DisplayName(pr.src.Name), dstName)
-				}
-				if !confirmed {
+				if !confirmAlign(core.DisplayName(pr.src.Name), dstName) {
 					log.Printf("Align %s -> %s cancelled by user.", pr.src.Name, pr.dst.Name)
 					continue
 				}
@@ -316,7 +310,7 @@ func onReady() {
 
 	go func() {
 		for range mAutoSync.ClickedCh {
-			toggleAutoSync(mAutoSync, teamProfileNames(shown))
+			toggleAutoSync(mAutoSync)
 			// Reflect the new state on the manual directions. Read the persisted
 			// value so a cancelled enable (warning dismissed) leaves it correct.
 			setManualDirectionsEnabled(!core.AutoSyncOnSwitch())
@@ -470,19 +464,6 @@ func confirmAlign(src, dst string) bool {
 	return confirmDialog(msg, "Sync")
 }
 
-// importTargetIsTeam reports whether the sync destination is a Team account,
-// whose Code sidebar is server-authoritative so a local import is a no-op.
-func importTargetIsTeam(dstPath string) bool {
-	return getAcctType(dstPath) == core.AccountTeam
-}
-
-// confirmImportIntoTeam warns that copying sessions into a Team account does
-// nothing (the import half is a no-op), and asks whether to continue.
-func confirmImportIntoTeam(dst string) bool {
-	msg := fmt.Sprintf("%q is a Team account — Code conversations cannot be imported into it, so this sync's import half will do nothing. Continue anyway?", dst)
-	return confirmDialog(msg, "Continue")
-}
-
 // showAbout displays a small About dialog with the app name, version, and link.
 func showAbout() {
 	lines := []string{
@@ -496,20 +477,5 @@ func showAbout() {
 }
 
 func getSourceProfilePath(targetPath string, profiles []*platform.ProfileInfo) string {
-	// Prefer the profile the user is actually running right now: that is the
-	// account being left behind, whose sessions should flow into the target.
-	if running, err := plat.DetectRunningProfile(); err == nil && running != "" && running != targetPath {
-		return running
-	}
-
-	// Otherwise fall back to the first other profile that has sessions.
-	for _, p := range profiles {
-		if p.Path != targetPath && p.HasSessionsDir {
-			return p.Path
-		}
-	}
-	if len(profiles) > 0 {
-		return profiles[0].Path
-	}
-	return filepath.Join(plat.AppSupportDir(), "Claude")
+	return core.SourceProfilePath(plat, targetPath, profiles)
 }

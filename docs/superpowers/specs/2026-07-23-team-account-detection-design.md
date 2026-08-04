@@ -1,5 +1,7 @@
 # Design Spec — Team-account detection & import-locked warnings
 
+> **⚠️ Superseded (2026-08-04).** The premise of this document — that a Team account cannot receive imported conversations — is wrong. The imports were landing under the source account's organization folder, which the target never reads. See `docs/team-accounts.md`. The detection itself still exists, but only to label an account, not to warn about one.
+
 - Date: 2026-07-23
 - Status: Design finalized, pending implementation plan
 - Continues: `2026-07-22-multi-claude-account-sync-design.md` and `2026-07-22-probe-results.md`

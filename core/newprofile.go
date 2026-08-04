@@ -134,5 +134,12 @@ func (c *ProfileCreator) Create(req CreateProfileRequest) (*CreatedProfile, erro
 	if err := c.Plat.LaunchProfile(dataDir); err != nil {
 		return created, fmt.Errorf("the profile is ready but Claude didn't open: %w", err)
 	}
+	// Claude is now open on the new profile, so this is the account the user is
+	// on. Recording it here rather than leaving it to the caller keeps every path
+	// that moves the user in agreement; a record naming an account they left is
+	// what makes a later switch close the wrong one.
+	if err := SaveActiveProfile(identity); err != nil {
+		log.Printf("could not record %q as the active account: %v", identity, err)
+	}
 	return created, nil
 }

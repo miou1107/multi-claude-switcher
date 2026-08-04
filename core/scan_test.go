@@ -42,7 +42,7 @@ func TestAssembleAccounts(t *testing.T) {
 	if got[0].HomeFolder != "Claude" || !got[0].Complete || got[0].Email != "first@example.com" {
 		t.Fatalf("row0: %+v", got[0])
 	}
-	if got[0].Convos != 395 || got[0].Note != "Team account — conversations can't be synced" {
+	if got[0].Convos != 395 || got[0].Note != "" {
 		t.Fatalf("row0 team/convos: %+v", got[0])
 	}
 	if got[1].HomeFolder != "Claude_Profile2" || got[1].Note != "" {
@@ -80,8 +80,10 @@ func TestDeriveNote(t *testing.T) {
 	if deriveNote(false, AccountTeam) != "Invalid account data" {
 		t.Fatal("incomplete → invalid, regardless of type")
 	}
-	if deriveNote(true, AccountTeam) != "Team account — conversations can't be synced" {
-		t.Fatal("complete team")
+	// A Team account is not a problem to warn about: its conversations sync like
+	// any other account's once they are filed under the right organization.
+	if deriveNote(true, AccountTeam) != "" {
+		t.Fatal("complete team → blank")
 	}
 	if deriveNote(true, AccountPersonal) != "" {
 		t.Fatal("complete personal → blank")

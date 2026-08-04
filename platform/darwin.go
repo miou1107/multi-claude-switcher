@@ -142,23 +142,83 @@ func (d *DarwinPlatform) TerminateApp() error {
 // quoting, so we cannot tokenize the command line on spaces. Instead we match
 // against the known profile paths and require an argument boundary after the
 // match, so ".../Claude" never matches ".../Claude_Profile2".
+// It reports the first profile found when several are running, so callers that
+// need all of them must use DetectRunningProfiles instead.
 func (d *DarwinPlatform) DetectRunningProfile() (string, error) {
-	running, procs, err := d.IsAppRunning()
-	if err != nil {
+	running, err := d.DetectRunningProfiles()
+	if err != nil || len(running) == 0 {
 		return "", err
 	}
+	return running[0], nil
+}
+
+// DetectRunningProfiles returns every profile Claude Desktop is running on. See
+// runningProfilesInProcs for why a process with no --user-data-dir is the
+// default profile rather than an unknown one.
+func (d *DarwinPlatform) DetectRunningProfiles() ([]string, error) {
+	running, procs, err := d.IsAppRunning()
+	if err != nil {
+		return nil, err
+	}
 	if !running {
-		return "", nil
+		return nil, nil
 	}
 	profiles, err := d.FindProfiles()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	paths := make([]string, 0, len(profiles))
 	for _, p := range profiles {
 		paths = append(paths, p.Path)
 	}
-	return matchProfileInProcs(procs, paths), nil
+	return runningProfilesInProcs(procs, paths, filepath.Join(d.AppSupportDir(), "Claude")), nil
+}
+
+// userDataDirFlag is how Claude Desktop is told which profile to run on. MCS
+// always passes it when launching; anything else that opens the app does not.
+const userDataDirFlag = "--user-data-dir="
+
+// mainProcessMarker identifies Claude Desktop's own process as opposed to the
+// Electron helpers under it. The helpers live in Frameworks/Claude Helper*.app,
+// so their executable path reads ".../Claude Helper.app/Contents/MacOS/Claude
+// Helper" and never contains this substring.
+const mainProcessMarker = "Claude.app/Contents/MacOS/Claude"
+
+// runningProfilesInProcs returns every known profile Claude Desktop is running
+// on, in the order the processes appear, without repeats.
+//
+// Two things make this more than "matchProfileInProcs, but all of them":
+//
+// A main process carrying no --user-data-dir is the DEFAULT profile. Claude
+// Desktop launched by anything other than MCS — the Dock, Spotlight, a login
+// item, its own updater relaunching it — passes no flag and falls back to
+// <AppSupport>/Claude. Matching on the flag alone made that process invisible,
+// so MCS reported whichever OTHER profile was running as the one the user was
+// on, and "reopen what was running" reopened the wrong account.
+//
+// The absent flag only means the default on the app's own process. Helpers and
+// the crashpad handler routinely run with no path of their own, and counting
+// those would report the default profile as running whenever any profile was.
+func runningProfilesInProcs(procs, profilePaths []string, defaultPath string) []string {
+	var out []string
+	seen := make(map[string]bool, len(profilePaths))
+	add := func(p string) {
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	for _, line := range procs {
+		if p := matchProfileInProcs([]string{line}, profilePaths); p != "" {
+			add(p)
+			continue
+		}
+		if strings.Contains(line, mainProcessMarker) && !strings.Contains(line, userDataDirFlag) {
+			add(defaultPath)
+		}
+	}
+	return out
 }
 
 // matchProfileInProcs returns the first known profile path that appears as a
@@ -166,7 +226,7 @@ func (d *DarwinPlatform) DetectRunningProfile() (string, error) {
 // boundary (space or end-of-line) after the path so ".../Claude" does not match
 // ".../Claude_Profile2". Pure function to keep the space-handling logic tested.
 func matchProfileInProcs(procs, profilePaths []string) string {
-	const flag = "--user-data-dir="
+	const flag = userDataDirFlag
 	for _, line := range procs {
 		for _, path := range profilePaths {
 			needle := flag + path

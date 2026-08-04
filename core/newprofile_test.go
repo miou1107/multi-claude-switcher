@@ -304,3 +304,22 @@ func TestCreateProfileDiscardsTheNewProfileWhenItCannotBeRegistered(t *testing.T
 		t.Error("a profile that could not be registered must not be opened")
 	}
 }
+
+// TestCreateProfileRecordsTheNewAccountAsActive: creating a profile opens Claude
+// on it, so that is where the user now is. Without recording it, the next switch
+// would think they were still on whatever they had before and close the wrong
+// account.
+func TestCreateProfileRecordsTheNewAccountAsActive(t *testing.T) {
+	withStubbedActiveProfile(t)
+	withStubbedManaged(t)
+	withStubbedPending(t)
+	withStubbedNames(t)
+
+	m := &mockPlatform{createdIdentity: "Claude_Personal", createdPath: t.TempDir()}
+	if _, err := NewProfileCreator(m).Create(CreateProfileRequest{Name: "Personal"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got := LoadActiveProfile(); got != "Claude_Personal" {
+		t.Errorf("active account = %q, want the profile just opened (%q)", got, "Claude_Personal")
+	}
+}

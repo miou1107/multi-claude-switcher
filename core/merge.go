@@ -60,6 +60,20 @@ func MergePreview(keepPath, archivePath, uuid string) (*MergePlan, error) {
 		return nil, err
 	}
 
+	// The merge runs SyncSessions(archive -> keep), which files conversations under
+	// the organization the KEEPER reads. The preview has to key the archive's files
+	// the same way, or it compares one conversation's two versions as if they were
+	// two unrelated conversations and promises a number the merge cannot deliver.
+	// Same rule, same function, so the two cannot drift apart.
+	remap := orgRemapper(archivePath, keepPath)
+	remapped := make(map[string]string, len(archiveFiles))
+	for rel, abs := range archiveFiles {
+		if target, keep := remap(rel); keep {
+			remapped[target] = abs
+		}
+	}
+	archiveFiles = remapped
+
 	plan := &MergePlan{Combined: len(keepFiles), Unreadable: keepSkipped + archiveSkipped}
 	for rel, archiveAbs := range archiveFiles {
 		keepAbs, both := keepFiles[rel]

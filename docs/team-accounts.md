@@ -1,45 +1,105 @@
-# Team accounts are export-only
+# Team accounts: what was wrong, and what was actually happening
 
-A Claude **Team** account can be a sync **source** but not a sync **target**.
-This page is the evidence behind that claim; the summary lives in the
-[README](../README.md#team-accounts-are-export-only).
+This page used to say a Claude **Team** account could be a sync source but never a
+sync target. That was wrong. It was corrected on 2026-08-04, and this page is kept
+rather than deleted because the way the mistake was made is worth having on record.
 
-## What was tested
+The summary lives in the [README](../README.md#team-accounts-sync-like-any-other).
 
-Directly tested on-device, 2026-07-23, with a real Team account and a real
-personal account:
+## What is true
 
-- ✅ **Team → personal (export) works.** Copying a Team account's Code sessions
-  into a personal account's folder makes them show up in the personal account.
-- ❌ **Anything → Team (import) does NOT work.** Copying another account's
-  session files into a Team account's folder does **nothing**. The sessions
-  never appear in the Team account's sidebar — not after a relaunch, and not
-  after a full cache wipe.
+Conversations sync into a Team account. Nothing about a Team account behaves
+differently from a personal one.
 
-## Why
+## What the bug was
 
-Claude Desktop builds a Team account's Code sidebar by **fetching the session
-list from Anthropic's servers**, scoped to your account *and* organization: the
-app calls `sessions_api_list_sessions` with an `orgUuid`, and Anthropic's own
-documentation confirms session transcripts are stored server-side.
+Code sessions are filed on disk under two identifiers, not one:
 
-For a Team account the server is the source of truth, so local files copied
-into its folder are simply not consulted. There is no user setting that makes a
-Team account read local files instead.
+```
+claude-code-sessions/<accountUuid>/<orgUuid>/local_<sessionId>.json
+```
 
-**Net effect: you cannot bring a personal account's Code conversations into a
-company Team account by copying files.** File-copy import only works where the
-app treats local `claude-code-sessions/` files as authoritative, which is the
-personal-account case.
+Claude Desktop reads exactly one of those organization folders: the one the signed-in
+account is currently working in.
 
-Full probe transcript: `superpowers/specs/2026-07-22-probe-results.md`.
+Sync rewrote the **account** segment to the target's account, which is what makes
+history follow you across accounts, and left the **organization** segment naming
+the source's organization. So a personal account's conversations copied into a
+company Team account landed at:
 
-## How the app handles it
+```
+claude-code-sessions/<teamAccount>/<personalOrg>/…     ← written here
+claude-code-sessions/<teamAccount>/<teamOrg>/…         ← read from here
+```
 
-The switcher detects a Team account and warns you before an action that would
-try to import into one — enabling Auto Sync, or picking a sync direction that
-targets it. It does not block the action; the export half of a sync still works.
+Every file arrived, complete and uncorrupted, in a folder that account never opens.
+From the outside this is indistinguishable from an import being refused.
 
-Detection is best-effort. An account the switcher cannot classify is left
-untagged rather than mislabeled, so a missed warning is possible but a false one
-is not. See `superpowers/specs/2026-07-23-team-account-detection-design.md`.
+## How it was diagnosed wrongly on 2026-07-23
+
+Two probe conversations were created, synced into a Team account, and did not appear
+in its sidebar. That much was correctly observed. The conclusion drawn from it was
+not:
+
+> Claude Desktop builds a Team account's Code sidebar by fetching the session list
+> from Anthropic's servers, so local files are never consulted.
+
+The evidence for that was 98 log lines containing a `sessions_api_list_sessions`
+query key with an `orgUuid`. Re-read a fortnight later, that evidence does not
+support the claim:
+
+- All 98 lines are from a **single day** (2026-06-26), not from the probe.
+- All 98 are `Missing queryFn` **errors** — React Query reporting it had no fetch
+  function for that key, which indicates the data was populated from somewhere else,
+  not that a request was made.
+- The `orgUuid` in them is the **personal** organization, not the Team one the claim
+  was about.
+- The only genuine server calls in the whole log, three `GET /v1/code/sessions`, are
+  also from June and all returned 503.
+
+A conclusion about Team accounts was built from errors, logged on one unrelated day,
+about a personal account.
+
+## What was measured on 2026-08-04
+
+The two probe files from July were still on disk, in
+`<teamAccount>/<personalOrg>/`, which the app had never read. One of them,
+titled `SYNC-REAL-9`, was copied unchanged into `<teamAccount>/<teamOrg>/` and the
+Team profile was relaunched:
+
+- The app's own log went from `Loaded 248 persisted sessions` to `Loaded 249`, the
+  difference being exactly the copied file.
+- `SYNC-REAL-9` appeared in the Team account's Code sidebar, opened, and showed its
+  full transcript.
+
+So the sidebar is built from local files, for a Team account, and an imported
+conversation is picked up like any other.
+
+The fix was then checked against the real thing rather than only against test
+fixtures: three real conversations plus both profiles' real `config.json` were
+copied into a scratch directory and synced. They landed in
+`035899b2…/d129c8c1…`, the exact folder the Team app's log shows it reading.
+
+## How the active organization is determined
+
+Anthropic does not publish this, so it is read from a side effect: `config.json`
+carries a `dxt:allowlistLastUpdated:<orgUuid>` stamp per organization, and only the
+signed-in one is refreshed at launch. Across two profiles and four organizations,
+each launch updated exactly the stamp of the organization whose session folder that
+profile then read.
+
+It is a heuristic on a private format, so it fails loudly: when the organization
+cannot be read from either profile, sync keeps the paths exactly as it did before
+rather than filing conversations somewhere arbitrary. Being wrong there costs
+visibility, never data.
+
+See `platform/activeorg.go` and the organization re-bucketing in `core/sync.go`.
+
+## The lesson worth keeping
+
+The July probe was a real experiment with a real negative result. What went wrong
+was the explanation attached to it: a log was searched for something that would
+explain the failure, the first plausible match was accepted, and its date, its
+severity and its subject were never checked. A second explanation — "the files are
+in the wrong folder" — was never tested, even though the folder layout was already
+known and written down in the same document.
