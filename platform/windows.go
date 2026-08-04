@@ -646,3 +646,13 @@ func (w *WindowsPlatform) ArchiveDir() string {
 	}
 	return filepath.Join(home, ".multi-claude-switcher", "archive")
 }
+
+// InstallKind distinguishes the two Windows builds because they behave
+// differently enough (shared slot vs. per-profile directory) that a bug report
+// naming just "windows" cannot be acted on.
+func (w *WindowsPlatform) InstallKind() string {
+	if w.isMSIX() {
+		return "store"
+	}
+	return "standalone"
+}

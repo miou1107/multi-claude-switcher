@@ -125,6 +125,12 @@ type Platform interface {
 	// outside FindProfiles' scan path, which is what stops an archived profile
 	// reappearing on the next Rescan.
 	ArchiveDir() string
+
+	// InstallKind names which Claude Desktop install this machine has, for bug
+	// reports: "standalone", "store", "macos". The two Windows builds behave
+	// differently enough that a report which does not say which one it is cannot
+	// be acted on.
+	InstallKind() string
 }
 
 // profileFolderPrefix is what MCS names a profile folder it creates, chosen so

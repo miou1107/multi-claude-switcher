@@ -64,6 +64,10 @@ func (m *mockPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (str
 
 func (m *mockPlatform) ArchiveDir() string { return m.archiveRoot }
 
+// InstallKind is fixed to "macos" because no test here exercises install-kind
+// branching; it only needs to satisfy platform.Platform.
+func (m *mockPlatform) InstallKind() string { return "macos" }
+
 func (m *mockPlatform) AppSupportDir() string                          { return m.appSupport }
 func (m *mockPlatform) FindProfiles() ([]*platform.ProfileInfo, error) { return nil, nil }
 func (m *mockPlatform) IsAppRunning() (bool, []string, error)          { return m.running, nil, nil }
