@@ -115,6 +115,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .btn-light:hover{background:#f6f4fb}
 .btn-primary{background:linear-gradient(135deg,#7c6cf0,#9b6bff);color:#fff;box-shadow:0 4px 12px rgba(124,108,240,.4)}
 .btn-primary:hover{filter:brightness(1.05)}
+/* The confirm button of a destructive dialog, and only that one. Every other
+   dialog keeps btn-primary: red on all of them would read as "this is the
+   confirm button" rather than "this one takes something away". */
+.btn-danger{background:linear-gradient(135deg,#d5566d,#c0392b);color:#fff;box-shadow:0 4px 12px rgba(192,57,43,.35)}
+.btn-danger:hover{filter:brightness(1.05)}
 .btn-quit{flex:none;padding:10px 15px;background:#fff;color:#b0455f;box-shadow:0 3px 9px rgba(60,40,90,.08)}
 .btn-quit:hover{background:#fdf2f5}
 .gear{flex:none;padding:10px 14px;background:#fff;color:#514b66;box-shadow:0 3px 9px rgba(60,40,90,.08);font-size:15px}
@@ -126,21 +131,64 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .slabel .s{font-size:11.5px;color:#8b8598;margin-top:1px}
 .sbtn{width:100%;text-align:left;background:#fff;border:none;border-radius:14px;padding:13px 15px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 3px 10px rgba(60,40,90,.06);color:#241f38}
 .sbtn:hover{background:#faf9ff}
-.sbtn.danger{color:#b0455f}
 .sbtn:disabled{opacity:.5;cursor:default;color:#8b8598}
 .sbtn:disabled:hover{background:#fff}
+/* Red text inside a red border, so the one button on the account screen that
+   takes something away does not read as another row of settings. It sits below
+   a rule and away from Save, which is the other half of the delete-button rule
+   this follows. */
+.sbtn.danger{color:#b0455f;border:1.5px solid #e0a3b1}
+.sbtn.danger:hover{background:#fdf2f5}
+.sbtn.danger:disabled{border-color:#ded9ec}
 .toggle{width:44px;height:26px;border-radius:999px;background:#d5d0e6;position:relative;flex:none;transition:.15s;cursor:pointer}
 .toggle.on{background:#7c6cf0}
 .toggle::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .toggle.on::after{left:21px}
 .about{text-align:center;font-size:11.5px;color:#8b8598;margin-top:14px}
 .status{background:#e3f3e8;color:#1a7a3d;font-size:12.5px;font-weight:600;padding:9px 13px;border-radius:11px;margin-bottom:11px;text-align:center}
-.edit{width:30px;height:30px;flex:none;border:none;border-radius:8px;background:transparent;color:#8b8598;cursor:pointer;font-size:14px;opacity:.55}
-.edit:hover{background:#f1eef9;opacity:1;color:#7c6cf0}
 .rninput{width:100%;font:inherit;font-size:15px;padding:13px 15px;border:2px solid #e0dcf3;border-radius:14px;background:#fff;color:#241f38;outline:none}
 .rninput:focus{border-color:#7c6cf0}
+/* The row menu (Rename / Remove), anchored to its chevron. Absolutely
+   positioned off the wrap, not the card, so it floats above whatever sits
+   below it in the list rather than pushing those rows down. */
+.rowmenu-wrap{position:relative;flex:none}
+/* Bordered rather than a bare glyph. Unboxed and half-faded, it read as
+   decoration and went unnoticed: the edges are what say "you can press this".
+   The wrench is drawn inline rather than set as a character, because every
+   wrench in Unicode resolves to the colour emoji font on macOS, which would
+   put one full-colour icon among a panel of flat monochrome ones. */
+.chevbtn{width:28px;height:28px;flex:none;border:1px solid #ded7ee;border-radius:8px;background:#fff;color:#5f5878;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.chevbtn:hover,.chevbtn.open{background:#f1eef9;border-color:#c9bff0;color:#7c6cf0}
+.chevbtn svg{width:15px;height:15px;display:block}
+.rowmenu{display:none;position:absolute;right:0;top:calc(100% + 4px);min-width:130px;background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(60,40,90,.2);overflow:hidden;z-index:5}
+.rowmenu.open{display:block}
+/* The panel is a fixed-height popover with nothing to scroll, so a menu near
+   the bottom of the list has to open upward instead of running off the
+   window with no way to reach it. .up is toggled from the button's actual
+   position at click time (see toggleRowMenu in the script below), not
+   guessed here from a row's index. */
+.rowmenu.up{top:auto;bottom:calc(100% + 4px)}
+.rowmenu button{display:block;width:100%;text-align:left;background:none;border:none;font:inherit;font-size:13px;font-weight:600;padding:10px 13px;cursor:pointer;color:#241f38}
+.rowmenu button:hover{background:#f6f4fb}
+.rowmenu button.danger{color:#b0455f}
+.rowmenu button.danger:hover{background:#fdf2f5}
+/* Renaming happens in the row: .viewrow (name + sub-copy) and .editrow (the
+   input and its two controls) are both always in the markup, and the card's
+   own .renaming class flips which one is visible. Nothing is built or torn
+   down by JS, so there is no separate "does the input exist yet" state to
+   get wrong. */
+.editrow{display:none;align-items:center;gap:6px}
+.card.renaming .viewrow{display:none}
+.card.renaming .editrow{display:flex}
+.rnrow{flex:1;min-width:0;font:inherit;font-size:13px;padding:7px 10px;border:2px solid #e0dcf3;border-radius:9px;background:#fff;color:#241f38;outline:none}
+.rnrow:focus{border-color:#7c6cf0}
+.rncancel{flex:none;background:#fff;color:#514b66;border:none;border-radius:8px;padding:7px 9px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.rncancel:hover{background:#f6f4fb}
+.rnsave{flex:none;background:linear-gradient(135deg,#7c6cf0,#9b6bff);color:#fff;border:none;border-radius:8px;padding:7px 11px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.rnsave:hover{filter:brightness(1.05)}
 .hint{font-size:12px;color:#6b6580;line-height:1.5;margin-top:11px}
 .hintw{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-top:10px}
+.hintw .noteline+.noteline{margin-top:7px}
 .dbgnote{background:#e9f5ee;color:#1a7a3d;font-size:11.5px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-bottom:9px}
 .dbgbox{background:#fff;border-radius:12px;padding:11px 12px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:10.5px;line-height:1.65;color:#514b66;max-height:210px;overflow:auto;white-space:pre-wrap;word-break:break-word}
 .dbgarea{width:100%;height:60px;font:inherit;font-size:12px;padding:10px 12px;border:2px solid #e0dcf3;border-radius:12px;background:#fff;color:#241f38;outline:none;resize:none}
@@ -179,7 +227,92 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     document.querySelectorAll('.card.selectable.selected').forEach(function(c){ if(c.dataset.folder) picked.push(c.dataset.folder); });
     send('confirmManaged', JSON.stringify(picked));
   }
-  function renameSave(f){ var v=document.getElementById('rn').value.trim(); send('renameSave', JSON.stringify([f, v])); }
+  // Row menu: the wrench on an account row opens that row's own menu
+  // alone. Only one is ever open — opening another, or a click anywhere else
+  // on the page, closes it via closeAllRowMenus, and Escape does too (see the
+  // keydown handler below, where that check runs before anything else the
+  // panel already did on Escape).
+  function closeAllRowMenus(){
+    document.querySelectorAll('.rowmenu.open').forEach(function(m){ m.classList.remove('open','up'); });
+    document.querySelectorAll('.chevbtn.open').forEach(function(b){
+      // The button's icon is an inline SVG, so the open state is carried by the
+      // class alone: writing textContent here would delete the icon.
+      b.classList.remove('open'); b.setAttribute('aria-expanded','false');
+    });
+  }
+  // Opens downward by default. The panel is a fixed-height popover with
+  // nothing to scroll, so a row near the bottom has to open its menu upward
+  // instead, or the menu is unreachable. That is decided here, from the
+  // button's real position when it is clicked, not guessed in Go from the
+  // row's index — a guess in Go would have to know the popover's actual
+  // rendered height, which depends on how many rows and banners are on
+  // screen, not on anything RenderList itself controls.
+  function toggleRowMenu(btn){
+    cancelAllRenames();
+    var menu = btn.nextElementSibling;
+    var willOpen = !menu.classList.contains('open');
+    closeAllRowMenus();
+    if (!willOpen) return;
+    var r = btn.getBoundingClientRect();
+    menu.classList.toggle('up', r.bottom > window.innerHeight - 90);
+    menu.classList.add('open');
+    btn.classList.add('open');
+    btn.setAttribute('aria-expanded','true');
+  }
+  // Capture phase, and it swallows the click. "Click somewhere else to close it"
+  // is how everyone dismisses a menu, and on the bubble phase the card's own
+  // handler had already run by the time this fired: dismissing row A's menu by
+  // clicking row B also raised "Switch to B?", which is one Enter away from
+  // closing the user's Claude. Only ever swallows while a menu is actually open,
+  // so an ordinary click on a row is untouched.
+  document.addEventListener('click', function(e){
+    if (e.target.closest('.rowmenu-wrap')) return;
+    if (!document.querySelector('.rowmenu.open')) return;
+    closeAllRowMenus();
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+  // Renaming happens in the row itself: Rename swaps its .viewrow for the
+  // .editrow already sitting in the markup (see the .card.renaming CSS
+  // rules), rather than building or tearing down any DOM. Saving still sends
+  // the same renameSave action with the same [folder, value] payload the old
+  // Account settings screen sent, so the Go side reading it does not change.
+  function cancelAllRenames(){
+    document.querySelectorAll('.card.renaming').forEach(function(c){ c.classList.remove('renaming'); });
+  }
+  function startRename(el){
+    closeAllRowMenus();
+    // One row at a time. Two open editors is a state nothing else in the panel
+    // handles, and the second one silently discards the first.
+    cancelAllRenames();
+    var card = el.closest('.card');
+    var input = card.querySelector('.rnrow');
+    input.value = card.dataset.name;
+    card.classList.add('renaming');
+    input.focus();
+    input.select();
+    // Tell Go an editor is open. A reload replaces the whole document, so any
+    // background action finishing mid-edit used to wipe what was typed with no
+    // warning; Go holds the list still while this is set.
+    send('renameOpen', '1');
+  }
+  function cancelRename(el){
+    el.closest('.card').classList.remove('renaming');
+    send('renameOpen', '0');
+  }
+  function rowRenameSave(el){
+    var card = el.closest('.card');
+    var v = card.querySelector('.rnrow').value.trim();
+    card.classList.remove('renaming');
+    send('renameSave', JSON.stringify([card.dataset.folder, v]));
+  }
+  // Enter saves, Escape cancels, both without waiting on a round trip to Go:
+  // stopPropagation keeps the document keydown handler below from also
+  // treating this Escape as "focus is in some INPUT, back out to the list".
+  function rowRenameKey(e, input){
+    if (e.key === 'Enter') { e.preventDefault(); rowRenameSave(input); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelRename(input); }
+  }
   function createProfileSave(btn){
     var v=document.getElementById('np').value.trim();
     send('createProfile', JSON.stringify([v, btn.dataset.uuid||'']));
@@ -204,18 +337,49 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
   // may call send('switch') or send('sync') directly: closing an app somebody is
   // working in is not a single-click operation, and a warning that one code path
   // can skip is not a warning.
+  //
+  // kind is 'destructive' for a dialog that takes something away, and anything
+  // else (omitted, in practice) for the rest. It only paints the confirm button:
+  // switching, syncing and reporting a problem all close Claude or publish
+  // something, but none of them removes an account, and a red button on every
+  // dialog would stop meaning anything.
+  //
+  // action==='' makes this an informational dialog: there is nothing to confirm
+  // (Claude being open on the account is not something "Got it" can fix), so
+  // Cancel is hidden and the one button just closes the dialog. This is the only
+  // way an informational dialog is built; there is no second modal.
   var _pending=null;
-  function askConfirm(action, arg, title, body, okLabel, warn){
+  function askConfirm(action, arg, title, body, okLabel, warn, kind){
     _pending={a:action, arg:arg};
     document.getElementById('mcsModalTitle').textContent=title;
     document.getElementById('mcsModalBody').textContent=body;
-    document.querySelector('#mcsModal .warn').textContent=
-      warn || 'Anything unsaved in Claude is interrupted.';
+    // warn omitted (arguments.length<6) keeps the shared line every dialog used
+    // to carry unconditionally. An explicitly empty string hides the block
+    // outright: plain "warn || default" cannot tell those two apart, since ''
+    // is falsy the same as undefined, which is exactly what askRemove now
+    // needs: its confirmation says everything once, in the body, with no
+    // second block repeating a warning underneath.
+    var warnText = arguments.length >= 6 ? warn : 'Anything unsaved in Claude is interrupted.';
+    var warnEl = document.querySelector('#mcsModal .warn');
+    warnEl.textContent = warnText;
+    warnEl.style.display = warnText ? '' : 'none';
+    var ok=document.getElementById('mcsModalOk');
+    // Set both ways round: the dialog is reused, so a plain confirm opened after
+    // a removal must not inherit the red button.
+    ok.classList.toggle('btn-danger', kind==='destructive');
+    ok.classList.toggle('btn-primary', kind!=='destructive');
     document.getElementById('mcsModalOk').textContent=okLabel;
+    // An informational dialog has nothing to cancel out of.
+    document.getElementById('mcsModalCancel').style.display = action === '' ? 'none' : '';
     document.getElementById('mcsModal').classList.add('on');
-    // Cancel takes the focus, not Continue. Enter on an unread dialog must not
-    // close somebody's app.
-    document.getElementById('mcsModalCancel').focus();
+    // Cancel takes the focus, not Continue, so Enter on an unread dialog cannot
+    // close somebody's app. The informational dialog has no Cancel to give it
+    // to, so it focuses OK instead: that button is the only one on screen, and
+    // it only closes the dialog, so focusing it is safe. Leaving focus on
+    // whatever control behind the overlay opened it would let Tab walk the
+    // screen underneath while the dialog is up, and Enter would re-open the
+    // same dialog instead of doing nothing.
+    (action === '' ? ok : document.getElementById('mcsModalCancel')).focus();
   }
   function askSwitch(folder, name){
     askConfirm('switch', folder, 'Switch to '+name+'?',
@@ -228,8 +392,50 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
       'Copy and open',
       'GitHub issues are public. What is copied is exactly what you saw on the screen behind this dialog, with your email address, account IDs, user name and home folder already replaced with stand-ins.');
   }
+  // The folder and name travel as data-* and are read back with dataset, never
+  // interpolated into the inline handler: a name with an apostrophe would
+  // otherwise break the parse (the v0.9.1 bug).
+  function askRemove(el){
+    // Close the row's own menu before putting a dialog over it. The menu item's
+    // stopPropagation keeps the document click handler from doing it, so without
+    // this the menu is merely hidden behind the scrim and still .open, and the
+    // Escape chain (which closes an open row menu first, on purpose) spends the
+    // user's first Escape on something invisible while the dialog sits there
+    // looking like it ignored the key.
+    closeAllRowMenus();
+    // The button is always live now: a disabled control cannot explain
+    // itself. If Claude is open on this account, remove has nothing to confirm,
+    // so it opens an informational dialog instead of the destructive one, and
+    // "Got it" just closes it.
+    if (el.dataset.current === '1') {
+      askConfirm('', '', 'Claude is open on '+el.dataset.name,
+        'Switch to another account first, then you can remove it.', 'Got it', '');
+      return;
+    }
+    var n = parseInt(el.dataset.convos, 10) || 0;
+    // Zero gets its own wording rather than falling through to "0
+    // conversations kept": a freshly created, never-signed-in slot is the
+    // profile most likely to be the one somebody removes, so this is not a
+    // rare edge. For one-or-more, the kept-not-deleted fact and the sign-in-
+    // again fact are two separate sentences on purpose: signing in again
+    // starts a new copy of the account, and does not bring the old
+    // conversations into it, so a single sentence joining the two ("kept, and
+    // you can add it back") would read as a promise this does not keep.
+    // RenderRemoved (the screen after a removal) already gets this right; this
+    // matches its honesty, not its wording, since this dialog asks before the
+    // fact and that one reports after it.
+    var what = n === 0 ? 'It comes off your list. Nothing is deleted, and you can sign in to it again any time.'
+      : n === 1 ? 'It comes off your list. Its 1 conversation is kept, not deleted. Signing in to this account again starts a new copy of it, without that conversation.'
+      : 'It comes off your list. Its ' + n + ' conversations are kept, not deleted. Signing in to this account again starts a new copy of it, without those conversations.';
+    // No warn block: the body above already says everything the warning line
+    // used to repeat, so an empty string here hides it rather than falling
+    // back to the shared "Anything unsaved…" line, which does not apply since
+    // this dialog is not about to close Claude.
+    askConfirm('removeProfile', el.dataset.folder, 'Remove '+el.dataset.name+'?',
+      what, 'Remove', '', 'destructive');
+  }
   // The folders arrive via data-* and are joined here, never interpolated into the
-  // inline handler — a folder with an apostrophe would otherwise break the parse.
+  // inline handler: a folder with an apostrophe would otherwise break the parse.
   function mergePair(a, b){ send('showMerge', a+'|'+b); }
   function askSync(from, to, fromName, toName, convos){
     var n = parseInt(convos, 10) || 0;
@@ -238,18 +444,34 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
       'Claude closes, '+what+' from '+fromName+', then Claude reopens where you were.', 'Sync');
   }
   function closeConfirm(){ _pending=null; document.getElementById('mcsModal').classList.remove('on'); }
-  function okConfirm(){ var p=_pending; closeConfirm(); if(p) send(p.a, p.arg); }
+  // An informational dialog (action==='') has nothing to send: it exists only
+  // to be read and closed.
+  function okConfirm(){ var p=_pending; closeConfirm(); if(p && p.a) send(p.a, p.arg); }
   // Enter is intentionally NOT hijacked: browsers activate the focused button on Enter,
-  // so tabbing to Cancel and pressing Enter cancels — hijacking it would silently confirm.
+  // so tabbing to Cancel and pressing Enter cancels; hijacking it would silently confirm.
   document.addEventListener('keydown', function(e){
     if(e.key!=='Escape') return;
+    // A row's own menu (Rename/Remove) closes before anything else on this
+    // list: it is a small, row-anchored overlay, not a screen, and closing it
+    // is the whole meaning of Esc while it is open. The row's inline rename
+    // input has its own Escape handler (rowRenameKey) that stops propagation,
+    // so it never reaches this far down the chain in the first place.
+    if(document.querySelector('.rowmenu.open')) { closeAllRowMenus(); return; }
     if(document.getElementById('mcsModal').classList.contains('on')) { closeConfirm(); return; }
-    // Inside a text input (Rename), Esc backs out to the list instead of
-    // killing the panel — hiding on Windows would discard the typed name.
+    // An open inline rename outranks the rest of this chain. rowRenameKey
+    // handles Escape while focus is in the input itself, but focus can leave it
+    // (Tab reaches the row's own Cancel and Save), and from there Escape used to
+    // fall all the way through to hidePanel and shut the panel on a half-typed
+    // name.
+    var editing = document.querySelector('.card.renaming');
+    if(editing) { editing.classList.remove('renaming'); send('renameOpen','0'); return; }
+    // Inside a text input (the new-profile name field), Esc backs out to the
+    // list instead of killing the panel; hiding on Windows would discard the
+    // typed name.
     var ae=document.activeElement;
     // The Debug comment box is the one exception: showList jumps past
-    // Settings, which the back button does not, and — same as pressing that
-    // back button used to — discarded whatever the user had typed, since it
+    // Settings, which the back button does not, and, same as pressing that
+    // back button used to, discarded whatever the user had typed, since it
     // was never sent to Go until Copy or Report a problem. Sending it as the
     // arg here mirrors the back button's fix: showSettings on the Go side
     // saves it before switching the view away.
@@ -338,6 +560,57 @@ func duplicateAccounts(profiles []ProfileVM, esc func(string) string) (map[strin
 	return dupFolder, warning
 }
 
+// wrenchSVG is the row-menu button's icon, drawn rather than set as a
+// character. Every wrench codepoint in Unicode falls back to the colour emoji
+// font on macOS, which would leave one full-colour icon in a panel of flat
+// monochrome ones, and would render differently again in WebView2 on Windows.
+// currentColor means the CSS above still owns the hover and open states.
+const wrenchSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ` +
+	`stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+	`<path d="M7 10h3v-3l-3.5 -3.5a6 6 0 0 1 8 8l6 6a2 2 0 0 1 -3 3l-6 -6a6 6 0 0 1 -8 -8l3.5 3.5"/></svg>`
+
+// rowMenu builds the wrench button and its menu for one
+// account row. Both share it regardless of whether the row is the current
+// account: the two actions do not depend on that, only askRemove's own choice
+// of dialog (informational vs. destructive) does, decided client-side from
+// data-current on the Remove item itself.
+//
+// removable is false only for the single row on a one-profile list (OnlyOne
+// in the old Account settings screen): removing the last account would leave
+// an empty panel with no way back, so Remove is not rendered at all, and the
+// menu holds Rename alone — same rule as before, just relocated.
+func rowMenu(esc func(string) string, p ProfileVM, removable bool) string {
+	current := "0"
+	if p.Current {
+		current = "1"
+	}
+	removeItem := ""
+	if removable {
+		removeItem = fmt.Sprintf(`<button type="button" role="menuitem" class="danger" data-folder="%s" data-name="%s" data-convos="%d" data-current="%s" onclick="event.stopPropagation();askRemove(this)">Remove from list</button>`,
+			esc(p.Folder), esc(p.Name), p.Convos, current)
+	}
+	return fmt.Sprintf(`<div class="rowmenu-wrap">
+        <button type="button" class="chevbtn" aria-label="Account options" aria-haspopup="menu" aria-expanded="false" onclick="event.stopPropagation();toggleRowMenu(this)">`+wrenchSVG+`</button>
+        <div class="rowmenu" role="menu">
+          <button type="button" role="menuitem" onclick="event.stopPropagation();startRename(this)">Change name</button>
+          %s
+        </div>
+      </div>`, removeItem)
+}
+
+// editRow is the inline rename control baked into every row alongside its
+// normal .viewrow content; the card's own .renaming class (toggled by
+// startRename/cancelRename in the shared script) decides which one shows, so
+// there is no separate DOM to build or tear down. The Save button sends the
+// same renameSave action and [folder, value] payload the old Account settings
+// screen sent — the folder travels through card.dataset in the script, not
+// interpolated here, so it needs no data-* attribute of its own.
+func editRow(esc func(string) string, name string) string {
+	return `<div class="editrow"><input class="rnrow" type="text" value="` + esc(name) + `" onclick="event.stopPropagation()" onkeydown="rowRenameKey(event,this)">` +
+		`<button type="button" class="rncancel" onclick="event.stopPropagation();cancelRename(this)">Cancel</button>` +
+		`<button type="button" class="rnsave" onclick="event.stopPropagation();rowRenameSave(this)">Save</button></div>`
+}
+
 func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string {
 	esc := html.EscapeString
 	dupFolder, dupWarning := duplicateAccounts(profiles, esc)
@@ -349,6 +622,9 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 	if status != "" {
 		statusBanner = `<div class="status">` + esc(status) + `</div>`
 	}
+	// Removing the only account listed would leave an empty panel with no way
+	// back, so every row's menu hides Remove in that case (see rowMenu).
+	removable := len(profiles) > 1
 	var cards strings.Builder
 	for _, p := range profiles {
 		badge := planPill(p.Plan)
@@ -356,12 +632,13 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 		if dupFolder[p.Folder] {
 			dupPill = `<span class="dup-pill">Duplicate</span>`
 		}
-		editBtn := fmt.Sprintf(`<button class="edit" data-folder="%s" onclick="event.stopPropagation();send('showRename',this.dataset.folder)">✎</button>`, esc(p.Folder))
+		menu := rowMenu(esc, p, removable)
+		edit := editRow(esc, p.Name)
 		if p.Current {
 			cards.WriteString(fmt.Sprintf(`
-      <div class="card current"><div class="dotcur"></div>
-        <div class="body"><div class="row1"><span class="name">%s</span>%s%s</div><div class="sub">Current account</div></div>%s</div>`,
-				esc(p.Name), badge, dupPill, editBtn))
+      <div class="card current" data-folder="%s" data-name="%s"><div class="dotcur"></div>
+        <div class="body"><div class="viewrow row1"><span class="name">%s</span>%s%s</div><div class="sub viewrow">Current account</div>%s</div>%s</div>`,
+				esc(p.Folder), esc(p.Name), esc(p.Name), badge, dupPill, edit, menu))
 			continue
 		}
 		// A profile with no account yet is still switchable: switching to it is
@@ -372,10 +649,14 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 		if !p.SignedIn {
 			sub = "Not signed in yet. Switch here, then sign in."
 		}
+		// The card stays the switch target — clicking anywhere on it that is not
+		// the chevron or the rename input still switches — except while it is
+		// being renamed: the guard reads the very class startRename/cancelRename
+		// toggle, so there is nothing to keep in sync separately.
 		cards.WriteString(fmt.Sprintf(`
-      <div class="card selectable" data-folder="%s" data-name="%s" onclick="askSwitch(this.dataset.folder,this.dataset.name)"><div class="chev">⇄</div>
-        <div class="body"><div class="row1"><span class="name">%s</span>%s%s</div><div class="sub">%s</div></div>%s</div>`,
-			esc(p.Folder), esc(p.Name), esc(p.Name), badge, dupPill, esc(sub), editBtn))
+      <div class="card selectable" data-folder="%s" data-name="%s" onclick="if(!this.classList.contains('renaming'))askSwitch(this.dataset.folder,this.dataset.name)"><div class="chev">⇄</div>
+        <div class="body"><div class="viewrow row1"><span class="name">%s</span>%s%s</div><div class="sub viewrow">%s</div>%s</div>%s</div>`,
+			esc(p.Folder), esc(p.Name), esc(p.Name), badge, dupPill, esc(sub), edit, menu))
 	}
 	if len(profiles) == 0 {
 		cards.WriteString(`<div class="empty">No managed accounts yet. Run Rescan to add some.</div>`)
@@ -502,7 +783,7 @@ func RenderRescan(accounts []core.ScannedAccount, preselected map[string]bool) s
 	esc := html.EscapeString
 	var cards strings.Builder
 	for _, a := range accounts {
-		date := "—"
+		date := "No date yet"
 		if !a.LastUpdated.IsZero() {
 			date = a.LastUpdated.Format("2006-01-02")
 		}
@@ -587,23 +868,6 @@ func RenderRescan(accounts []core.ScannedAccount, preselected map[string]bool) s
   <button class="btn btn-light" onclick="send('showList','')">Cancel</button>
   <button class="btn btn-primary" onclick="confirmManaged()">Confirm</button>
 </div>`
-	return shell(body)
-}
-
-// RenderRename is the in-panel Rename view: a text field for a friendlier
-// display name for one account.
-func RenderRename(folder, current string) string {
-	esc := html.EscapeString
-	body := `<div class="header">
-  <button class="back" onclick="send('showList','')">‹</button>
-  <div class="htext"><h1>Rename account</h1><p>Give this account a friendlier name</p></div>
-</div>
-<input id="rn" class="rninput" type="text" value="` + esc(current) + `" placeholder="Display name">
-<div class="footer">
-  <button class="btn btn-light" onclick="send('showList','')">Cancel</button>
-  <button class="btn btn-primary" data-folder="` + esc(folder) + `" onclick="renameSave(this.dataset.folder)">Save</button>
-</div>
-<script>var e=document.getElementById('rn'); e.focus(); e.select();</script>`
 	return shell(body)
 }
 
@@ -828,6 +1092,132 @@ func ComputePreselect(accounts []core.ScannedAccount, managed []string) map[stri
 		}
 	}
 	return pre
+}
+
+// RemovedVM drives the screen shown when a removal did not go cleanly: it
+// failed outright, or it moved the folder but left something behind. A clean
+// removal no longer reaches this screen at all — it goes straight back to the
+// list with a status banner instead, since the row disappearing from the list
+// is confirmation enough. See RenderList and both hosts' removeProfile case.
+type RemovedVM struct {
+	Folder string // for Try again after a failure
+	Name   string
+	Convos int
+	// Err is set when the folder did NOT move at all: the whole removal failed.
+	Err string
+	// RegistryNote is set when the folder DID move but something it left
+	// behind (its display name, its managed listing, ...) could not be
+	// cleared. The hosts never set both Err and RegistryNote, and never
+	// construct a RemovedVM with neither set: a removal that left nothing
+	// behind returns to the list instead of reaching this screen. That rule is
+	// enforced where it can be checked without a live user in the room:
+	// DecideRemovalOutcome is a pure function with its own tests, and it is the
+	// only production code that builds a RemovedVM. RenderRemoved itself does
+	// not re-check it (see RenderRemoved's doc comment for why).
+	RegistryNote string
+	// Status is the host's transient line. Try again re-runs a removal that can
+	// take seconds, and without somewhere to show progress the screen redraws
+	// identically and the button reads as dead.
+	Status string
+}
+
+// RenderRemoved is the screen shown when a removal could not be completed
+// (Err set), or completed but left something behind (RegistryNote set) — the
+// two cases that still have something to say once a clean removal returns
+// straight to the list with a banner instead of a screen of its own. A
+// removal that only reported itself in a line at the top of a changed list is
+// the case where the user cannot tell whether it happened, which for a
+// destructive-looking action is the one thing this screen has to answer.
+//
+// If neither Err nor RegistryNote is set, this deliberately falls through to
+// the same rendering as a registry complaint with an empty note: a plain
+// "<name> removed" screen with a Done button. That is a harmless, truthful
+// state to land in by mistake — the removal genuinely is not undone by
+// seeing it — so it is the fallback for a host that regressed the routing in
+// DecideRemovalOutcome, not a panic. This function is called straight from
+// each host's reloadPanel, on goroutines and webview callbacks neither host
+// recovers around; a panic here does not surface a bug to a developer, it
+// takes down the user's whole panel mid-removal, on the machine where they
+// were just told their account was being removed. A second, weaker copy of
+// an invariant that DecideRemovalOutcome's own tests already pin is not worth
+// that trade.
+func RenderRemoved(vm RemovedVM) string {
+	esc := html.EscapeString
+
+	// The host's transient line. Try again re-runs a removal that can take
+	// seconds, and without this the screen redraws identically and the button
+	// reads as dead.
+	st := ""
+	if vm.Status != "" {
+		st = `<div class="status">` + esc(vm.Status) + `</div>`
+	}
+
+	if vm.Err != "" {
+		// Folder travels as data-* and is read back with dataset, never
+		// interpolated into the onclick string: html.EscapeString turns an
+		// apostrophe into &#39;, the HTML parser decodes it back to ' before the
+		// inline JS is parsed, and a display name or folder containing one would
+		// break the handler (the v0.9.1 bug).
+		body := `<div class="header">
+  <button class="back" onclick="send('showList','')">‹</button>
+  <div class="htext"><h1>` + esc(vm.Name) + ` was not removed</h1><p>Nothing was moved</p></div>
+</div>
+` + st + `<div class="errbox">` + esc(vm.Err) + `</div>
+<div class="hint">The account is still on your list, so you can try again.</div>
+<div class="footer">
+  <button class="btn btn-light" onclick="send('showList','')">Back</button>
+  <button class="btn btn-primary" data-folder="` + esc(vm.Folder) + `" onclick="send('removeProfile',this.dataset.folder)">Try again</button>
+</div>`
+		return shell(body)
+	}
+
+	// One sentence, saying the only two things the user needs: where it went, and
+	// that it is not gone. The archived folder's own name and a button to open the
+	// archive both used to be here; they made the screen busy for a fact almost
+	// nobody acts on, and Settings already has a way into that folder. This line
+	// only reaches the screen alongside a registry complaint now — a clean removal
+	// with nothing left behind returns straight to the list instead — but it still
+	// answers the question this screen exists for: the folder did move.
+	//
+	// Same zero/one/many shape as askRemove's own wording in the shell script
+	// (worded differently there, since that one asks before the fact and this one
+	// reports after it): zero gets its own phrase rather than falling through to a
+	// plural that would read "0 conversations", and a freshly created,
+	// never-signed-in profile is not a rare case to remove.
+	what := "Its folder is in your archive, not deleted."
+	if vm.Convos == 1 {
+		what = "Its 1 conversation is in your archive, not deleted."
+	} else if vm.Convos > 1 {
+		what = fmt.Sprintf("Its %d conversations are in your archive, not deleted.", vm.Convos)
+	}
+	// A registry that could not be cleared is not styled as an error: the folder
+	// really did move, which is the thing this screen exists to confirm. But it
+	// cannot be silent either — a display name left behind is inherited, without
+	// warning, by any later account that reuses this identity, and this screen is
+	// the only place that will ever say so.
+	// One line per complaint. The note carries errors.Join output, whose entries
+	// are separated by newlines, and HTML collapses those: two separate things
+	// that could not be cleared ran together into one sentence that read as
+	// neither of them.
+	registryNote := ""
+	if vm.RegistryNote != "" {
+		var lines strings.Builder
+		for _, line := range strings.Split(vm.RegistryNote, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				lines.WriteString(`<div class="noteline">` + esc(line) + `</div>`)
+			}
+		}
+		registryNote = `<div class="hintw">` + lines.String() + `</div>`
+	}
+	body := `<div class="header">
+  <div class="htext"><h1>` + esc(vm.Name) + ` removed</h1><p>It is off the switcher</p></div>
+</div>
+` + st + `<div class="hint">` + esc(what) + `</div>
+` + registryNote + `
+<div class="footer">
+  <button class="btn btn-primary" onclick="send('showList','')">Done</button>
+</div>`
+	return shell(body)
 }
 
 // ShortID trims a UUID to its leading 8 characters for compact display.

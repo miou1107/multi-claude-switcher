@@ -241,10 +241,9 @@ func (w *WindowsPlatform) DetectRunningProfile() (string, error) {
 // On the Store build that is at most one: every profile shares a single slot
 // directory, so two of them cannot be live at the same time.
 //
-// The standalone build lists what carries a --user-data-dir it recognises. A
-// process without one is NOT assumed to be any particular profile here, unlike
-// macOS: the profiles are folders the user picked by hand, so there is no
-// "default" folder MCS can attribute an unflagged process to.
+// The standalone build lists what carries a --user-data-dir it recognises, plus
+// the default profile when its main process carries no flag at all. See
+// runningProfilesInProcsWindows for why that fallback has to be here.
 func (w *WindowsPlatform) DetectRunningProfiles() ([]string, error) {
 	if w.isMSIX() {
 		// The Store build always runs out of the single slot dir; its identity is
@@ -286,32 +285,69 @@ func (w *WindowsPlatform) DetectRunningProfiles() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return runningProfilesInProcsWindows(procs, profiles), nil
+	return runningProfilesInProcsWindows(procs, profiles, w.defaultProfilePath()), nil
 }
+
+// defaultProfilePath is where the standalone build keeps its data when nothing
+// tells it otherwise: %APPDATA%\Claude, the sibling of the Claude<Name> dirs MCS
+// creates. Empty when %APPDATA% cannot be resolved, which
+// runningProfilesInProcsWindows treats as "no default to attribute anything to".
+func (w *WindowsPlatform) defaultProfilePath() string {
+	root := w.AppSupportDir()
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, msixSlotName)
+}
+
+// electronChildFlag is how Chromium marks every process under the app's own:
+// renderer, gpu-process, utility, crashpad-handler. The main process is the one
+// started without it.
+const electronChildFlag = "--type="
 
 // runningProfilesInProcsWindows returns every known profile named by a
 // --user-data-dir in the given command lines, in the order the processes appear
 // and without repeats. Pure so the matching is tested rather than assumed.
-func runningProfilesInProcsWindows(procs []string, profiles []*ProfileInfo) []string {
+//
+// A main process carrying no --user-data-dir is the DEFAULT profile,
+// %APPDATA%\Claude, for the same reason it is on macOS: Claude Desktop started
+// from the Start menu, a shortcut, a login item or its own updater passes no
+// flag, and falls back there. Matching on the flag alone made that process
+// invisible, which is worse here than a wrong "what to reopen" answer: it is the
+// input to the guard that stops a removal renaming a directory Claude has open,
+// so on a standalone install the whole guard was absent for exactly the users who
+// never launch Claude through MCS.
+//
+// Unlike macOS the two kinds of process share one executable path, so the marker
+// has to be the command line instead: Chromium gives every child process a
+// --type=, and only the app's own process runs without one. Counting the children
+// would report the default profile as running whenever any profile was, since the
+// helpers of a flagged parent are not themselves flagged in every build.
+//
+// The MSIX build never reaches this function; DetectRunningProfiles answers it
+// from the slot directory above, because there the main process carries no flag
+// even when MCS put the profile there itself.
+func runningProfilesInProcsWindows(procs []string, profiles []*ProfileInfo, defaultPath string) []string {
 	var out []string
+	add := func(path string) {
+		for _, seen := range out {
+			if sameWindowsPath(seen, path) {
+				return
+			}
+		}
+		out = append(out, path)
+	}
 	for _, line := range procs {
 		udd := extractUserDataDir(line)
 		if udd == "" {
+			if defaultPath != "" && !strings.Contains(line, electronChildFlag) {
+				add(defaultPath)
+			}
 			continue
 		}
 		for _, p := range profiles {
-			if !sameWindowsPath(udd, p.Path) {
-				continue
-			}
-			already := false
-			for _, seen := range out {
-				if sameWindowsPath(seen, p.Path) {
-					already = true
-					break
-				}
-			}
-			if !already {
-				out = append(out, p.Path)
+			if sameWindowsPath(udd, p.Path) {
+				add(p.Path)
 			}
 		}
 	}
@@ -615,7 +651,7 @@ func (w *WindowsPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (
 	if roaming == "" {
 		return "", "", fmt.Errorf("Store Claude Desktop data directory not found")
 	}
-	if strings.EqualFold(readMSIXStateIn(roaming).Current, archiveIdentity) {
+	if msixIsSlotOccupant(roaming, archiveIdentity) {
 		// The profile to archive is the slot occupant. Renaming the slot away would
 		// leave state.json naming a directory that does not exist, so swap the keeper
 		// in first: the keeper becomes the active profile — where the user wants to
@@ -627,6 +663,45 @@ func (w *WindowsPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (
 	}
 	// Resolve after any swap: state.json has moved, and so have both directories.
 	return msixProfilePath(roaming, keepIdentity), msixProfilePath(roaming, archiveIdentity), nil
+}
+
+// PrepareRemove refuses three things on the Store build, and nothing on the
+// standalone one, which has no shared slot.
+//
+// The slot occupant, because the active profile is addressed through one shared
+// directory that state.json names; renaming it away would leave state.json
+// pointing at nothing, and unlike a merge there is no keeper to swap in first.
+//
+// An install with no recorded state, because readMSIXStateIn substitutes the
+// default name when there is no file: "the occupant is Claude" and "MCS has never
+// run here" come back identical, so the occupant is not knowable and a guess here
+// archives the wrong directory.
+//
+// The pending-migration source, because msixAttemptMigrationIn stats that folder
+// and, finding it gone, copies nothing and clears the flag without a word. The
+// conversations would survive in the archive and simply never arrive.
+func (w *WindowsPlatform) PrepareRemove(identity string) (string, error) {
+	if !w.isMSIX() {
+		root := w.AppSupportDir()
+		if root == "" {
+			return "", fmt.Errorf("could not determine %%APPDATA%% directory")
+		}
+		return filepath.Join(root, identity), nil
+	}
+	roaming := msixRoamingDir()
+	if roaming == "" {
+		return "", fmt.Errorf("Store Claude Desktop data directory not found")
+	}
+	if !msixStateRecorded(roaming) {
+		return "", fmt.Errorf("MCS has not set up switching on this install yet, so it cannot tell which account is in use. Run Rescan first")
+	}
+	if msixIsSlotOccupant(roaming, identity) {
+		return "", fmt.Errorf("%q is the account in use. Switch to another account first, then remove it", identity)
+	}
+	if strings.EqualFold(readMSIXStateIn(roaming).PendingMigrateFrom, identity) {
+		return "", fmt.Errorf("%q still has conversations waiting to move into the account you just added. Sign in to that account first, then remove this one", identity)
+	}
+	return msixProfilePath(roaming, identity), nil
 }
 
 // ArchiveDir keeps Store archives inside the package container, beside

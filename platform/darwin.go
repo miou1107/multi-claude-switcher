@@ -283,6 +283,16 @@ func (d *DarwinPlatform) PrepareArchive(keepIdentity, archiveIdentity string) (s
 	return filepath.Join(appSup, keepIdentity), filepath.Join(appSup, archiveIdentity), nil
 }
 
+// PrepareRemove has nothing to refuse here: every profile is its own directory,
+// so any of them can be renamed away without disturbing the others.
+func (d *DarwinPlatform) PrepareRemove(identity string) (string, error) {
+	appSup := d.AppSupportDir()
+	if appSup == "" {
+		return "", fmt.Errorf("could not determine user home directory")
+	}
+	return filepath.Join(appSup, identity), nil
+}
+
 // ArchiveDir keeps archives in MCS's own directory, beside backups/. It is outside
 // AppSupportDir() and therefore outside FindProfiles' scan path, which is what
 // stops an archived profile reappearing on the next Rescan, and it is on the same

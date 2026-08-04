@@ -177,11 +177,11 @@ func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, err
 	}
 	keepPath, ok := paths[req.KeepIdentity]
 	if !ok {
-		return nil, fmt.Errorf("%s is no longer there — run Rescan", keepName)
+		return nil, fmt.Errorf("%s is no longer there. Run Rescan", keepName)
 	}
 	archivePath, ok := paths[req.ArchiveIdentity]
 	if !ok {
-		return nil, fmt.Errorf("%s is no longer there — run Rescan", archiveName)
+		return nil, fmt.Errorf("%s is no longer there. Run Rescan", archiveName)
 	}
 
 	keepUUID, err := platform.GetProfileAccountUUID(keepPath)
@@ -226,7 +226,7 @@ func MergeDuplicates(plat platform.Platform, req MergeRequest) (*SyncReport, err
 	// the conversations just merged into it. Refusing costs a retry. Not refusing
 	// destroys exactly what the merge was for.
 	if samePath(newKeepPath, archivePath) {
-		return report, fmt.Errorf("refusing to archive %s: it is still the same folder as %s. Your conversations are safe in %s — run Rescan and try again",
+		return report, fmt.Errorf("refusing to archive %s: it is still the same folder as %s. Your conversations are safe in %s. Run Rescan and try again",
 			archiveName, keepName, keepName)
 	}
 

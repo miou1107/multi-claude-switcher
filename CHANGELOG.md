@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-08-04
+
+### Added
+- **Remove an account.** Reached from a wrench on an account row, which opens
+  a small menu right there with Change name and Remove from list, and no
+  separate screen. Change name turns the row itself into an editable field, in
+  place; Remove from list goes
+  straight to a confirmation styled as destructive and always clickable. For
+  the account Claude currently has open, pressing it opens a plain dialog
+  saying to switch first, rather than disabling the button and leaving the
+  user to guess why. The confirmation is one sentence: it comes off your list,
+  nothing is deleted, and you can add it back by signing in again. On the
+  Windows Store build, removal is also refused for the account occupying the
+  shared slot, an install MCS has not recorded slot state for yet, and an
+  account whose conversations are still queued to move into a newly added
+  account. Remove is left off the menu entirely when only one account is
+  listed. A clean removal goes straight back to the account list with a
+  banner instead of its own screen, since the row disappearing is
+  confirmation enough; a removal that failed, or moved the account but left
+  something behind, still gets a screen of its own with the reason.
+
+### Fixed
+- **Windows knows an account is open even when you did not open it from MCS.**
+  Claude Desktop started from the Start menu, a shortcut or a login item passes
+  no profile flag and runs on your default account, and on the standalone
+  Windows build MCS read that as "nothing is running". Switching and syncing
+  therefore closed that window without putting it back, and the removal guard
+  had nothing to guard on. It is now recognised, the way it already was on
+  macOS.
+- **A removal that could not tidy up afterwards says so readably.** When the
+  folder moves but something the switcher had recorded about the account
+  cannot be cleared, the result screen now puts each thing on its own line and
+  says, in plain words, what it means and whether you need to do anything.
+  Previously two of them ran together into one sentence, and the wording spoke
+  about "profiles" rather than accounts.
+- **macOS ignores a second click while it is busy switching.** Picking an
+  account while a switch, sync, backup, merge or removal was already running
+  started a second operation on top of the first. Windows has refused that
+  since it was written; macOS now does too, and shows the same "Closing
+  Claude Desktop and switching" line while it works.
+
 ## [0.12.0] - 2026-08-04
 
 ### Added

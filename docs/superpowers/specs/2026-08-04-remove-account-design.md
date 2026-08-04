@@ -150,43 +150,66 @@ which is the kind of thing that is wrong the first time someone changes it.
 
 ## Screens
 
-**Entry point.** The pencil on each account row already opens a per-account
-screen. Its title becomes **Account settings** (from "Rename account"), and a
-section is added at the bottom, below a rule:
+This section was rewritten after the first version was built and used. What it
+originally specified is kept below the current design, because the reasons it was
+wrong are the useful part.
 
-> Removing takes this account off the list. Its folder is archived, not deleted.
->
-> `[ Remove this account ]` — red text, red border, full width.
+**Entry point.** A bordered wrench on each account row opens a small menu
+anchored to that row, holding **Change name** and **Remove from list** (red).
+There is no per-account screen.
 
-Not a bin icon on the list row: it would sit against the pencil, and two small
-adjacent icons is the arrangement most likely to be mis-tapped.
+The wrench is drawn as inline SVG rather than set as a character: every wrench
+codepoint in Unicode resolves to the colour emoji font on macOS, which would put
+one full-colour icon among a panel of flat monochrome ones, and would render
+differently again in WebView2.
 
-When the account is the one in use, the button is disabled with the reason under
-it: *Switch to another account first.*
+**Change name** turns the row itself into a text field, in place. Enter saves,
+Escape cancels, and it sends the same `renameSave` action the old screen sent.
 
-**Confirmation.** A modal through the existing `askConfirm`, with its `warn`
-parameter carrying the consequence:
+**Remove from list** is a live menu item even for the account Claude has open;
+choosing it then opens an informational dialog saying to switch first. It is
+absent entirely when only one account is listed.
+
+**Confirmation.** A modal through `askConfirm`, one sentence, no warning block:
 
 > **Remove test?**
-> It disappears from the switcher. Its folder, with all 34 conversations, moves
-> to the archive folder you can open from Settings.
->
-> To use this account again you have to sign in to it again.
+> It comes off your list. Its 34 conversations are kept, not deleted. Signing in
+> to this account again starts a new copy of it, without those conversations.
 >
 > `[ Cancel ]` `[ Remove ]` — Remove filled red.
 
-The conversation count comes from the same `ProfileVM.Convos` the list shows, so
-the number promised is the number the user was already looking at.
+The count comes from the same `ProfileVM.Convos` the list shows, so the number
+promised is the number the user was already looking at. Zero conversations gets
+its own wording rather than reading "0 conversations".
 
-**Result.** A screen, not a status line on the list. A removal that reports
-itself in one line at the top of a changed list is the case where the user
-cannot tell whether it happened.
+**Result.** A clean removal returns to the account list with a banner. The row
+disappearing is the confirmation; a screen with a Done button was a fourth click
+that carried no information the list did not already show.
 
-Success names where the folder went, by its archived name, and offers the
-existing `openArchive` action so the user can confirm with their own eyes.
-Failure states plainly that nothing was moved and the account is still listed,
-carrying the error text `ArchiveProfile` already writes for a locked directory
-and for a cross-volume archive root. Both end with a way back to the list.
+A screen is still drawn for the two outcomes that have something to say: a
+removal that did not happen (carrying the error `ArchiveProfile` writes for a
+locked directory or a cross-volume archive root, and stating plainly that
+nothing was moved), and one that moved the folder but could not clear something
+afterward.
+
+### What the first version specified, and why it was wrong
+
+The pencil on each row opened an **Account settings** screen carrying a
+full-width red "Remove this account" at the bottom, disabled with a reason for
+the account in use; the confirmation was a title, a body about folders and the
+archive, and a warning line; and every removal ended on its own result screen.
+
+- **The pencil hid it.** A pencil means rename, so removal behind one was
+  unfindable. A three-dot glyph replaced it and was still missed, because the
+  button was unboxed and half-faded: the edges are what say a thing can be
+  pressed, not the glyph inside them.
+- **The disabled button explained nothing.** A greyed control with a line of
+  text under it reads as breakage. Live, with the reason given on press, is what
+  this project's own guidance already said.
+- **The confirmation said one thing three times**, in vocabulary borrowed from
+  the implementation: folder, archive, switcher. None of those are words this
+  audience has.
+- **The result screen was ceremony** on the path that needed none.
 
 ## Copy
 
@@ -211,8 +234,11 @@ across the rendered HTML.
 - MSIX `PrepareRemove`: refuses the slot occupant, refuses when no state has
   ever been recorded, refuses the pending-migration source, and resolves a
   parked profile.
-- Renderer: the button appears on the account screen, is disabled for the
-  account in use, and is absent when only one profile is listed.
+- Renderer: the Remove item appears in the row menu, carries the marker that
+  makes the account in use open the informational dialog instead of the
+  destructive one, and is absent entirely when only one profile is listed. A
+  fixture with a single profile renders no Remove item at all, so any test
+  claiming to cover that markup must list two.
 
 ## Deliberately not in scope
 

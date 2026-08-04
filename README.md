@@ -96,9 +96,30 @@ is unavoidable: Claude Desktop reads its account data once, at launch, so there
 is no way to move a running instance to a different account.
 
 **Rescan** finds accounts already on the machine, including any you have not
-signed into yet. **Rename** gives a profile a name you will actually recognise.
+signed into yet. **Change name** and **Remove from list** both live behind the
+wrench on an account row: click it to open a small menu right there, no
+separate screen.
+
+**Change name** turns the row itself into a text field, in place. Enter saves,
+Escape cancels.
+
+**Remove from list** opens the same confirmation it always has. It takes the account off
+the list by archiving its profile folder, never deleting it, and you can open
+that archive folder any time from Settings. To use the account again, just
+sign in to it once more. Remove from list is left off the menu entirely when
+it is the only account listed. For the account Claude currently has open, it is still
+offered, but choosing it just tells you to switch to another account first,
+which is why removing a *different* account never requires quitting Claude at
+all. On the Windows Store build, removal is also refused for the account
+currently occupying the one shared account slot, for an install MCS has not
+finished scanning yet, and for an account whose conversations are still
+queued to move into one you just added. A clean removal drops you straight
+back on the account list with a banner saying so; a removal that could not go
+through, or that went through but left something behind, still gets its own
+screen with the reason.
+
 **Settings** holds the two toggles, a manual backup, update check, shortcuts to
-the log and backup folders, and Quit.
+the log, backup, and archive folders, and Quit.
 
 Press **Esc** or click outside to close the panel. On Windows the tray icon
 toggles it, and right-clicking gives you **Quit**, which is your way out if the

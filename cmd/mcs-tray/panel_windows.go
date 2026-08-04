@@ -46,9 +46,8 @@ var (
 	panelPlat     platform.Platform
 	panelSwitcher *core.Switcher
 
-	panelMu    sync.Mutex
-	panelView  = "list" // "list" | "rescan" | "settings" | "sync" | "rename" | "newprofile" | "merge" | "debug"
-	panelStale string   // profile folder being renamed
+	panelMu   sync.Mutex
+	panelView = "list" // "list" | "rescan" | "settings" | "sync" | "newprofile" | "merge" | "removed" | "debug"
 
 	// panelDebugComment survives the reload that every action triggers. Without
 	// it, pressing Copy wipes what the user just typed.
@@ -81,6 +80,15 @@ var (
 	panelNewProfileVM panelui.NewProfileVM
 	// panelMergeFolders is the pair being resolved in the "merge" view.
 	panelMergeFolders [2]string
+	// panelRemovedVM holds the outcome of the last removal, drawn by the
+	// "removed" view.
+	panelRemovedVM panelui.RemovedVM
+	// panelRenameOpen is true while a row's inline rename editor is on screen. A
+	// reload replaces the whole document, so a background action finishing
+	// mid-edit used to wipe what the user had typed with no warning: the list
+	// holds still while this is set. It is client-side state mirrored here
+	// because only Go knows when a reload is about to happen.
+	panelRenameOpen bool
 
 	panelPlanMu sync.Mutex
 	panelPlan   = map[string]string{}
@@ -401,13 +409,25 @@ func dispatchAction(action, arg string) {
 			panelSetBusy(false, msg)
 			reloadPanel()
 		}()
-	case "showRename":
+	case "renameOpen":
 		panelMu.Lock()
-		panelStale = arg
-		panelView = "rename"
+		panelRenameOpen = arg == "1"
 		panelMu.Unlock()
-		reloadPanel()
 	case "renameSave":
+		// The editor is gone either way; clear the hold before anything can
+		// return early, or the list would stay frozen.
+		panelMu.Lock()
+		panelRenameOpen = false
+		panelMu.Unlock()
+		// Guarded like every other action that writes: renaming during a removal
+		// would write names.json after RemoveProfile had just cleared it, putting
+		// back the one piece of residue the design calls out as felt by the user,
+		// since a later profile reusing the identity inherits it.
+		if panelGetBusy() {
+			panelSetStatus("Busy right now. Try the rename again in a moment.")
+			go reloadPanel()
+			return
+		}
 		var pair []string
 		if json.Unmarshal([]byte(arg), &pair) == nil && len(pair) == 2 {
 			_ = core.SetProfileName(pair[0], pair[1])
@@ -635,6 +655,38 @@ func dispatchAction(action, arg string) {
 			panelSetView("list")
 			reloadPanel()
 		}()
+	case "removeProfile":
+		// arg is the folder identity, straight from askRemove's confirm dialog (or
+		// the failure screen's Try again, which round-trips the same value).
+		if panelGetBusy() {
+			return
+		}
+		folder := arg
+		// Read before the goroutine starts: once RemoveProfile has moved the
+		// directory, neither the display name nor the conversation count can be
+		// looked up again — panelBuildProfiles no longer has a row for it.
+		beforeName, beforeConvos := panelRemovalRow(folder)
+		panelSetBusy(true, "Removing…")
+		reloadPanel()
+		go func() {
+			dest, err := core.RemoveProfile(panelPlat, folder)
+			// The decision lives in panelui, shared with mcs-menubar, so the two
+			// hosts cannot drift on what a clean removal, a partial failure and
+			// an outright failure each do — the way this codebase already
+			// shipped a platform difference once.
+			outcome := panelui.DecideRemovalOutcome(folder, beforeName, beforeConvos, dest, err)
+			if outcome.ShowList {
+				panelSetBusy(false, outcome.ListStatus)
+				panelSetView("list")
+			} else {
+				panelSetBusy(false, "")
+				panelMu.Lock()
+				panelRemovedVM = outcome.Removed
+				panelView = "removed"
+				panelMu.Unlock()
+			}
+			reloadPanel()
+		}()
 
 	case "quit":
 		if panelDeferQuitUntilIdle() {
@@ -674,8 +726,16 @@ func reopenClaudeIfWeOweIt() {
 func reloadPanel() {
 	panelMu.Lock()
 	view := panelView
-	folder := panelStale
+	editing := panelRenameOpen
 	panelMu.Unlock()
+
+	// Hold the list still while a row's rename editor is open. A reload replaces
+	// the document, so a backup or sync finishing at that moment took away what
+	// the user was halfway through typing, silently. The list is a few seconds
+	// stale instead, and the next reload after the edit ends catches it up.
+	if view == "list" && editing {
+		return
+	}
 
 	var htmlStr string
 	switch view {
@@ -684,8 +744,6 @@ func reloadPanel() {
 		htmlStr = panelui.RenderRescan(accounts, panelui.ComputePreselect(accounts, core.LoadManaged()))
 	case "sync":
 		htmlStr = panelui.RenderSync(panelBuildProfiles(), panelGetStatus(), panelGetBusy())
-	case "rename":
-		htmlStr = panelui.RenderRename(folder, core.DisplayName(folder))
 	case "newprofile":
 		panelMu.Lock()
 		vm := panelNewProfileVM
@@ -713,6 +771,12 @@ func reloadPanel() {
 			break
 		}
 		htmlStr = panelui.RenderMerge(a, b, plan, panelGetStatus(), panelGetBusy())
+	case "removed":
+		panelMu.Lock()
+		vm := panelRemovedVM
+		panelMu.Unlock()
+		vm.Status = panelGetStatus()
+		htmlStr = panelui.RenderRemoved(vm)
 	case "settings":
 		htmlStr = panelui.RenderSettings(panelui.SettingsVM{
 			AutoSync:   core.AutoSyncOnSwitch(),
@@ -742,6 +806,10 @@ func reloadPanel() {
 func panelSetView(v string) {
 	panelMu.Lock()
 	panelView = v
+	// Any navigation ends an inline rename: the editor lived in the list's
+	// markup, which is gone. Clearing it here rather than in each caller is what
+	// stops a stuck flag freezing the list for good.
+	panelRenameOpen = false
 	panelMu.Unlock()
 }
 
@@ -876,6 +944,21 @@ func panelBuildProfiles() []panelui.ProfileVM {
 	running, _ := panelPlat.DetectRunningProfile()
 	// Shared with the macOS host on purpose: see panelui.BuildProfiles.
 	return panelui.BuildProfiles(panelMustFindProfiles(), core.LoadManaged(), panelPendingFolders(), running, panelCachedPlan)
+}
+
+// panelRemovalRow looks up the display name and conversation count for a
+// folder about to be removed, from the same list the panel shows, so the
+// removal outcome quotes the number the user was already looking at. Read
+// before RemoveProfile runs: once it has moved the directory,
+// panelBuildProfiles no longer has a row for it.
+func panelRemovalRow(folder string) (name string, convos int) {
+	name = core.DisplayName(folder)
+	for _, p := range panelBuildProfiles() {
+		if p.Folder == folder {
+			return p.Name, p.Convos
+		}
+	}
+	return name, 0
 }
 
 // panelPendingFolders is the folder names of profiles awaiting their one-time

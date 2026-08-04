@@ -97,6 +97,18 @@ func msixProfilePath(roaming, identity string) string {
 	}
 	return filepath.Join(msixContainerDir(roaming), identity)
 }
+
+// msixIsSlotOccupant reports whether identity is the profile currently living in
+// the shared slot. Extracted so PrepareArchive and PrepareRemove cannot come to
+// disagree about what "the occupant" means.
+//
+// Case-folded for the same reason msixProfilePath folds: Store profiles cannot
+// differ only in case, and exact matching would treat a differently-cased current
+// name as a parked profile.
+func msixIsSlotOccupant(roaming, identity string) bool {
+	return strings.EqualFold(readMSIXStateIn(roaming).Current, identity)
+}
+
 func msixContainerDir(roaming string) string { return filepath.Join(roaming, msixContainerName) }
 func msixStatePath(roaming string) string {
 	return filepath.Join(msixContainerDir(roaming), msixStateName)

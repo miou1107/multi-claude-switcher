@@ -2,7 +2,10 @@
 
 package platform
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestMatchProfileInProcs(t *testing.T) {
 	// Real ps output space-joins args without quoting; the default profile path
@@ -124,5 +127,22 @@ func TestRunningProfilesInProcs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestPrepareRemoveResolvesUnderAppSupport pins PrepareRemove's resolution to
+// the same directory FindProfiles scans, so a removal always archives the
+// directory the user actually sees listed.
+func TestPrepareRemoveResolvesUnderAppSupport(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	d := &DarwinPlatform{}
+	got, err := d.PrepareRemove("Claude_Work")
+	if err != nil {
+		t.Fatalf("PrepareRemove: %v", err)
+	}
+	want := filepath.Join(home, "Library", "Application Support", "Claude_Work")
+	if got != want {
+		t.Fatalf("PrepareRemove = %q, want %q", got, want)
 	}
 }

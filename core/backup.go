@@ -85,7 +85,7 @@ func (bm *BackupManager) freeBackupDir(profileName string) (string, error) {
 			return "", fmt.Errorf("check backup destination %s: %w", dir, err)
 		}
 	}
-	return "", fmt.Errorf("too many backups named %q already — clear out %s", base, bm.BackupRootDir)
+	return "", fmt.Errorf("too many backups named %q already. Clear out %s", base, bm.BackupRootDir)
 }
 
 // backupCollisionLimit bounds the search for an unused snapshot name. It is far
