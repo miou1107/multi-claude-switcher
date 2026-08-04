@@ -231,9 +231,14 @@ func TestSourceProfilePathRejectsTheTargetSpeltDifferently(t *testing.T) {
 // all to choose from.
 func TestSourceProfilePathFallsBackToTheDataRoot(t *testing.T) {
 	withStubbedActiveProfile(t)
-	mp := &mockPlatform{running: false, appSupport: "/Users/x/Library/Application Support"}
+	const dataRoot = "/Users/x/Library/Application Support"
+	mp := &mockPlatform{running: false, appSupport: dataRoot}
 
-	want := "/Users/x/Library/Application Support/Claude"
+	// Built with filepath.Join rather than spelled out, because the fallback in
+	// SourceProfilePath uses filepath.Join and its separator is "\" on Windows.
+	// A hardcoded "/Users/x/.../Claude" passes on macOS and fails on Windows over
+	// the separator alone, which says nothing about the behaviour under test.
+	want := filepath.Join(dataRoot, "Claude")
 	if got := SourceProfilePath(mp, "/somewhere/Dst", nil); got != want {
 		t.Errorf("source = %q, want %q", got, want)
 	}
