@@ -234,3 +234,64 @@ func TestMaskerHomePrefixDoesNotRewriteASiblingsHome(t *testing.T) {
 		}
 	}
 }
+
+// TestMaskerHomePrefixMatchesEndOfLineAndOtherRealBoundaries is the re-review
+// finding: RegisterHome's trailing boundary was only "[\\/]" or "$", and Go's
+// "$" does not match before a newline without "(?m)". A multi-line report —
+// which is exactly what this package builds — puts a home path at the end of
+// its own line ("Home: <path>\n...") far more often than it puts one before a
+// literal path separator, so the narrow boundary silently let the single most
+// common shape through unmasked. The fix widens the trailing boundary to
+// whitespace/newline and quote-like punctuation, without going as far as "any
+// non-alphanumeric" — that would reopen the sibling-home leak from the other
+// side, since a folder name like "adam-work" continues past the home prefix
+// with a hyphen, not a separator.
+func TestMaskerHomePrefixMatchesEndOfLineAndOtherRealBoundaries(t *testing.T) {
+	m := NewMasker()
+	m.RegisterHome("/Users/adam", "~")
+
+	cases := []struct{ in, want string }{
+		{"Home: /Users/adam\nProfile: x", "Home: ~\nProfile: x"},
+		{"home=/Users/adam;", "home=~;"},
+		{`"/Users/adam"`, `"~"`},
+		{"/Users/adam ", "~ "},
+	}
+	for _, c := range cases {
+		if got := m.Apply(c.in); got != c.want {
+			t.Errorf("Apply(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestMaskerHomePrefixWidenedBoundaryStillProtectsSiblingHomes pins the
+// counterexample the re-reviewer warned against: widening the trailing
+// boundary to "any non-alphanumeric" would let "/Users/adam-work/x" mask to
+// "~-work/x", leaking the residue of a different folder's name through the
+// hyphen. Hyphen must stay outside the trailing boundary class.
+func TestMaskerHomePrefixWidenedBoundaryStillProtectsSiblingHomes(t *testing.T) {
+	m := NewMasker()
+	m.RegisterHome("/Users/adam", "~")
+
+	in := "/Users/adam-work/x"
+	if got := m.Apply(in); got != in {
+		t.Errorf("Apply(%q) = %q, want unchanged (hyphen must not be a trailing boundary)", in, got)
+	}
+}
+
+// TestMaskerHomePrefixMasksBothOfTwoAdjacentMentions is the minor finding from
+// the same re-review: the trailing separator is part of the match, so it gets
+// consumed by the first occurrence and is no longer available as the leading
+// character the second, immediately-adjacent occurrence's literal text starts
+// with. The bounded-word pass runs its regex twice for exactly this reason;
+// the home pass only ran once. Both mentions of the home must be masked, not
+// just the first.
+func TestMaskerHomePrefixMasksBothOfTwoAdjacentMentions(t *testing.T) {
+	m := NewMasker()
+	m.RegisterHome("/Users/adam", "~")
+
+	got := m.Apply("/Users/adam/Users/adam/L")
+	want := "~~/L"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}

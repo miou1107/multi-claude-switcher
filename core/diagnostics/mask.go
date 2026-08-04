@@ -144,11 +144,28 @@ func (m *Masker) RegisterBoundedWord(value, replacement string) {
 // that slash and mangle its own output.
 var homeSepInQuoted = regexp.MustCompile(`\\\\|/`)
 
+// homeTrailingBoundary is what may follow a home prefix for it to count as
+// the whole path rather than just a prefix of a longer, unrelated name: a
+// path separator, the end of the string, whitespace (which in Go's regexp
+// already includes "\n", so this doubles as the end-of-line case a bare "$"
+// misses without "(?m)"), or quote-like/clause-closing punctuation that a
+// report's prose puts right after a path — a closing quote, a trailing
+// comma or semicolon, a closing bracket.
+//
+// This deliberately stops short of "any non-alphanumeric": a folder name can
+// continue past the home prefix with a hyphen or a dot ("/Users/adam-work",
+// "/Users/adam.old"), and treating those as boundaries would reopen the same
+// leak RegisterHome's trailing boundary exists to close, just from the
+// far side — masking "/Users/adam-work/x" down to "~-work/x" and leaking the
+// residue of a different folder's name.
+const homeTrailingBoundary = `([\\/]|$|[\s"'` + "`" + `,;:)\]}!?])`
+
 // RegisterHome rewrites a home directory prefix, keeping everything after it.
 // Case-insensitive and separator-blind, because Windows reports both spellings
 // and mixes them inside one string.
 //
-// The prefix must be followed by a separator or the end of the string. Without
+// The prefix must be followed by a separator, the end of the string,
+// whitespace, or quote-like punctuation (see homeTrailingBoundary). Without
 // that trailing boundary, "/Users/adam" also matches the start of
 // "/Users/adamson", rewriting a sibling account's home and leaking the
 // residue of its name ("~son") into the output — corruption plus a privacy
@@ -160,7 +177,7 @@ func (m *Masker) RegisterHome(home, replacement string) {
 	pat := regexp.QuoteMeta(home)
 	pat = homeSepInQuoted.ReplaceAllString(pat, `[\\/]`)
 	m.homes = append(m.homes, homeRule{
-		re:   regexp.MustCompile(`(?i)` + pat + `([\\/]|$)`),
+		re:   regexp.MustCompile(`(?i)` + pat + homeTrailingBoundary),
 		with: replacement,
 	})
 }
@@ -208,14 +225,25 @@ func (m *Masker) Apply(s string) string {
 		s = strings.ReplaceAll(s, v, guard(m.byValue[v]))
 	}
 	for _, h := range m.homes {
-		s = h.re.ReplaceAllStringFunc(s, func(match string) string {
+		replaceHome := func(match string) string {
 			// The trailing separator (or end-of-string empty match) is part of
 			// the match so the boundary check applies, but it belongs to
 			// whatever comes after the home, not to the home itself — put it
 			// back after the replacement instead of consuming it.
 			groups := h.re.FindStringSubmatch(match)
 			return guard(h.with) + groups[1]
-		})
+		}
+		// Twice, for the same reason the bounded pass below runs twice: the
+		// trailing separator is part of the match, so two adjacent, abutting
+		// occurrences of the same home ("/Users/adam/Users/adam/L") share the
+		// one separator between them. The first pass consumes it as the first
+		// occurrence's trailing boundary and reinserts it right after the
+		// replacement, which puts it back in front of the second occurrence —
+		// available as that occurrence's own leading text only on a second
+		// pass over the result, not within the first pass's single left-to-
+		// right scan.
+		s = h.re.ReplaceAllStringFunc(s, replaceHome)
+		s = h.re.ReplaceAllStringFunc(s, replaceHome)
 	}
 	for _, b := range m.bounded {
 		// Twice: adjacent matches share the separator the pattern consumes, so a
