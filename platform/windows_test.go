@@ -189,9 +189,31 @@ func TestRunningProfilesInProcsWindows(t *testing.T) {
 			want: []string{work},
 		},
 		{
-			name:  "a process with no profile path is not attributed to one",
+			// Claude Desktop opened from the Start menu passes no flag and runs on
+			// %APPDATA%\Claude. Reading that as "nothing is running" is what left the
+			// removal guard with nothing to guard on a standalone install.
+			name:  "a flagless main process is the default profile",
 			procs: []string{`"C:\Program Files\Claude\Claude.exe"`},
-			want:  nil,
+			want:  []string{work},
+		},
+		{
+			// The children of a flagged parent do not all repeat the flag, so counting
+			// them would report the default profile as running whenever any profile was.
+			name: "a flagless child process is not the default profile",
+			procs: []string{
+				`"C:\Program Files\Claude\Claude.exe" --type=utility --lang=en-GB`,
+				`"C:\Program Files\Claude\Claude.exe" --type=crashpad-handler /prefetch:4`,
+			},
+			want: nil,
+		},
+		{
+			// Both at once: one account opened by MCS, another opened by hand.
+			name: "a flagged process and a flagless main process are both reported",
+			procs: []string{
+				`"C:\Program Files\Claude\Claude.exe" --user-data-dir="` + personal + `"`,
+				`"C:\Program Files\Claude\Claude.exe"`,
+			},
+			want: []string{personal, work},
 		},
 		{
 			name:  "nothing running",
@@ -201,7 +223,7 @@ func TestRunningProfilesInProcsWindows(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := runningProfilesInProcsWindows(tc.procs, profiles)
+			got := runningProfilesInProcsWindows(tc.procs, profiles, work)
 			if len(got) != len(tc.want) {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}

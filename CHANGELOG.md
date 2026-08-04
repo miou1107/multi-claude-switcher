@@ -19,6 +19,15 @@
   the archived folder and offers to open it, or, on failure, states that
   nothing was moved and the account is still listed.
 
+### Fixed
+- **Windows knows an account is open even when you did not open it from MCS.**
+  Claude Desktop started from the Start menu, a shortcut or a login item passes
+  no profile flag and runs on your default account, and on the standalone
+  Windows build MCS read that as "nothing is running". Switching and syncing
+  therefore closed that window without putting it back, and the removal guard
+  had nothing to guard on. It is now recognised, the way it already was on
+  macOS.
+
 ## [0.12.0] - 2026-08-04
 
 ### Added
