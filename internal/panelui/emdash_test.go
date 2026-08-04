@@ -101,6 +101,12 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 	// to say anything else at all.
 	syncEmpty := RenderSync([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, "", false)
 
+	removed := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34, ArchiveDir: "Claude_Old-20260804-142233"})
+	// Err set draws the failure branch instead, which the success fixture above
+	// can never reach in the same call.
+	removedFailed := RenderRemoved(RemovedVM{Folder: "Claude_Old", Name: "Old one",
+		Err: "Claude may still be holding its files."})
+
 	views := map[string]string{
 		"debug":                 RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "typed", Status: "Copied"}),
 		"settings":              RenderSettings(SettingsVM{Version: "0.11.2", Status: "Backed up", AutoSync: true, StartLogin: true}),
@@ -115,6 +121,8 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		"merge_neither_current": mergeNeitherCurrent,
 		"sync":                  sync,
 		"sync_empty":            syncEmpty,
+		"removed":               removed,
+		"removed_failed":        removedFailed,
 	}
 	for name, h := range views {
 		text := tags.ReplaceAllString(h, " ")

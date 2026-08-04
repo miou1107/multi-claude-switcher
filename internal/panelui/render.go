@@ -873,6 +873,69 @@ func ComputePreselect(accounts []core.ScannedAccount, managed []string) map[stri
 	return pre
 }
 
+// RemovedVM drives the screen shown after a removal, in either outcome.
+//
+// A partial failure can hand back both an ArchiveDir and an Err: the folder
+// moved but a registry write did not. That case is not represented here yet
+// (Err alone decides which branch below draws) — it is left to the caller in
+// Task 6, which is asked to treat a non-empty destination as success and fold
+// the registry complaint into the success screen, rather than let this view
+// draw "nothing moved" underneath a folder that in fact did.
+type RemovedVM struct {
+	Folder     string // for Try again after a failure
+	Name       string
+	Convos     int
+	ArchiveDir string // base name of where it landed; empty on failure
+	Err        string // empty on success
+}
+
+// RenderRemoved reports the outcome on its own screen rather than as a line at
+// the top of a changed list. A removal that reports itself in one line is the
+// case where the user cannot tell whether it happened, which for a
+// destructive-looking action is the one thing the screen has to answer.
+func RenderRemoved(vm RemovedVM) string {
+	esc := html.EscapeString
+
+	if vm.Err != "" {
+		// Folder travels as data-* and is read back with dataset, never
+		// interpolated into the onclick string: html.EscapeString turns an
+		// apostrophe into &#39;, the HTML parser decodes it back to ' before the
+		// inline JS is parsed, and a display name or folder containing one would
+		// break the handler (the v0.9.1 bug).
+		body := `<div class="header">
+  <button class="back" onclick="send('showList','')">‹</button>
+  <div class="htext"><h1>` + esc(vm.Name) + ` was not removed</h1><p>Nothing was moved</p></div>
+</div>
+<div class="errbox">` + esc(vm.Err) + `</div>
+<div class="hint">The account is still on your list, so you can try again.</div>
+<div class="footer">
+  <button class="btn btn-light" onclick="send('showList','')">Back</button>
+  <button class="btn btn-primary" data-folder="` + esc(vm.Folder) + `" onclick="send('removeProfile',this.dataset.folder)">Try again</button>
+</div>`
+		return shell(body)
+	}
+
+	// Mirrors askRemove's own zero/one/many wording in the shell script: zero
+	// gets its own phrase rather than falling through to a plural that would
+	// read "0 conversations", and a freshly created, never-signed-in profile is
+	// not a rare case to remove.
+	what := "Its conversations are untouched"
+	if vm.Convos == 1 {
+		what = "Its 1 conversation is untouched"
+	} else if vm.Convos > 1 {
+		what = fmt.Sprintf("Its %d conversations are untouched", vm.Convos)
+	}
+	body := `<div class="header">
+  <div class="htext"><h1>` + esc(vm.Name) + ` removed</h1><p>It is off the switcher</p></div>
+</div>
+<div class="hint">` + esc(what) + `, in a folder called <b>` + esc(vm.ArchiveDir) + `</b> inside your archive.</div>
+<button class="sbtn" onclick="send('openArchive','')">Open archive folder</button>
+<div class="footer">
+  <button class="btn btn-primary" onclick="send('showList','')">Done</button>
+</div>`
+	return shell(body)
+}
+
 // ShortID trims a UUID to its leading 8 characters for compact display.
 func ShortID(uuid string) string {
 	if len(uuid) > 8 {

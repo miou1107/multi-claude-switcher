@@ -777,3 +777,65 @@ func TestAskRemoveWordsTheConversationCountNaturally(t *testing.T) {
 		t.Fatalf("askRemove must phrase zero, one, and many conversations naturally:\n%s", h)
 	}
 }
+
+func TestRenderRemovedNamesWhereItWent(t *testing.T) {
+	h := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34, ArchiveDir: "Claude_Old-20260804-142233"})
+	if !strings.Contains(h, "Old one removed") {
+		t.Fatal("the result screen does not say what happened")
+	}
+	if !strings.Contains(h, "Claude_Old-20260804-142233") {
+		t.Fatal("the result screen does not name the archived folder")
+	}
+	if !strings.Contains(h, "openArchive") {
+		t.Fatal("no way to go and look at the archived folder")
+	}
+}
+
+func TestRenderRemovedSaysNothingMovedOnFailure(t *testing.T) {
+	h := RenderRemoved(RemovedVM{Folder: "Claude_Old", Name: "Old one",
+		Err: "Claude may still be holding its files."})
+	if !strings.Contains(h, "was not removed") {
+		t.Fatal("a failure does not read as a failure")
+	}
+	if !strings.Contains(h, "still on your list") {
+		t.Fatal("a failure does not say the account survived")
+	}
+	if !strings.Contains(h, "Claude may still be holding its files.") {
+		t.Fatal("the underlying reason is not shown")
+	}
+}
+
+// TestRenderRemovedWordsTheConversationCountNaturally pins all three branches of
+// the success screen's conversation-count wording, mirroring
+// TestAskRemoveWordsTheConversationCountNaturally: zero, one, and many each read
+// differently rather than falling through to a plural that would say "0
+// conversations" or "1 conversations".
+func TestRenderRemovedWordsTheConversationCountNaturally(t *testing.T) {
+	zero := RenderRemoved(RemovedVM{Name: "Fresh", ArchiveDir: "Claude_Fresh-1"})
+	if !strings.Contains(zero, "Its conversations are untouched") {
+		t.Fatalf("zero conversations must not read as a count:\n%s", zero)
+	}
+	one := RenderRemoved(RemovedVM{Name: "Solo", Convos: 1, ArchiveDir: "Claude_Solo-1"})
+	if !strings.Contains(one, "Its 1 conversation is untouched") {
+		t.Fatalf("one conversation must not be pluralized:\n%s", one)
+	}
+	many := RenderRemoved(RemovedVM{Name: "Busy", Convos: 5, ArchiveDir: "Claude_Busy-1"})
+	if !strings.Contains(many, "Its 5 conversations are untouched") {
+		t.Fatalf("many conversations must be pluralized:\n%s", many)
+	}
+}
+
+// TestRenderRemovedTryAgainUsesDataAttributesNotInlineArgs guards the v0.9.1
+// bug class: the folder must travel as data-* and be read back with dataset,
+// never interpolated straight into the onclick string, since
+// html.EscapeString turns an apostrophe into &#39; which the HTML parser
+// decodes back to ' before the inline JS is parsed.
+func TestRenderRemovedTryAgainUsesDataAttributesNotInlineArgs(t *testing.T) {
+	h := RenderRemoved(RemovedVM{Folder: "Claude_O'Brien", Name: "O'Brien", Err: "disk full"})
+	if strings.Contains(h, `removeProfile','Claude`) {
+		t.Fatalf("no inline string args (v0.9.1 bug class):\n%s", h)
+	}
+	if !strings.Contains(h, `onclick="send('removeProfile',this.dataset.folder)"`) {
+		t.Fatalf("Try again must read the folder back from dataset:\n%s", h)
+	}
+}
