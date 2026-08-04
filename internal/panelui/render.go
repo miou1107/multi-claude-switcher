@@ -371,6 +371,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
   // interpolated into the inline handler: a name with an apostrophe would
   // otherwise break the parse (the v0.9.1 bug).
   function askRemove(el){
+    // Close the row's own menu before putting a dialog over it. The menu item's
+    // stopPropagation keeps the document click handler from doing it, so without
+    // this the menu is merely hidden behind the scrim and still .open, and the
+    // Escape chain (which closes an open row menu first, on purpose) spends the
+    // user's first Escape on something invisible while the dialog sits there
+    // looking like it ignored the key.
+    closeAllRowMenus();
     // The button is always live now: a disabled control cannot explain
     // itself. If Claude is open on this account, remove has nothing to confirm,
     // so it opens an informational dialog instead of the destructive one, and

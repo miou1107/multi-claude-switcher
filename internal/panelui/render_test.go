@@ -225,6 +225,29 @@ func TestRowMenuButtonShowsItsOpenStateWithoutTouchingItsIcon(t *testing.T) {
 	}
 }
 
+// TestAskRemoveClosesTheRowMenuBeforeOpeningTheDialog pins the fix for a bug the
+// Escape-ordering test below could not see, because it was written assuming a row
+// menu and the modal are never open at once. They can be: the menu item's own
+// stopPropagation keeps the document click handler from closing the menu, so
+// without this the menu stays .open behind the scrim, and Escape (which closes an
+// open row menu first, deliberately) spends the user's first press on something
+// invisible while the dialog appears to ignore the key.
+func TestAskRemoveClosesTheRowMenuBeforeOpeningTheDialog(t *testing.T) {
+	h := RenderList([]ProfileVM{
+		{Folder: "Claude", Name: "Work", Convos: 2, SignedIn: true},
+		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
+	}, false, "")
+	fn := jsFunctions(h)["askRemove"]
+	closes := strings.Index(fn, "closeAllRowMenus();")
+	asks := strings.Index(fn, "askConfirm(")
+	if closes < 0 {
+		t.Fatalf("askRemove must close the row menu it was chosen from:\n%s", fn)
+	}
+	if asks < 0 || closes > asks {
+		t.Fatalf("the menu must be closed before any dialog is raised, or Escape lands on the hidden menu:\n%s", fn)
+	}
+}
+
 // TestEscapeClosesRowMenuBeforeItsOtherMeanings pins the ordering requirement
 // directly: the row-menu-closing branch must appear, in source, before every
 // other branch already in the panel's Escape chain (the modal, the debug
@@ -989,7 +1012,16 @@ func TestRenderSettingsOffersDebugInfo(t *testing.T) {
 // carrying it proves the same thing; RenderList is what actually reaches it
 // now that the row menu replaced the deleted Account settings screen.
 func TestAskRemoveWordsTheConversationCountNaturally(t *testing.T) {
-	h := RenderList([]ProfileVM{{Folder: "Claude", Name: "Some name", Convos: 1, SignedIn: true}}, false, "")
+	// Two profiles, not one: with a single account listed the Remove menu item is
+	// not rendered at all, so a one-profile fixture asserts only on shared shell
+	// script and would pass unchanged with Remove deleted from every row.
+	h := RenderList([]ProfileVM{
+		{Folder: "Claude", Name: "Some name", Convos: 1, SignedIn: true},
+		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
+	}, false, "")
+	if !strings.Contains(h, `onclick="event.stopPropagation();askRemove(this)"`) {
+		t.Fatalf("precondition: this fixture must actually render a Remove menu item:\n%s", h)
+	}
 	for _, want := range []string{
 		`n === 0 ? 'It comes off your list. Nothing is deleted, and you can sign in to it again any time.'`,
 		`n === 1 ? 'It comes off your list. Its 1 conversation is kept, not deleted. Signing in to this account again starts a new copy of it, without that conversation.'`,
@@ -1028,7 +1060,14 @@ func TestAskRemoveDoesNotPromiseConversationsComeBack(t *testing.T) {
 // from an explicitly empty one, since both are falsy, so askConfirm has to
 // check arguments.length instead.
 func TestRemoveConfirmationHasNoWarningBlock(t *testing.T) {
-	h := RenderList([]ProfileVM{{Folder: "Claude", Name: "Some name", Convos: 3, SignedIn: true}}, false, "")
+	// Two profiles: see TestAskRemoveWordsTheConversationCountNaturally.
+	h := RenderList([]ProfileVM{
+		{Folder: "Claude", Name: "Some name", Convos: 3, SignedIn: true},
+		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
+	}, false, "")
+	if !strings.Contains(h, `onclick="event.stopPropagation();askRemove(this)"`) {
+		t.Fatalf("precondition: this fixture must actually render a Remove menu item:\n%s", h)
+	}
 	fn := jsFunctions(h)["askRemove"]
 	if !strings.Contains(fn, `what, 'Remove', '', 'destructive'`) {
 		t.Fatalf("askRemove must pass an empty warn string to askConfirm:\n%s", fn)
@@ -1047,7 +1086,14 @@ func TestRemoveConfirmationHasNoWarningBlock(t *testing.T) {
 // branch to an informational dialog instead, with the exact copy the design
 // specifies and no second modal (askConfirm is reused with an empty action).
 func TestAskRemoveOpensInformationalDialogForTheAccountInUse(t *testing.T) {
-	h := RenderList([]ProfileVM{{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true, SignedIn: true}}, false, "")
+	// Two profiles: see TestAskRemoveWordsTheConversationCountNaturally.
+	h := RenderList([]ProfileVM{
+		{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true, SignedIn: true},
+		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
+	}, false, "")
+	if !strings.Contains(h, `data-current="1"`) {
+		t.Fatalf("precondition: this fixture must render the current account's Remove item:\n%s", h)
+	}
 	fn := jsFunctions(h)["askRemove"]
 	if !strings.Contains(fn, `el.dataset.current === '1'`) {
 		t.Fatalf("askRemove must branch on the current-account marker:\n%s", fn)
@@ -1086,7 +1132,14 @@ func TestInformationalDialogHasNoCancelAndDoesNotSend(t *testing.T) {
 // a dialog but is not destructive, and painting their confirm button red too
 // would turn red into the colour of "confirm".
 func TestRemovalIsTheOnlyDestructiveConfirmation(t *testing.T) {
-	h := RenderList([]ProfileVM{{Folder: "Claude_Old", Name: "Old one", Convos: 3, SignedIn: true}}, false, "")
+	// Two profiles: see TestAskRemoveWordsTheConversationCountNaturally.
+	h := RenderList([]ProfileVM{
+		{Folder: "Claude_Old", Name: "Old one", Convos: 3, SignedIn: true},
+		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
+	}, false, "")
+	if !strings.Contains(h, `onclick="event.stopPropagation();askRemove(this)"`) {
+		t.Fatalf("precondition: this fixture must actually render a Remove menu item:\n%s", h)
+	}
 
 	// Filled red, per the design: a background, not merely red lettering.
 	if !strings.Contains(h, ".btn-danger{background:linear-gradient(135deg,#d5566d,#c0392b);color:#fff") {
