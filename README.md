@@ -216,7 +216,8 @@ Usually WebView2 is missing. Right-click the eyes icon in the tray, choose
 Yes. Settings → **Open backup folder** holds timestamped snapshots, kept per
 profile, alongside a dated `tidied-` folder holding conversations an old version
 saved where no account could open them. The five most recent snapshots of each
-account are kept. Older ones are moved to
+account are kept. Nothing in there is deleted except an emptied folder's own
+operating-system leftovers. Older snapshots are moved to
 a `.trash` folder beside them, where they stay for 30 days before being deleted,
 so there is a month to fetch one back. Anything you put in that folder yourself
 is left alone.

@@ -31,14 +31,24 @@ every file it moves is unreadable by any account and has a readable copy elsewhe
 confirmation would ask the user to decide something they cannot observe and have no
 information about, which is a way of transferring blame rather than seeking consent.
 
-One consequence is real and is accepted deliberately. A bucket named by an organization
-the profile still carries a stamp for is one the user was signed into and could sign into
-again. Moving its files means that if they rejoin, that organization looks empty. The
-conversations themselves are not lost, since they are also in the organization the
-profile reads today, and the moved copies can be fetched from the backup folder. The
-alternative considered was leaving those buckets alone, which would have removed the
-surprise entirely at the cost of about 4 MB of the 36 MB. The maintainer chose to move
-them.
+One consequence is real and is accepted deliberately, and review showed the first draft of
+this paragraph under-stated it by an order of magnitude.
+
+The obvious case is an organization the profile still carries a stamp for: one the user
+was signed into and could sign into again. Moving its files means that if they rejoin, it
+looks empty. That was measured at about 4 MB of the 36 MB.
+
+The larger case is a whole ACCOUNT. A profile signed out of account A and into account B
+keeps A's history under `<acctA>/`, and if any other profile is signed into A with a
+synced copy, every one of those files has an equal-time counterpart and qualifies. Signing
+back into A in that profile then shows nothing. Two profiles on one account is an ordinary
+setup, particularly on the Windows Store build.
+
+In both cases the conversations themselves survive: they are readable in the folder the
+profile reads today or in the other profile, and the moved copies sit in the backup folder.
+What is lost is the expectation that a folder you return to still has what you left in it.
+The alternative was leaving any bucket whose organization still has a stamp alone. The
+maintainer chose to move them.
 
 ## What may be moved
 
@@ -52,6 +62,26 @@ no account signed in, or an unreadable or unparseable `config.json`, or no organ
 stamp, has no known read bucket, and treating "unknown" as "reads nothing" would make
 every one of its buckets a candidate. That is the single most dangerous mistake available
 here, so it fails closed.
+
+The bucket must also be **entirely older than the last thing written to the bucket the
+profile reads.** This is the guard against the worst outcome available here, and it was
+added after review reproduced the failure.
+
+`GetProfileActiveOrgUUID` is a heuristic over a private format: Claude Desktop refreshes
+an allowlist stamp once per launch for the organization it launched into, and the newest
+stamp is taken as the active one. Someone who launches into one organization and switches
+to another in-app, without relaunching, leaves the stamp naming the wrong one.
+`platform/activeorg.go` says being wrong there "costs visibility, never data". This
+feature is what would have made that false: the pre-0.11.2 defect put the same
+conversation names under both organizations of one account, and `copyFile` preserves
+modification times, so every file in the genuinely live folder has an equal-time
+counterpart in the believed-read one. All of them qualified, all of them moved, and the
+directory was removed. The user's current conversations disappeared from the app.
+
+A folder that stopped receiving writes before v0.11.2 shipped is unambiguously older than
+one in use. A folder that is not is not safe to call abandoned, whichever organization the
+stamp names. The believed-read bucket must also exist and hold something, since an empty
+one means the record naming it is not describing this profile.
 
 A file in an unread bucket is moved only when both hold:
 
@@ -102,9 +132,18 @@ a test rather than left to the reader.
 ## Errors and edge cases
 
 - **Claude Desktop running.** It reads and writes the read bucket, which this never
-  touches. A user switching organization mid-run would move a bucket from unread to read
-  underneath the walk; the per-file moves that had already happened are recoverable from
-  the backup folder, and the rest are skipped when their destination check fails.
+  touches. The window between deciding and acting is closed at the file level: every move
+  carries what the scan saw, and refuses a source whose modification time has changed
+  since. A sync or a switch writing into a bucket during the scan therefore has its work
+  left alone rather than moved away on the strength of a judgement about a different file.
+- **Profile identity is the path, never the display name.** On the Windows Store build two
+  entries can carry the same name (the live slot and a container directory, after a swap
+  whose state write failed). Resolving a name back to a path would plan against one and
+  act on the other, and `platform/windows_msix.go` records that the inverse mapping does
+  not exist. Every move carries its own path.
+- **A systemic failure stops the run.** Ten consecutive failures ends it. A redirected
+  `AppData` making every rename a cross-device error would otherwise put one line per
+  file, 564 of them, in the log at every launch forever.
 - **A merge or removal in flight** relocates whole profiles. Each affected move fails with
   ENOENT, is logged, and is skipped.
 - **A second run on the same day** finds `tidied-<date>` already there and adds to it. A
@@ -124,6 +163,15 @@ without a filesystem:
 - a profile with no signed-in account contributes no candidates AND is not itself
   treated as reading nothing
 - a profile with an unreadable organization stamp is skipped
+- a profile whose believed-read bucket holds nothing is skipped, through the real scan as
+  well as the pure function
+- a bucket as recently written as the one believed to be read is left alone, and the whole
+  wrong-organization scenario is reproduced end to end
+- two profiles carrying the same display name do not have a move executed against the
+  wrong one
+- a source that changed after the scan is not moved
+- a bucket whose moves all failed is not removed
+- nested directories are cleaned all the way up to the account level
 - the same conversation misfiled in two profiles is handled once per profile
 
 Plus, against a real filesystem: the directory structure is preserved, an existing
@@ -146,6 +194,12 @@ confirmation said one thing three times in the implementation's vocabulary.
 into `.trash`, so the 30-day deletion never applies to them.
 
 **Touching `~/.claude/projects/`.** Transcripts are shared and separate.
+
+**A test of `StartTidyMisfiled`.** It resolves the real machine's profiles and the real
+backup root, so calling it from a test moves the conversations of whoever runs `go test`.
+One was written and removed; the only reason it did no harm is that the machine it ran on
+had nothing left to tidy. It also asserted nothing, since the whole body is a goroutine
+launch. `TidyMisfiled` is driven directly against a temporary directory instead.
 
 ## Version
 

@@ -347,8 +347,14 @@ type BackupUsage struct {
 	Bytes       int64 // the surviving snapshots only
 	Staged      int
 	StagedBytes int64 // what is waiting to be deleted
-	Other       int   // directories MCS did not name, counted so the numbers add up
-	Err         string
+	// Other is directories MCS did not name as snapshots: a folder somebody
+	// made by hand, and the tidied-<date> folders the misfiled-conversation
+	// cleanup writes. Their bytes are counted too, or the Debug screen
+	// under-reports the folder by exactly what that cleanup put in it, which is
+	// the one screen somebody opens to ask why the folder grew.
+	Other      int
+	OtherBytes int64
+	Err        string
 }
 
 func (bm *BackupManager) Usage() BackupUsage {
@@ -376,6 +382,7 @@ func (bm *BackupManager) Usage() BackupUsage {
 		}
 		if _, _, _, ok := parseBackupName(e.Name()); !ok {
 			u.Other++
+			u.OtherBytes += dirBytes(filepath.Join(bm.BackupRootDir, e.Name()))
 			continue
 		}
 		u.Snapshots++

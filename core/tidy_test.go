@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,31 @@ var (
 )
 
 func file(rel string, at time.Time) bucketFile { return bucketFile{Rel: rel, MTime: at} }
+
+// tidiedDirIn finds the one tidied-<date> folder a run created.
+func tidiedDirIn(t *testing.T, backups string) string {
+	t.Helper()
+	entries, err := os.ReadDir(backups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), "tidied-") {
+			return filepath.Join(backups, e.Name())
+		}
+	}
+	t.Fatalf("no tidied-* folder in %s", backups)
+	return ""
+}
+
+func mtimeOf(t *testing.T, p string) time.Time {
+	t.Helper()
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.ModTime()
+}
 
 func moveRels(m []tidyMove) []string {
 	var out []string
@@ -83,18 +109,37 @@ func TestTidyLeavesAFileNewerThanItsCounterpart(t *testing.T) {
 	}
 }
 
-// Equal times are the common case: the measurement found 425 of 564 pairs
-// byte-identical with identical mtimes, because copyFile preserves them.
+// Equal times per FILE are the common case: 425 of the 564 measured were
+// byte-identical with identical times, because copyFile preserves them. What
+// must be older is the BUCKET, not each file against its own counterpart: the
+// folder in use goes on being written, so its newest file outruns everything in
+// a folder that stopped receiving writes when v0.11.2 shipped.
 func TestTidyMovesAFileWhoseCounterpartHasTheSameTime(t *testing.T) {
 	got := tidyCandidates([]profileSessions{{
 		Profile: "Claude", ReadKnown: true, Read: bucket{"acctA", "orgA"},
 		Buckets: map[bucket][]bucketFile{
-			{"acctA", "orgA"}: {file("s1.json", tNow)},
-			{"acctB", "orgB"}: {file("s1.json", tNow)},
+			{"acctA", "orgA"}: {file("s1.json", tOlder), file("recent.json", tNow)},
+			{"acctB", "orgB"}: {file("s1.json", tOlder)},
 		},
 	}})
 	if len(got) != 1 {
-		t.Errorf("candidates = %v, want the stray to move", moveRels(got))
+		t.Errorf("candidates = %v, want the stray to move: its counterpart has the same time, and the folder in use is newer overall", moveRels(got))
+	}
+}
+
+// A bucket that is not entirely older than the folder in use is not safe to
+// call abandoned, whatever the organization stamp says. This is the pure-
+// function half of the live-organization protection.
+func TestTidyLeavesABucketAsRecentAsTheOneInUse(t *testing.T) {
+	got := tidyCandidates([]profileSessions{{
+		Profile: "Claude", ReadKnown: true, Read: bucket{"acctA", "orgB"},
+		Buckets: map[bucket][]bucketFile{
+			{"acctA", "orgB"}: {file("s1.json", tOlder)},
+			{"acctA", "orgA"}: {file("s1.json", tOlder)}, // just as recent
+		},
+	}})
+	if len(got) != 0 {
+		t.Errorf("candidates = %v, want none: a folder as recently written as the one believed to be read may be the one actually in use", moveRels(got))
 	}
 }
 
@@ -231,7 +276,7 @@ func TestMoveFileIntoCreatesParentsAndMoves(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(root, "tidied-20260805", "Claude", "acct", "org", "a.json")
-	if err := moveFileInto(src, dst); err != nil {
+	if err := moveFileInto(src, dst, bucketFile{Rel: "a.json", MTime: mtimeOf(t, src)}); err != nil {
 		t.Fatalf("moveFileInto: %v", err)
 	}
 	if _, err := os.Stat(src); err == nil {
@@ -257,7 +302,7 @@ func TestMoveFileIntoRefusesToOverwrite(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := moveFileInto(src, dst); err == nil {
+	if err := moveFileInto(src, dst, bucketFile{Rel: "a.json", MTime: mtimeOf(t, src)}); err == nil {
 		t.Error("moveFileInto overwrote an existing destination")
 	}
 	if got, _ := os.ReadFile(dst); string(got) != "dest" {
@@ -336,7 +381,15 @@ func writeTidyProfile(t *testing.T, root, name, account, org string, buckets map
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), blob, 0644); err != nil {
 		t.Fatal(err)
 	}
+	readBucket := bucket{Account: account, Org: org}
 	for b, files := range buckets {
+		// The folder in use has been written more recently than the strays,
+		// which is both how a real machine looks and what the retention guard
+		// in tidyCandidates requires.
+		at := tNow.Add(-30 * 24 * time.Hour)
+		if b == readBucket {
+			at = tNow
+		}
 		bd := filepath.Join(dir, "claude-code-sessions", b.Account, b.Org)
 		if err := os.MkdirAll(bd, 0755); err != nil {
 			t.Fatal(err)
@@ -347,6 +400,9 @@ func writeTidyProfile(t *testing.T, root, name, account, org string, buckets map
 				t.Fatal(err)
 			}
 			if err := os.WriteFile(p, []byte(name+"/"+b.Account+"/"+b.Org+"/"+f), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(p, at, at); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -370,7 +426,9 @@ func TestTidyMisfiledEndToEnd(t *testing.T) {
 	TidyMisfiled([]*platform.ProfileInfo{p1, p2}, backups)
 
 	// The stray moved, structure preserved.
-	moved := filepath.Join(backups, tidiedDirName(time.Now()), "Claude", "acctB", "orgB", "s1.json")
+	// Found rather than reconstructed: building the name from a second
+	// time.Now() fails on a run that straddles midnight.
+	moved := filepath.Join(tidiedDirIn(t, backups), "Claude", "acctB", "orgB", "s1.json")
 	if _, err := os.Stat(moved); err != nil {
 		t.Errorf("the stray did not arrive at %s: %v", moved, err)
 	}
@@ -449,17 +507,249 @@ func TestTidyMisfiledDoesNothingWhenThereIsNothingToDo(t *testing.T) {
 	}
 }
 
-// Both hosts call StartTidyMisfiled and nothing else. It must return at once
-// and must survive a platform that cannot list profiles.
-func TestStartTidyMisfiledReturnsImmediately(t *testing.T) {
-	done := make(chan struct{})
-	go func() {
-		StartTidyMisfiled(platform.New())
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("StartTidyMisfiled blocked: both hosts call it on the startup path")
+// StartTidyMisfiled is deliberately NOT exercised here.
+//
+// It resolves the real machine's profiles and the real backup root, so calling
+// it from a test moves the conversations of whoever is running go test. An
+// earlier version of this file did exactly that, and the only reason it caused
+// no harm is that the machine it ran on had nothing left to tidy. It also
+// asserted nothing: the entire body of StartTidyMisfiled is a goroutine launch,
+// so it cannot block, and the goroutine outlived the test.
+//
+// What that test was reaching for is covered where it can be covered safely:
+// TidyMisfiled is driven directly against a temporary directory throughout this
+// file, and the one line each host calls is a goroutine launch with nothing in
+// it worth a test.
+
+// Reproduction for the worst case available here: the organization heuristic
+// being WRONG, rather than unreadable.
+//
+// GetProfileActiveOrgUUID picks the newest dxt:allowlistLastUpdated stamp, and
+// Claude Desktop refreshes that once per launch for the organization it
+// launched into. Someone who launches into orgB and then switches to orgA
+// in-app, without relaunching, leaves orgB holding the newest stamp while
+// Claude actually reads orgA.
+//
+// The pre-0.11.2 defect is what makes this fatal rather than merely wrong: it
+// is precisely what put the same conversation names under both organizations of
+// one account, and copyFile preserves mtimes, so every file in the live orgA
+// bucket has an equal-time counterpart in the believed-read orgB bucket. Without
+// a guard, all of them qualify, all of them move, and the directory is removed.
+// The user's current conversations disappear from the app.
+//
+// platform/activeorg.go's own comment says being wrong there "costs visibility,
+// never data". This code is what would have made that false.
+func TestTidyDoesNotEvacuateALiveOrgWhenTheHeuristicPicksTheWrongOne(t *testing.T) {
+	root := t.TempDir()
+	backups := t.TempDir()
+
+	dir := filepath.Join(root, "Claude")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// orgB carries the newest stamp, so the heuristic answers orgB.
+	cfg := map[string]any{
+		"lastKnownAccountUuid":          "acctA",
+		"dxt:allowlistLastUpdated:orgA": tNow.Add(-72 * time.Hour).Format(time.RFC3339),
+		"dxt:allowlistLastUpdated:orgB": tNow.Format(time.RFC3339),
+	}
+	blob, _ := json.Marshal(cfg)
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), blob, 0644); err != nil {
+		t.Fatal(err)
+	}
+	// orgA is where the user actually is: its conversations are the recent ones.
+	// orgB is the stale bucket the old sync wrote.
+	write := func(org, name string, at time.Time) string {
+		p := filepath.Join(dir, "claude-code-sessions", "acctA", org, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(org+"/"+name), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, at, at); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	// Equal modification times, which is the ordinary case rather than a
+	// contrived one: copyFile preserves them, so every conversation the old
+	// sync duplicated has the same time on both sides, and a conversation the
+	// user has not reopened since keeps it. 425 of the 564 files measured were
+	// byte-identical with identical times.
+	stamp := tNow.Add(-10 * 24 * time.Hour)
+	live := []string{
+		write("orgA", "s1.json", stamp),
+		write("orgA", "s2.json", stamp),
+	}
+	write("orgB", "s1.json", stamp)
+	write("orgB", "s2.json", stamp)
+
+	TidyMisfiled([]*platform.ProfileInfo{{Name: "Claude", Path: dir}}, backups)
+
+	for _, p := range live {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("a live conversation was moved out of the organization the user is working in: %s: %v", filepath.Base(p), err)
+		}
+	}
+}
+
+// A profile whose believed-read folder holds nothing is not describing this
+// profile's reality, so nothing in it may be called abandoned. Real cause: a
+// stale account or organization record naming a folder that no longer exists.
+func TestTidySkipsAProfileWhoseReadBucketIsEmpty(t *testing.T) {
+	got := tidyCandidates([]profileSessions{{
+		Profile: "Claude", ReadKnown: true, Read: bucket{"acctA", "orgGONE"},
+		Buckets: map[bucket][]bucketFile{
+			// The believed-read folder is not among them.
+			{"acctA", "orgA"}: {file("s1.json", tOlder)},
+			{"acctB", "orgB"}: {file("s1.json", tOlder)},
+		},
+	}})
+	if len(got) != 0 {
+		t.Errorf("candidates = %v, want none: a read folder holding nothing cannot be the one in use", moveRels(got))
+	}
+	// And scanForTidy is what sets ReadKnown from that check, so the same case
+	// must survive the real scan.
+	root := t.TempDir()
+	p := writeTidyProfile(t, root, "Claude", "acctA", "orgGONE", map[bucket][]string{
+		{"acctA", "orgA"}: {"s1.json"},
+	})
+	for _, ps := range scanForTidy([]*platform.ProfileInfo{p}) {
+		if ps.ReadKnown {
+			t.Error("scanForTidy trusted a read folder that holds nothing")
+		}
+	}
+}
+
+// The window between deciding and acting. The scan of every profile takes as
+// long as it takes, and a sync or a switch writing into that folder meanwhile
+// must not have its work moved away on the strength of a judgement about a
+// different file.
+func TestMoveFileIntoRefusesASourceThatChanged(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "a.json")
+	if err := os.WriteFile(src, []byte("as scanned"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	scanned := bucketFile{Rel: "a.json", MTime: mtimeOf(t, src)}
+
+	// Rewritten since, as a sync would.
+	later := scanned.MTime.Add(time.Minute)
+	if err := os.WriteFile(src, []byte("written since"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(src, later, later); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := moveFileInto(src, filepath.Join(root, "dest", "a.json"), scanned); err == nil {
+		t.Error("moveFileInto moved a file that had changed since it was examined")
+	}
+	if got, _ := os.ReadFile(src); string(got) != "written since" {
+		t.Errorf("source = %q, want it left where it was", got)
+	}
+}
+
+// A bucket whose every move failed has not been emptied by this run, and
+// removing it because something else emptied it meanwhile is not this code's
+// call to make.
+func TestTidyDoesNotRemoveABucketWhoseMovesAllFailed(t *testing.T) {
+	root := t.TempDir()
+	backups := t.TempDir()
+
+	p1 := writeTidyProfile(t, root, "Claude", "acctA", "orgA", map[bucket][]string{
+		{"acctA", "orgA"}: {"s1.json"},
+		{"acctB", "orgB"}: {"s1.json"},
+	})
+	p2 := writeTidyProfile(t, root, "Claude_Profile2", "acctB", "orgB", map[bucket][]string{
+		{"acctB", "orgB"}: {"s1.json"},
+	})
+
+	// Block the only move by occupying its destination.
+	blocked := filepath.Join(backups, tidiedDirName(time.Now()), "Claude", "acctB", "orgB", "s1.json")
+	if err := os.MkdirAll(filepath.Dir(blocked), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blocked, []byte("from an earlier run"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	TidyMisfiled([]*platform.ProfileInfo{p1, p2}, backups)
+
+	stray := filepath.Join(p1.Path, "claude-code-sessions", "acctB", "orgB")
+	if _, err := os.Stat(filepath.Join(stray, "s1.json")); err != nil {
+		t.Errorf("the file was removed even though its move failed: %v", err)
+	}
+	if _, err := os.Stat(stray); err != nil {
+		t.Errorf("the bucket was removed even though nothing was moved out of it: %v", err)
+	}
+	if got, _ := os.ReadFile(blocked); string(got) != "from an earlier run" {
+		t.Errorf("the existing destination was overwritten: %q", got)
+	}
+}
+
+// Nested buckets are emptied all the way up. An earlier version stopped at the
+// bucket and account levels, so a bucket holding only projects/x/s1.json kept
+// projects/x and was never removed at all.
+func TestTidyRemovesNestedEmptiedDirectories(t *testing.T) {
+	root := t.TempDir()
+	backups := t.TempDir()
+
+	p1 := writeTidyProfile(t, root, "Claude", "acctA", "orgA", map[bucket][]string{
+		{"acctA", "orgA"}: {"live.json"},
+		{"acctB", "orgB"}: {filepath.Join("projects", "x", "s1.json")},
+	})
+	p2 := writeTidyProfile(t, root, "Claude_Profile2", "acctB", "orgB", map[bucket][]string{
+		{"acctB", "orgB"}: {filepath.Join("projects", "x", "s1.json")},
+	})
+
+	TidyMisfiled([]*platform.ProfileInfo{p1, p2}, backups)
+
+	if _, err := os.Stat(filepath.Join(p1.Path, "claude-code-sessions", "acctB")); err == nil {
+		t.Error("the emptied account folder is still there, so the nested directories under it were not cleaned up")
+	}
+}
+
+// Two profiles carrying the SAME display name is a real state on the Windows
+// Store build: the live slot and a container directory both answer to it after
+// a swap whose state write failed. Anything that resolved a name back to a path
+// would plan against one and act on the other, and the repository already
+// records that the inverse mapping does not exist. Every move therefore carries
+// its own path.
+func TestTidyKeepsTwoProfilesWithTheSameNameApart(t *testing.T) {
+	root := t.TempDir()
+	backups := t.TempDir()
+
+	// Same Name, different Path, each with its own stray.
+	a := writeTidyProfile(t, filepath.Join(root, "slot"), "Claude", "acctA", "orgA", map[bucket][]string{
+		{"acctA", "orgA"}: {"live.json"},
+		{"acctB", "orgB"}: {"stray-a.json"},
+	})
+	b := writeTidyProfile(t, filepath.Join(root, "container"), "Claude", "acctB", "orgB", map[bucket][]string{
+		{"acctB", "orgB"}: {"stray-a.json", "stray-b.json"},
+		{"acctA", "orgA"}: {"stray-b.json"},
+	})
+
+	TidyMisfiled([]*platform.ProfileInfo{a, b}, backups)
+
+	// Each stray left its OWN profile.
+	for _, gone := range []string{
+		filepath.Join(a.Path, "claude-code-sessions", "acctB", "orgB", "stray-a.json"),
+		filepath.Join(b.Path, "claude-code-sessions", "acctA", "orgA", "stray-b.json"),
+	} {
+		if _, err := os.Stat(gone); err == nil {
+			t.Errorf("%s was not moved: a move was executed against the wrong profile", gone)
+		}
+	}
+	// And neither profile's read folder was touched.
+	for _, kept := range []string{
+		filepath.Join(a.Path, "claude-code-sessions", "acctA", "orgA", "live.json"),
+		filepath.Join(b.Path, "claude-code-sessions", "acctB", "orgB", "stray-a.json"),
+		filepath.Join(b.Path, "claude-code-sessions", "acctB", "orgB", "stray-b.json"),
+	} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Errorf("%s was taken from a folder in use: %v", kept, err)
+		}
 	}
 }

@@ -46,7 +46,13 @@ type bucketFile struct {
 // because a file in a bucket that may or may not be the read one is not proof
 // that anything is readable.
 type profileSessions struct {
-	Profile   string
+	Profile string
+	// Path, not the name, is what every move is built from. On the Windows
+	// Store build two entries can carry the same display name (the live slot
+	// and a container directory, after a swap whose state write failed), and
+	// resolving a name back to a path would then plan against one and execute
+	// against the other.
+	Path      string
 	Read      bucket
 	ReadKnown bool
 	Buckets   map[bucket][]bucketFile
@@ -54,9 +60,36 @@ type profileSessions struct {
 
 // tidyMove is one file to relocate.
 type tidyMove struct {
-	Profile string
-	Bucket  bucket
-	Rel     string
+	Profile     string // for logs and for the destination path
+	ProfilePath string // where the file actually is; never re-derived from Profile
+	Bucket      bucket
+	Rel         string
+	// Scanned is what the file looked like when the decision was made. The move
+	// refuses if it has changed since: the scan and the moves are separated by
+	// however long the whole scan took, and a sync or a switch writing in that
+	// window would otherwise have its work moved away.
+	Scanned bucketFile
+}
+
+// newestIn returns the most recent modification time in a bucket, and false for
+// an empty one.
+func newestIn(files []bucketFile) (time.Time, bool) {
+	var newest time.Time
+	for _, f := range files {
+		if f.MTime.After(newest) {
+			newest = f.MTime
+		}
+	}
+	return newest, len(files) > 0
+}
+
+// readBucketLooksRight reports whether the bucket believed to be read behaves
+// like one at all: it must exist and hold something. A profile in use has
+// conversations in the folder Claude opens, and an empty one means the record
+// naming it is not describing this profile's reality.
+func readBucketLooksRight(ps profileSessions) bool {
+	_, ok := newestIn(ps.Buckets[ps.Read])
+	return ok
 }
 
 // tidyCandidates returns the files that may be moved out of the buckets no
@@ -97,8 +130,28 @@ func tidyCandidates(profiles []profileSessions) []tidyMove {
 		if !p.ReadKnown {
 			continue
 		}
+		readNewest, _ := newestIn(p.Buckets[p.Read])
 		for b, files := range p.Buckets {
 			if b == p.Read {
+				continue
+			}
+			// The whole bucket must be older than the last thing written to the
+			// folder this profile reads. This is the guard against the worst
+			// thing here: GetProfileActiveOrgUUID is a heuristic over a private
+			// format, and someone who launches into one organization and
+			// switches to another in-app without relaunching leaves the stamp
+			// naming the wrong one. Being wrong there is supposed to cost
+			// visibility and never data (platform/activeorg.go says so), but the
+			// pre-0.11.2 defect put the same conversation names under both
+			// organizations of one account, and copyFile preserves modification
+			// times, so every file in the genuinely live folder has an
+			// equal-time counterpart in the believed-read one and would qualify.
+			// The live organization would empty.
+			//
+			// A folder that stopped receiving writes before v0.11.2 shipped is
+			// unambiguously older than one in use. A folder that is not is not
+			// safe to call abandoned, whichever the stamp names.
+			if newest, any := newestIn(files); !any || !newest.Before(readNewest) {
 				continue
 			}
 			for _, f := range files {
@@ -106,7 +159,7 @@ func tidyCandidates(profiles []profileSessions) []tidyMove {
 				if !ok || at.Before(f.MTime) {
 					continue
 				}
-				out = append(out, tidyMove{Profile: p.Profile, Bucket: b, Rel: f.Rel})
+				out = append(out, tidyMove{Profile: p.Profile, ProfilePath: p.Path, Bucket: b, Rel: f.Rel, Scanned: f})
 			}
 		}
 	}
@@ -138,19 +191,31 @@ func TidyMisfiled(profiles []*platform.ProfileInfo, backupRoot string) {
 	}
 
 	dest := filepath.Join(backupRoot, tidiedDirName(time.Now()))
-	moved, skipped := 0, 0
+	moved, skipped, consecutive := 0, 0, 0
+	var done []tidyMove
 	for _, m := range moves {
-		src := filepath.Join(profilePathFor(profiles, m.Profile), "claude-code-sessions", m.Bucket.Account, m.Bucket.Org, m.Rel)
+		src := filepath.Join(m.ProfilePath, "claude-code-sessions", m.Bucket.Account, m.Bucket.Org, m.Rel)
 		dst := filepath.Join(dest, m.Profile, m.Bucket.Account, m.Bucket.Org, m.Rel)
-		if err := moveFileInto(src, dst); err != nil {
+		if err := moveFileInto(src, dst, m.Scanned); err != nil {
 			log.Printf("[Tidy] could not move %s: %v", m.Rel, err)
 			skipped++
+			consecutive++
+			if consecutive >= tidyGiveUpAfter {
+				// Something systemic: a redirected AppData making every rename
+				// a cross-device error, a permission wall, a tree that has just
+				// been moved. Carrying on would put one line per file in the
+				// log at every launch, forever, for a run that cannot work.
+				log.Printf("[Tidy] %d moves in a row failed, stopping; %d moved before that", consecutive, moved)
+				break
+			}
 			continue
 		}
+		consecutive = 0
 		moved++
+		done = append(done, m)
 	}
 	log.Printf("[Tidy] moved %d conversations no account could read into %s; %d could not be moved", moved, dest, skipped)
-	removeEmptiedBuckets(profiles, moves)
+	removeEmptiedBuckets(done)
 }
 
 // tidiedDirName is where a run puts what it moves. Not a name parseBackupName
@@ -164,22 +229,13 @@ func tidiedDirName(at time.Time) string {
 func scanForTidy(profiles []*platform.ProfileInfo) []profileSessions {
 	var out []profileSessions
 	for _, p := range profiles {
-		ps := profileSessions{Profile: p.Name, Buckets: map[bucket][]bucketFile{}}
-
-		account, accErr := platform.GetProfileAccountUUID(p.Path)
-		org, orgErr := platform.GetProfileActiveOrgUUID(p.Path)
-		if accErr == nil && orgErr == nil && account != "" && org != "" {
-			ps.Read, ps.ReadKnown = bucket{Account: account, Org: org}, true
-		} else {
-			// Fails closed. See profileSessions.ReadKnown.
-			log.Printf("[Tidy] skipping %s, cannot tell which folder it reads (account: %v, organization: %v)", p.Name, accErr, orgErr)
-			out = append(out, ps)
-			continue
-		}
+		ps := profileSessions{Profile: p.Name, Path: p.Path, Buckets: map[bucket][]bucketFile{}}
 
 		sessions := platform.GetProfileSessionsDir(p.Path)
 		accounts, err := os.ReadDir(sessions)
 		if err != nil {
+			// A profile with no session tree is the ordinary case for one that
+			// has never been signed in to, and says nothing worth logging.
 			if !os.IsNotExist(err) {
 				log.Printf("[Tidy] could not read %s: %v", sessions, err)
 			}
@@ -203,6 +259,29 @@ func scanForTidy(profiles []*platform.ProfileInfo) []profileSessions {
 				ps.Buckets[b] = readBucketFiles(filepath.Join(sessions, a.Name(), o.Name()))
 			}
 		}
+
+		if len(ps.Buckets) == 0 {
+			out = append(out, ps) // nothing here either way
+			continue
+		}
+
+		account, accErr := platform.GetProfileAccountUUID(p.Path)
+		org, orgErr := platform.GetProfileActiveOrgUUID(p.Path)
+		if accErr != nil || orgErr != nil || account == "" || org == "" {
+			// Fails closed. See profileSessions.ReadKnown. Logged only when the
+			// profile actually holds conversations, or a directory that merely
+			// starts with "Claude" produces this line at every launch forever.
+			log.Printf("[Tidy] skipping %s, cannot tell which folder it reads (account: %v, organization: %v)", p.Name, accErr, orgErr)
+			out = append(out, ps)
+			continue
+		}
+		ps.Read, ps.ReadKnown = bucket{Account: account, Org: org}, true
+
+		if !readBucketLooksRight(ps) {
+			log.Printf("[Tidy] skipping %s: %s/%s is recorded as the folder it reads, but it is empty or another folder has been written more recently, so that record cannot be trusted",
+				p.Name, account, org)
+			ps.ReadKnown = false
+		}
 		out = append(out, ps)
 	}
 	return out
@@ -224,22 +303,28 @@ func readBucketFiles(dir string) []bucketFile {
 	return out
 }
 
-func profilePathFor(profiles []*platform.ProfileInfo, name string) string {
-	for _, p := range profiles {
-		if p.Name == name {
-			return p.Path
-		}
-	}
-	return ""
-}
-
-// moveFileInto relocates one file, creating the destination's parents and
-// refusing to overwrite anything already there.
+// moveFileInto relocates one file, refusing both to overwrite anything at the
+// destination and to move a source that has changed since it was examined.
 //
-// Refusing rather than overwriting matters on a second run in one day, which
-// lands in the same tidied-<date> folder: whatever is already there came from
-// the earlier run and is the copy worth keeping.
-func moveFileInto(src, dst string) error {
+// Refusing to overwrite matters on a second run in one day, which lands in the
+// same tidied-<date> folder: whatever is there came from the earlier run.
+//
+// Refusing a changed source is what closes the window between deciding and
+// acting. The decision is made from a scan of every profile, which takes as long
+// as it takes, and a sync or a switch writing into that bucket meanwhile would
+// otherwise have a live file moved out from under it on the strength of a
+// judgement made about a different file.
+func moveFileInto(src, dst string, scanned bucketFile) error {
+	fi, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("%s is no longer a regular file", src)
+	}
+	if !fi.ModTime().Equal(scanned.MTime) {
+		return fmt.Errorf("%s changed since it was examined", src)
+	}
 	if _, err := os.Lstat(dst); err == nil {
 		return fmt.Errorf("%s already exists", dst)
 	}
@@ -249,29 +334,48 @@ func moveFileInto(src, dst string) error {
 	return os.Rename(src, dst)
 }
 
-// removeEmptiedBuckets deletes the bucket directories a run emptied, and only
-// those. A bucket that still holds anything is left exactly as it was.
-func removeEmptiedBuckets(profiles []*platform.ProfileInfo, moves []tidyMove) {
+// removeEmptiedBuckets deletes the directories this run emptied, and only
+// those. It is given the moves that SUCCEEDED, not the ones that were planned:
+// a bucket whose every move failed has not been emptied by this run, and
+// removing it because something else emptied it meanwhile is not this code's
+// decision to make.
+//
+// It climbs from the file's own directory up to the account level, so a bucket
+// holding only projects/x/s1.json loses projects/x, then projects, then the
+// organization and the account. Stopping at the bucket level, as an earlier
+// version did, left every nested bucket behind entirely.
+func removeEmptiedBuckets(done []tidyMove) {
 	seen := map[string]bool{}
-	for _, m := range moves {
-		dir := filepath.Join(profilePathFor(profiles, m.Profile), "claude-code-sessions", m.Bucket.Account, m.Bucket.Org)
-		if seen[dir] {
-			continue
+	for _, m := range done {
+		account := filepath.Join(m.ProfilePath, "claude-code-sessions", m.Bucket.Account)
+		dir := filepath.Dir(filepath.Join(account, m.Bucket.Org, m.Rel))
+		for dir != account && dir != filepath.Dir(dir) {
+			if seen[dir] {
+				break
+			}
+			seen[dir] = true
+			if !removeIfEmpty(dir) {
+				break // still holds something, and so does everything above it
+			}
+			dir = filepath.Dir(dir)
 		}
-		seen[dir] = true
-		removeIfEmpty(dir)
-		removeIfEmpty(filepath.Dir(dir)) // the account folder, if that was its last organization
+		if !seen[account] {
+			seen[account] = true
+			removeIfEmpty(account)
+		}
 	}
 }
 
-func removeIfEmpty(dir string) {
+// removeIfEmpty removes a directory holding nothing but the operating system's
+// own leftovers, and reports whether it went.
+func removeIfEmpty(dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return
+		return false
 	}
 	for _, e := range entries {
 		if !isOSMetadataFile(e.Name()) {
-			return // still holds something
+			return false // still holds something
 		}
 	}
 	// Only the operating system's own leftovers. Those came with the folder
@@ -281,8 +385,14 @@ func removeIfEmpty(dir string) {
 	}
 	if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
 		log.Printf("[Tidy] could not remove the emptied folder %s: %v", dir, err)
+		return false
 	}
+	return true
 }
+
+// tidyGiveUpAfter bounds how many consecutive failures a run tolerates before
+// concluding the problem is systemic rather than per-file.
+const tidyGiveUpAfter = 10
 
 // sortTidyMoves gives a run a deterministic order, so a log reads the same way
 // twice and a test can compare without sorting at the call site.

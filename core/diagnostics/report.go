@@ -66,6 +66,8 @@ type Input struct {
 	BackupBytes       int64
 	BackupStaged      int
 	BackupStagedBytes int64
+	BackupOther       int
+	BackupOtherBytes  int64
 	BackupReadErr     string
 
 	Home            string
@@ -374,7 +376,7 @@ func backupsLine(in Input) string {
 	if in.BackupReadErr != "" {
 		return "Backups: could not read (" + in.BackupReadErr + ")"
 	}
-	if in.BackupCount == 0 && in.BackupStaged == 0 {
+	if in.BackupCount == 0 && in.BackupStaged == 0 && in.BackupOther == 0 {
 		return "Backups: none"
 	}
 	// The two sizes are reported apart. Pooling them made a reader attribute
@@ -382,6 +384,9 @@ func backupsLine(in Input) string {
 	line := fmt.Sprintf("Backups: %s, %s", plural(in.BackupCount, "snapshot", "snapshots"), humanBytes(in.BackupBytes))
 	if in.BackupStaged > 0 {
 		line += fmt.Sprintf(" · %d awaiting deletion, %s", in.BackupStaged, humanBytes(in.BackupStagedBytes))
+	}
+	if in.BackupOther > 0 {
+		line += fmt.Sprintf(" · %d other folder(s), %s", in.BackupOther, humanBytes(in.BackupOtherBytes))
 	}
 	return line
 }
