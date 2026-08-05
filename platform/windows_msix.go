@@ -181,7 +181,7 @@ func renameWithRetry(from, to string) error {
 	// they can act on where "Access is denied" is not.
 	if holders := msixDescribeHolders(from); holders != "" {
 		log.Printf("[msix] still running from inside %q: %s", filepath.Base(from), holders)
-		return fmt.Errorf("%w. Still running from inside it: %s", err, holders)
+		return fmt.Errorf("%w (still running from inside it: %s)", err, holders)
 	}
 	return err
 }

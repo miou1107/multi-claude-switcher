@@ -38,6 +38,17 @@ import (
 // guard catches one, and this file itself is the obvious example.
 var roots = []string{"core", "platform", "cmd", "internal"}
 
+// skipDirs are covered better elsewhere.
+//
+// internal/panelui is one package of HTML and JavaScript held in Go string
+// literals, so to this guard a whole screen is a single literal thousands of
+// characters long, comments and all. Reporting those would mean rewording code
+// comments nobody is shown, which an earlier round of this work already did
+// once for no benefit. TestNoEmDashInUserFacingText renders those screens and
+// reads the finished page, which separates the copy from the comments properly
+// and is the stronger check of the two.
+var skipDirs = []string{filepath.Join("internal", "panelui")}
+
 func TestNoEmDashInUserFacingStrings(t *testing.T) {
 	checked := 0
 	for _, root := range roots {
@@ -46,7 +57,15 @@ func TestNoEmDashInUserFacingStrings(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			if info.IsDir() {
+				for _, skip := range skipDirs {
+					if strings.HasSuffix(filepath.Clean(path), skip) {
+						return filepath.SkipDir
+					}
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
 			checked++
@@ -74,48 +93,66 @@ func check(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
+	// Every string literal in the file, then the exemptions. Checking only the
+	// arguments of a known list of calls was tried first and was the wrong
+	// shape: it needs the list to be right, and the list was not. It named
+	// askConfirm, which is a JavaScript function in the panel's page source and
+	// has never existed in Go, while missing confirmDialog, which is the real
+	// dialog helper on both platforms. It also could not see copy that reaches
+	// a user without passing through a call at all — a bare `return "…"`, an
+	// assignment, or two literals joined with + — which is how the message in
+	// cmd/mcs-tray/autosync.go is written.
+	//
+	// Inverting it means the guard is wrong only when something is exempted,
+	// which is visible in the list below, rather than when something is missing
+	// from a list nobody rereads.
+	exempt := exemptPositions(f, fset)
 	ast.Inspect(f, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok || !isUserFacingStringCall(call.Fun) {
+		lit, ok := n.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
 			return true
 		}
-		for _, arg := range call.Args {
-			lit, ok := arg.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				continue
-			}
-			s, err := strconv.Unquote(lit.Value)
-			if err != nil || !strings.Contains(s, "—") {
-				continue
-			}
-			t.Errorf("%s: em dash in a string a user can be shown: %q",
-				fset.Position(lit.Pos()), s)
+		if exempt[lit.Pos()] {
+			return true
 		}
+		s, err := strconv.Unquote(lit.Value)
+		if err != nil || !strings.Contains(s, "—") {
+			return true
+		}
+		t.Errorf("%s: em dash in a string a user can be shown: %q",
+			fset.Position(lit.Pos()), s)
 		return true
 	})
 }
 
-// isUserFacingStringCall reports whether fun builds or delivers a string a user
-// may read.
+// exemptPositions marks the literals that are not copy.
 //
-// Comments and log.Printf are deliberately absent: comments are shown to
-// nobody, and log lines are read by whoever is debugging, where a dash costs
-// nothing. Flagging either is what forced pointless code-comment rewording in
-// an earlier round of this work.
-//
-// The bare identifiers are this project's own message helpers. They take copy
-// straight to a dialog or a status line without any fmt call in between, which
-// is how several of the sixteen escaped: the string was a plain literal
-// argument, not something built by fmt.
-func isUserFacingStringCall(fun ast.Expr) bool {
-	if id, ok := fun.(*ast.Ident); ok {
-		switch id.Name {
-		case "notify", "setStatus", "askText", "askConfirm",
-			"panelSetStatus", "setBusyStatus", "panelSetBusy":
+// Only log calls. Comments never reach this function at all, since they are not
+// literals, which is what makes the inverted check tolerable: an earlier round
+// of this work forced pointless rewording of code comments, and nothing here
+// can do that again. Log lines are read by whoever is debugging, where a dash
+// costs nothing.
+func exemptPositions(f *ast.File, fset *token.FileSet) map[token.Pos]bool {
+	out := map[token.Pos]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || !isLogCall(call.Fun) {
 			return true
 		}
-		return false
-	}
+		// The whole call, so a literal concatenated into a log message is
+		// exempt too.
+		ast.Inspect(call, func(m ast.Node) bool {
+			if lit, ok := m.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				out[lit.Pos()] = true
+			}
+			return true
+		})
+		return true
+	})
+	return out
+}
+
+func isLogCall(fun ast.Expr) bool {
 	sel, ok := fun.(*ast.SelectorExpr)
 	if !ok {
 		return false
@@ -124,9 +161,5 @@ func isUserFacingStringCall(fun ast.Expr) bool {
 	if !ok {
 		return false
 	}
-	switch pkg.Name + "." + sel.Sel.Name {
-	case "fmt.Errorf", "errors.New", "fmt.Sprintf":
-		return true
-	}
-	return false
+	return pkg.Name == "log"
 }

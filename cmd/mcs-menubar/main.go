@@ -534,9 +534,13 @@ func goPanelAction(caction, cfolder *C.char) {
 				mu.Unlock()
 				// The view moves after the model it draws is in place. SetView
 				// rather than a bare assignment: this is the user arriving at an
-				// outcome screen, so it ends any inline rename the same way every
-				// other navigation does. There is no card to take down here, since
-				// removal does not raise one.
+				// outcome screen, so it ends an inline rename the same way every
+				// other navigation does, and takes down any card still up.
+				// Removal raises none of its own, but a switch or sync card
+				// outlives the busy flag that guarded it: it stays until the user
+				// dismisses it, and by then busy is false, so nothing stops a
+				// removal starting underneath it. Leaving it would draw a stale
+				// "Switched successfully" over the removal outcome.
 				panelState.SetView("removed")
 			}
 			reloadPanel()
@@ -765,6 +769,12 @@ func reloadPanel() {
 		return
 	}
 
+	// rendered is the screen this pass actually produced, which is not always
+	// snap.View: the merge branch below can fall back to the list and move the
+	// view itself. The push at the end compares against this, not against the
+	// view we started from.
+	rendered := snap.View
+
 	var htmlStr string
 	switch snap.View {
 	case "rescan":
@@ -798,6 +808,7 @@ func reloadPanel() {
 			// must not take down the card reporting on that very merge.
 			setStatus(planErr.Error())
 			panelState.SetViewKeeping("list")
+			rendered = "list"
 			htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())
 			break
 		}
@@ -836,10 +847,20 @@ func reloadPanel() {
 	// and passing it per-renderer is how one host ends up drawing it on a screen
 	// the other forgot.
 	//
-	// From the same snapshot that chose the screen, not a fresh read: the two
-	// must agree, and every mutator calls reloadPanel again anyway, so a card
-	// raised while the render above was busy is drawn by that reload.
-	c := C.CString(panelui.WithProgress(htmlStr, snap.Progress))
+	// Re-read before pushing. The render above can take seconds (leveldb per
+	// profile), reloadPanel is not serialized, and a faster reload started
+	// later can already have pushed the current screen. Publishing this one on
+	// top would put a stale page up with nothing scheduled to correct it.
+	//
+	// The card comes from the fresh read for the same reason: pinning it at the
+	// top of the render meant a merge whose outcome landed mid-render was drawn
+	// with the "Merging" spinner still on it, and that spinner was then the last
+	// thing on screen.
+	cur := panelState.Snapshot()
+	if cur.View != rendered {
+		return
+	}
+	c := C.CString(panelui.WithProgress(htmlStr, cur.Progress))
 	defer C.free(unsafe.Pointer(c))
 	C.LoadPanelHTML(c)
 }

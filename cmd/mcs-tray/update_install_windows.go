@@ -84,7 +84,7 @@ func installUpdate(url, tag string, auto bool) error {
 func failedUpdate(auto bool, err error) error {
 	if !auto {
 		_ = openURL(releasesPageURL)
-		return fmt.Errorf("%w. Opening the download page", err)
+		return fmt.Errorf("%w (opening the download page)", err)
 	}
 	return fmt.Errorf("%w (download it from %s)", err, releasesPageURL)
 }

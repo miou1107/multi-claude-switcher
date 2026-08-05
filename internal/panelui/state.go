@@ -93,15 +93,6 @@ func (s *PanelState) SetRenameOpen(open bool) {
 	s.mu.Unlock()
 }
 
-// Progress returns the card currently up, or nil. Prefer Snapshot when the
-// caller also needs the view: two separate reads can straddle a change and
-// render a screen that never existed.
-func (s *PanelState) Progress() *ProgressVM {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.progress
-}
-
 // Snapshot is a consistent read of the whole state, taken under one lock hold.
 type Snapshot struct {
 	View       string

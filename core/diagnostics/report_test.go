@@ -317,13 +317,13 @@ func TestBuildFallsBackToAccountUUIDWhenEmailIsEmpty(t *testing.T) {
 	in.Profiles[0].Email = ""
 	got := Build(in)
 
-	if strings.Contains(got, "Claude — \n") || strings.Contains(got, "Claude —\n") {
-		t.Errorf("a signed-in profile with no readable email must not leave a dangling separator:\n%s", got)
+	if strings.Contains(got, "Claude ()") || strings.Contains(got, "Claude (\n") {
+		t.Errorf("a signed-in profile with no readable email must not leave an empty bracket:\n%s", got)
 	}
 	// AccountUUID still ties this profile to account-1 (fullInput registers
 	// email and UUID together), so falling back to the UUID must produce the
 	// very same pseudonym the org line and the log already use for it.
-	if !strings.Contains(got, "Claude — account-1 — running") {
+	if !strings.Contains(got, "Claude (account-1, running)") {
 		t.Errorf("falling back to AccountUUID must still surface the account's pseudonym:\n%s", got)
 	}
 }

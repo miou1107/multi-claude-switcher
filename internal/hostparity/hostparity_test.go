@@ -25,13 +25,15 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/internal/panelui"
 )
 
 // The two dispatch functions, and the parameter each switches on.
@@ -90,33 +92,82 @@ func TestEveryActionThePageSendsIsHandled(t *testing.T) {
 // replaying a deferred action) are skipped: there is no name to check.
 var sendCall = regexp.MustCompile(`send\('([A-Za-z][A-Za-z0-9]*)'`)
 
-// sentByPage lists the action names internal/panelui's rendered page can send.
+// sentByPage lists the action names the panel can send, read from the RENDERED
+// pages rather than from panelui's source.
 //
-// It scans the package source as TEXT, not as a syntax tree. The calls live
-// inside Go string literals holding the page's HTML and JavaScript, so to the
-// Go parser they are not calls at all. An earlier version of this walked the
-// AST for them, found nothing, and passed every run by knowing nothing, which
-// is why the count assertion in the caller exists.
+// Rendering is what makes this honest. Two of the Settings buttons build their
+// handler by concatenation in Go — `onclick="send('` + action + `',”)"` — so
+// in the source the action name and the send( that carries it are never
+// adjacent, and a source scan cannot see them. Measured: with the earlier
+// source-scanning version, renaming the Settings Back up button's action left
+// this test green while the button was dead on both platforms. In the finished
+// HTML there is nothing left to concatenate.
 func sentByPage(t *testing.T) []string {
 	t.Helper()
+	names := map[string]bool{}
+	for _, page := range everyScreen() {
+		for _, m := range sendCall.FindAllStringSubmatch(page, -1) {
+			names[m[1]] = true
+		}
+	}
+	return sortedKeys(names)
+}
+
+// everyScreen renders each screen a user can reach. The fixtures only need to
+// be rich enough for the buttons to be drawn: two profiles, because a
+// single-profile list renders no per-row Remove item at all, and one with
+// conversations to sync.
+//
+// A screen missing here is a screen whose buttons go unchecked, so this list is
+// asserted against the renderer count in TestEveryScreenIsRendered below.
+func everyScreen() []string {
+	profiles := []panelui.ProfileVM{
+		{Folder: "Claude", Name: "Personal", Current: true, Convos: 12},
+		{Folder: "Claude_Profile2", Name: "Work", Convos: 3},
+	}
+	return []string{
+		panelui.RenderList(profiles, true, ""),
+		panelui.RenderSettings(panelui.SettingsVM{Version: "0.0.0"}),
+		panelui.RenderDebug(panelui.DebugVM{Report: "report"}),
+		panelui.RenderRescan(nil, nil),
+		panelui.RenderNewProfile(panelui.NewProfileVM{}),
+		panelui.RenderMerge(
+			panelui.MergeCandidateVM{Folder: "Claude", Name: "Personal", Current: true},
+			panelui.MergeCandidateVM{Folder: "Claude_Profile2", Name: "Personal"},
+			core.MergePlan{}, "", false),
+		panelui.RenderSync(profiles, "", false),
+		panelui.RenderRemoved(panelui.RemovedVM{Name: "Work"}),
+	}
+}
+
+// TestEveryScreenIsRendered fails when a renderer is added to panelui without
+// being added to everyScreen, which would leave its buttons unchecked by the
+// test above while everything stayed green.
+func TestEveryScreenIsRendered(t *testing.T) {
+	fset := token.NewFileSet()
 	files, err := filepath.Glob("../panelui/*.go")
 	if err != nil {
 		t.Fatalf("listing internal/panelui: %v", err)
 	}
-	names := map[string]bool{}
+	renderers := 0
 	for _, path := range files {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
 		}
-		src, err := os.ReadFile(path)
+		f, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
-			t.Fatalf("reading %s: %v", path, err)
+			t.Fatalf("parsing %s: %v", path, err)
 		}
-		for _, m := range sendCall.FindAllSubmatch(src, -1) {
-			names[string(m[1])] = true
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if ok && fd.Recv == nil && strings.HasPrefix(fd.Name.Name, "Render") {
+				renderers++
+			}
 		}
 	}
-	return sortedKeys(names)
+	if got := len(everyScreen()); got != renderers {
+		t.Errorf("everyScreen renders %d screens but panelui exports %d Render* functions: a screen's buttons are going unchecked", got, renderers)
+	}
 }
 
 // actionsIn returns the set of case values of the switch on `subject` inside

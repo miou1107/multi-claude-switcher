@@ -91,6 +91,16 @@ func emDashViolations(html string) []string {
 			out = append(out, "rendered text: "+strings.TrimSpace(line))
 		}
 	}
+	// Attribute copy, which the tag-stripping pass above deletes along with the
+	// tag it sits in and which is not a JS literal either. A placeholder or a
+	// screen-reader label is text a user reads, so it needs its own pass: the
+	// Debug screen's comment box and the new-account name field both carry one
+	// today.
+	for _, m := range visibleAttr.FindAllStringSubmatch(withoutScript, -1) {
+		if strings.Contains(m[2], "—") {
+			out = append(out, "attribute copy ("+m[1]+"): "+m[2])
+		}
+	}
 	for _, script := range scriptBlock.FindAllStringSubmatch(html, -1) {
 		for _, lit := range jsStringLiterals(script[1]) {
 			if strings.Contains(lit, "—") {
@@ -100,6 +110,12 @@ func emDashViolations(html string) []string {
 	}
 	return out
 }
+
+// visibleAttr matches the attributes whose value a user reads, by name. A
+// blanket "every attribute" would drag in onclick handlers, which are
+// JavaScript and belong to the script pass, and class lists, which are not
+// copy at all.
+var visibleAttr = regexp.MustCompile(`(placeholder|title|aria-label|alt)="([^"]*)"`)
 
 // jsStringLiterals returns the contents of every string literal in a piece of
 // JavaScript: single-quoted, double-quoted and template. Comments are skipped,
@@ -111,10 +127,21 @@ func emDashViolations(html string) []string {
 // is the property the three regexes could not express, and each blind spot they
 // had was a case of one state being mistaken for another.
 //
-// It does not try to be a JavaScript parser. Regular expression literals in
-// particular are treated as division, so /'/ would open a spurious literal.
-// Nothing in this package writes one, and a guard that over-reports a string is
-// safe in a way that one silently under-reporting is not.
+// It does not try to be a JavaScript parser, and the one shape it gets wrong
+// fails in the dangerous direction, so it is worth naming precisely rather than
+// waving at. A regular expression literal is read as division, so a regex
+// containing an odd number of quote characters (/don't/) opens a literal that
+// stays open until the next real quote in the file closes it — which means the
+// literal after it is read as code and never scanned at all. That is
+// under-reporting, not over-reporting. There are no regex literals in this
+// package's JavaScript today; if one is added, this needs to learn about them.
+//
+// Unterminated literals are lost the same way, but an unterminated string is a
+// syntax error the page would not survive, so it cannot reach a user.
+//
+// ${} interpolation inside a template literal is treated as ordinary literal
+// text, which over-reports (the expression is scanned as copy) and is
+// harmless.
 func jsStringLiterals(src string) []string {
 	const (
 		code = iota
@@ -502,5 +529,33 @@ func TestEmDashGuardKeepsCommentsAndLiteralsApart(t *testing.T) {
 	got := emDashViolations("<p>ok</p><script>" + script + "</script>")
 	if len(got) != 1 || !strings.Contains(got[0], "real em dash — here") {
 		t.Errorf("violations = %q, want exactly the dialog copy", got)
+	}
+}
+
+// Attribute copy is read by users but is deleted by the tag-stripping pass
+// along with the tag it lives in, and it is not a JS literal either, so it fell
+// between the guard's two passes. Live examples today: the Debug screen's
+// comment placeholder and the new-account name field's.
+func TestEmDashGuardSeesAttributeCopy(t *testing.T) {
+	for _, tc := range []struct{ name, html string }{
+		{"placeholder", `<input placeholder="an em dash — here">`},
+		{"title", `<span title="an em dash — here">x</span>`},
+		{"aria-label", `<button aria-label="an em dash — here">x</button>`},
+		{"alt", `<img alt="an em dash — here">`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := emDashViolations("<p>ok</p>" + tc.html); len(got) == 0 {
+				t.Errorf("no violation reported for %s: a user reads this text", tc.name)
+			}
+		})
+	}
+}
+
+// Attributes that are not copy must stay quiet, or the guard becomes noise and
+// gets turned off.
+func TestEmDashGuardIgnoresNonCopyAttributes(t *testing.T) {
+	html := `<div class="a—b" data-name="x—y" onclick="send('showList','')">ok</div>`
+	if got := emDashViolations(html); len(got) != 0 {
+		t.Errorf("violations = %q, want none: class names, data-* payloads and handlers are not copy", got)
 	}
 }

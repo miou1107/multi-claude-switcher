@@ -12,10 +12,17 @@
   implementation, held by both hosts and tested on its own, and a test that fails
   if the two platforms stop offering the same set of panel buttons or if a button
   is wired to something neither answers. No visible change, except that arriving
-  at the "account removed" screen now ends an inline rename the way every other
-  navigation already did.
+  at the "account removed" screen now ends an inline rename, and takes down a
+  card left over from an earlier switch or sync, the way every other navigation
+  already did.
 
 ### Fixed
+- **The panel could be left showing a screen that had already moved on.** Drawing
+  a screen can take seconds, and a second refresh starting later could finish
+  first, so the slower one published its now-stale page on top with nothing
+  scheduled to correct it. Most visible after a merge, which could end with the
+  spinner still spinning over a merge that had already finished. A refresh whose
+  screen is no longer the current one is now dropped.
 - **Sixteen messages had a dash style the rest of the app does not use.** They
   sat in the Windows-only code and in both hosts, where the check that enforces
   the house style could not see them: it only ever read one package, plus the

@@ -118,7 +118,7 @@ func Build(in Input) string {
 	for _, p := range in.Profiles {
 		state := ""
 		if !p.SignedIn {
-			state = " — not signed in"
+			state = " (not signed in)"
 		} else {
 			// Email is best-effort: core.ScanAccounts copies a live LevelDB and
 			// swallows its own read error (core/scan.go), so a signed-in profile
@@ -139,7 +139,7 @@ func Build(in Input) string {
 				parts = append(parts, "running")
 			}
 			if len(parts) > 0 {
-				state = " — " + strings.Join(parts, " — ")
+				state = " (" + strings.Join(parts, ", ") + ")"
 			}
 		}
 		w("  %s%s", m.Apply(p.Folder), state)
