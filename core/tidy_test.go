@@ -856,3 +856,81 @@ func TestTidyStopsAfterRepeatedFailures(t *testing.T) {
 		}
 	}
 }
+
+// The Windows Store build has one shared slot directory, and a switch renames
+// the current profile out and the target in. A tidy that scanned the slot and
+// then executed against it would be operating on another profile's data, and
+// every per-file check would pass: the files are byte-and-time identical,
+// because that is how the duplicates came to exist.
+//
+// Simulated by rewriting the profile's config between the scan and the moves,
+// which is what a swap looks like from this code's side.
+func TestTidySkipsAProfileThatWasSwappedOutUnderIt(t *testing.T) {
+	root := t.TempDir()
+	backups := t.TempDir()
+
+	p1 := writeTidyProfile(t, root, "Claude", "acctA", "orgA", map[bucket][]string{
+		{"acctA", "orgA"}: {"live.json"},
+		{"acctB", "orgB"}: {"stray.json"},
+	})
+	p2 := writeTidyProfile(t, root, "Claude_Profile2", "acctB", "orgB", map[bucket][]string{
+		{"acctB", "orgB"}: {"stray.json"},
+	})
+
+	// What the scan would have produced, then the swap.
+	scanned := scanForTidy([]*platform.ProfileInfo{p1, p2})
+	moves := tidyCandidates(scanned)
+	if len(moves) == 0 {
+		t.Fatal("nothing planned, so this test proves nothing")
+	}
+	swapped := map[string]any{
+		"lastKnownAccountUuid":          "acctZ",
+		"dxt:allowlistLastUpdated:orgZ": tNow.Format(time.RFC3339),
+	}
+	blob, _ := json.Marshal(swapped)
+	if err := os.WriteFile(filepath.Join(p1.Path, "config.json"), blob, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, m := range moves {
+		if m.ProfilePath != p1.Path {
+			continue
+		}
+		if stillOccupiedBy(m.ProfilePath, m.ScannedRead) {
+			t.Error("a profile swapped out from under the scan was still treated as the one examined")
+		}
+	}
+
+	// And the whole run leaves it alone.
+	TidyMisfiled([]*platform.ProfileInfo{p1, p2}, backups)
+	if _, err := os.Stat(filepath.Join(p1.Path, "claude-code-sessions", "acctB", "orgB", "stray.json")); err != nil {
+		t.Errorf("a file was moved out of a profile that had been swapped: %v", err)
+	}
+}
+
+// Two nested siblings, both moved. An earlier version marked a directory as
+// visited before knowing whether it had gone, so the second move found the
+// parent already marked and stopped, leaving the whole tree behind as empty
+// directories.
+func TestTidyRemovesNestedSiblingsAllTheWayUp(t *testing.T) {
+	root := t.TempDir()
+	backups := t.TempDir()
+
+	nested := []string{
+		filepath.Join("projects", "x", "s1.json"),
+		filepath.Join("projects", "y", "s2.json"),
+	}
+	p1 := writeTidyProfile(t, root, "Claude", "acctA", "orgA", map[bucket][]string{
+		{"acctA", "orgA"}: {"live.json"},
+		{"acctB", "orgB"}: nested,
+	})
+	p2 := writeTidyProfile(t, root, "Claude_Profile2", "acctB", "orgB", map[bucket][]string{
+		{"acctB", "orgB"}: nested,
+	})
+
+	TidyMisfiled([]*platform.ProfileInfo{p1, p2}, backups)
+
+	if _, err := os.Stat(filepath.Join(p1.Path, "claude-code-sessions", "acctB")); err == nil {
+		t.Error("the emptied account folder survived: the climb stopped at the first sibling")
+	}
+}

@@ -12,7 +12,10 @@ so they are also duplicates. They are dead weight rather than a hazard, and they
 double the session-folder size. Measured on two machines: **564 files, 36 MB**, across
 two profiles.
 
-The population only shrinks. Nothing has produced a new misfiled file since v0.11.2.
+The population mostly shrinks, but it is not closed: `orgRemapper` still copies buckets
+under a third organization verbatim, and copies everything unchanged when either side's
+organization cannot be read. So this runs at every launch rather than once, and finding
+nothing has to stay cheap.
 
 ## What it does
 
@@ -44,11 +47,12 @@ synced copy, every one of those files has an equal-time counterpart and qualifie
 back into A in that profile then shows nothing. Two profiles on one account is an ordinary
 setup, particularly on the Windows Store build.
 
-The maintainer chose to move both. Review then showed that the organization half of that
-choice cannot be implemented safely: there is no way to tell an organization the profile
-has left from the one it is in, when the only evidence is a stamp that can name the wrong
-one. So the organization half is reversed and organizations this profile has been signed
-into are left alone, which costs about 122 of the 564 files measured.
+The maintainer first chose to move both. The organization half was then reversed: an
+organization this profile has been signed into is left alone, which costs about 122 of the
+564 files measured. The measurement above shows that moving them would in fact be safe on
+the Claude Desktop build tested, and the maintainer was offered that and declined, on the
+grounds that a silent operation with no confirmation and no undo prompt should not depend
+on an undocumented behaviour continuing to hold.
 
 The account half stands, and is safe: `lastKnownAccountUuid` is a recorded fact rather
 than a guess, so a bucket under another account is provably not the one being read. What
@@ -82,11 +86,28 @@ What works is that the two segments of a bucket are not equally certain.
 The **account** is read straight out of `config.json`'s `lastKnownAccountUuid`. It is a
 recorded fact, so a bucket under any other account cannot be the one Claude is reading.
 
-The **organization** is a guess: `GetProfileActiveOrgUUID` takes the newest allowlist
-stamp, and someone who switches organization in-app without relaunching leaves that stamp
-naming the previous one. But MEMBERSHIP is not a guess. A stamp exists because this profile
-was signed into that organization, so an organization with no stamp is one it has never
-opened and cannot be reading. `platform.GetProfileSignedInOrgs` reads the whole set.
+The **organization** is read from a side effect: `GetProfileActiveOrgUUID` takes the
+newest `dxt:allowlistLastUpdated:` stamp.
+
+Review argued that an organization switched into in-app would carry no stamp until the
+next launch, which would make the folder Claude is reading right now look abandoned. That
+was settled by measurement rather than argument.
+
+> Switching organization inside Claude Desktop, without relaunching, rewrote the new
+> organization's stamp within a second: `Claude`'s newest stamp moved from the Team
+> organization to Personal at 16:06:25, the moment the menu item was clicked. The other
+> profile, which was not switched, did not move, as a control.
+
+So the organization Claude is reading always carries the newest stamp, and MEMBERSHIP is a
+fact: a stamp exists because this profile has been signed into that organization, so one
+with no stamp has never been opened here and cannot be the one being read.
+`platform.GetProfileSignedInOrgs` reads the whole set.
+
+That measurement is one version, on one machine, of a format nobody documents. It is why
+this rule is safe today, and it is also why the rule is written as "never opened here"
+rather than the stronger "not the newest stamp": the weaker claim survives the behaviour
+changing. Taking the stronger one would recover about 122 of the 564 files measured, and
+that trade was put to the maintainer with the measurement in hand and declined.
 
 So a bucket under another account is a candidate, and a bucket under this profile's own
 account is a candidate only if this profile has never been signed into that organization.
@@ -151,6 +172,12 @@ a test rather than left to the reader.
   carries what the scan saw, and refuses a source whose modification time has changed
   since. A sync or a switch writing into a bucket during the scan therefore has its work
   left alone rather than moved away on the strength of a judgement about a different file.
+- **A profile substituted underneath the run.** The Windows Store build has one shared
+  slot directory, and a switch renames the current profile out and the target in. A run
+  that scanned the slot and then acted on it would be operating on another profile's data,
+  and every per-file check would pass, because the files are identical in size and time:
+  that is how the duplicates came to exist. Before touching a profile, the account and
+  organization it reads are compared against what the scan saw, once per profile.
 - **Profile identity is the path, never the display name.** On the Windows Store build two
   entries can carry the same name (the live slot and a container directory, after a swap
   whose state write failed). Resolving a name back to a path would plan against one and
@@ -191,6 +218,9 @@ without a filesystem:
   restores the source's modification time on purpose, so a concurrent sync can replace the
   contents while leaving a time a time-only check would accept
 - ten consecutive failures end a run without losing anything
+- a profile swapped out from under the run is left alone
+- nested siblings are cleaned all the way up, which an earlier version did not do because
+  it marked a directory visited before knowing whether it had gone
 - the Debug screen's byte count includes the folders this feature writes
 - a bucket whose moves all failed is not removed
 - nested directories are cleaned all the way up to the account level

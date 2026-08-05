@@ -23,8 +23,12 @@ import (
 //
 // The fix that followed re-copied those conversations to the right place, which
 // makes the strays duplicates as well as invisible. 564 files and 36 MB on the
-// machines measured. Nothing has produced a new one since, so this population
-// only shrinks.
+// machines measured.
+//
+// The population mostly shrinks but is not closed: orgRemapper still copies
+// buckets under a third organization verbatim, and copies everything unchanged
+// when either side's organization cannot be read (core/sync.go). So this runs at
+// every launch rather than once, and finding nothing has to stay cheap.
 
 // bucket names one <account>/<organization> folder inside one profile.
 type bucket struct {
@@ -78,6 +82,12 @@ type tidyMove struct {
 	// however long the whole scan took, and a sync or a switch writing in that
 	// window would otherwise have its work moved away.
 	Scanned bucketFile
+	// ScannedRead is the bucket the profile at ProfilePath was reading when the
+	// scan ran. Re-checked before the profile's moves are executed: on the
+	// Windows Store build a switch RENAMES another profile into the same path,
+	// and the file there is then that profile's own byte-and-time identical
+	// copy, which the per-file check cannot tell apart.
+	ScannedRead bucket
 }
 
 // newestIn returns the most recent modification time in a bucket, and false for
@@ -117,12 +127,21 @@ func readBucketLooksRight(ps profileSessions) bool {
 //   - The ACCOUNT is read straight out of config.json's lastKnownAccountUuid.
 //     It is a recorded fact. A bucket for any other account cannot be the one
 //     Claude is reading, whatever else is true.
-//   - The ORGANIZATION is a guess: GetProfileActiveOrgUUID takes the newest
-//     allowlist stamp, and someone who switches organization in-app without
-//     relaunching leaves that stamp naming the previous one. But MEMBERSHIP is
-//     not a guess. A stamp exists because this profile was signed into that
-//     organization, so an organization with NO stamp is one it has never
-//     opened and cannot be reading.
+//
+//   - The ORGANIZATION is read from a side effect: GetProfileActiveOrgUUID
+//     takes the newest allowlist stamp. Review argued that an organization
+//     switched into in-app would carry no stamp until the next launch, which
+//     would make the live folder look abandoned. That was measured rather than
+//     argued: switching organization inside Claude Desktop rewrote the new
+//     organization's stamp within a second, and the profile that was not
+//     switched did not move, as a control. So the live organization always
+//     carries the newest stamp, and MEMBERSHIP is a fact: an organization with
+//     NO stamp has never been opened here and cannot be the one being read.
+//
+//     That measurement is one version on one machine, of a format nobody
+//     documents. It is the reason this rule is safe today, and the reason the
+//     rule is written as "never opened" rather than "not the newest stamp":
+//     the weaker claim survives the behaviour changing.
 //
 // So: any bucket under another account is safe, and a bucket under this
 // profile's own account is safe only if this profile has never been signed into
@@ -191,7 +210,7 @@ func tidyCandidates(profiles []profileSessions) []tidyMove {
 				if !ok || at.Before(f.MTime) {
 					continue
 				}
-				out = append(out, tidyMove{Profile: p.Profile, ProfilePath: p.Path, Bucket: b, Rel: f.Rel, Scanned: f})
+				out = append(out, tidyMove{Profile: p.Profile, ProfilePath: p.Path, Bucket: b, Rel: f.Rel, Scanned: f, ScannedRead: p.Read})
 			}
 		}
 	}
@@ -225,7 +244,22 @@ func TidyMisfiled(profiles []*platform.ProfileInfo, backupRoot string) {
 	dest := filepath.Join(backupRoot, tidiedDirName(time.Now()))
 	moved, skipped, consecutive := 0, 0, 0
 	var done []tidyMove
+	occupied := map[string]bool{}
 	for _, m := range moves {
+		// Once per profile, before touching it. A per-file check cannot catch a
+		// profile being substituted underneath: the file at that path is then
+		// another profile's copy, identical in size and time because copyFile
+		// preserves both, which is how the duplicates came to exist at all.
+		if _, checked := occupied[m.ProfilePath]; !checked {
+			occupied[m.ProfilePath] = stillOccupiedBy(m.ProfilePath, m.ScannedRead)
+			if !occupied[m.ProfilePath] {
+				log.Printf("[Tidy] %s is no longer the profile that was examined, skipping everything planned for it", m.Profile)
+			}
+		}
+		if !occupied[m.ProfilePath] {
+			skipped++
+			continue
+		}
 		src := filepath.Join(m.ProfilePath, "claude-code-sessions", m.Bucket.Account, m.Bucket.Org, m.Rel)
 		// Keyed by the path, not the display name. Two Windows Store entries
 		// can share a name, and both were fed by the same defective sync, so
@@ -252,6 +286,23 @@ func TidyMisfiled(profiles []*platform.ProfileInfo, backupRoot string) {
 	}
 	log.Printf("[Tidy] moved %d conversations no account could read into %s; %d could not be moved", moved, dest, skipped)
 	removeEmptiedBuckets(done)
+}
+
+// stillOccupiedBy reports whether the profile living at a path is still the one
+// the scan examined, judged by the account and organization it reads.
+//
+// The Windows Store build has one shared slot directory, and a switch renames
+// the current profile out and the target in. A tidy that scanned the slot and
+// then executed against it would be operating on a different profile's data,
+// and every per-file check would pass, because the files it planned to move are
+// byte-and-time identical to the ones that arrived.
+func stillOccupiedBy(profilePath string, scanned bucket) bool {
+	account, err := platform.GetProfileAccountUUID(profilePath)
+	if err != nil || account != scanned.Account {
+		return false
+	}
+	org, err := platform.GetProfileActiveOrgUUID(profilePath)
+	return err == nil && org == scanned.Org
 }
 
 // destDirFor names a profile's folder inside a tidied run. The display name is
@@ -304,7 +355,14 @@ func scanForTidy(profiles []*platform.ProfileInfo) []profileSessions {
 			}
 		}
 
-		if len(ps.Buckets) == 0 {
+		holdsSomething := false
+		for _, files := range ps.Buckets {
+			if len(files) > 0 {
+				holdsSomething = true
+				break
+			}
+		}
+		if !holdsSomething {
 			out = append(out, ps) // nothing here either way
 			continue
 		}
@@ -410,10 +468,13 @@ func removeEmptiedBuckets(done []tidyMove) {
 			if seen[dir] {
 				break
 			}
-			seen[dir] = true
 			if !removeIfEmpty(dir) {
-				break // still holds something, and so does everything above it
+				// Still holds something. NOT marked seen: a later move can
+				// empty the last sibling, and marking it here left the parent,
+				// the bucket and the account behind as empty directories.
+				break
 			}
+			seen[dir] = true
 			dir = filepath.Dir(dir)
 		}
 		accounts[account] = true
