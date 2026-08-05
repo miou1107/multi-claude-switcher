@@ -315,9 +315,12 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 	mergeWorking := cardOver(MergeStarting())
 	mergeDone := cardOver(MergeOutcome(nil))
 	backupWorking := cardOver(BackupStarting())
-	backupDone := cardOver(BackupOutcome(3))
-	// Zero accounts takes its own branch, with its own sentence.
-	backupNothing := cardOver(BackupOutcome(0))
+	backupDone := cardOver(BackupOutcome(3, 0))
+	// Zero accounts takes its own branch, with its own sentence, and a run in
+	// which every backup failed takes a third that neither of the others reaches.
+	backupNothing := cardOver(BackupOutcome(0, 0))
+	backupFailed := cardOver(BackupOutcome(0, 2))
+	backupPartial := cardOver(BackupOutcome(2, 1))
 
 	views := map[string]string{
 		"debug":                 RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "typed", Status: "Copied"}),
@@ -346,6 +349,8 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		"backup_working":        backupWorking,
 		"backup_done":           backupDone,
 		"backup_nothing":        backupNothing,
+		"backup_failed":         backupFailed,
+		"backup_partial":        backupPartial,
 	}
 	for name, h := range views {
 		for _, v := range emDashViolations(h) {

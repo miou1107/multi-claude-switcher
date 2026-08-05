@@ -6,6 +6,7 @@
 extern void goPanelWillOpen(void);
 extern void goPanelAction(const char *action, const char *folder);
 extern void goPanelReady(void);
+extern int goProgressSticky(void);
 
 @interface MCSDelegate : NSObject <WKScriptMessageHandler>
 @property (strong) NSStatusItem *item;
@@ -27,6 +28,14 @@ extern void goPanelReady(void);
 - (void)toggle:(id)sender {
   if (self.popover.isShown) { [self.popover performClose:sender]; return; }
   goPanelWillOpen(); // Go renders fresh content and calls LoadPanelHTML
+  // Read the flag here rather than letting Go dispatch it: SetPopoverSticky
+  // dispatches to this queue, so its block cannot run until this method has
+  // already returned, i.e. after the popover is shown. AppKit installs the
+  // transient popover's event monitor at show time, so a panel reopened while
+  // an operation is running would come back Transient and be closed again by
+  // Claude taking the foreground, which is the bug the flag exists to fix.
+  self.popover.behavior = goProgressSticky() ? NSPopoverBehaviorApplicationDefined
+                                             : NSPopoverBehaviorTransient;
   NSButton *btn = self.item.button;
   [self.popover showRelativeToRect:btn.bounds ofView:btn preferredEdge:NSRectEdgeMaxY];
   [self.popover.contentViewController.view.window makeKeyWindow];

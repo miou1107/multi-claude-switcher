@@ -111,8 +111,18 @@ covers the card's own exits, since Close and the auto dismiss both send an
 ordinary navigation action. What must NOT clear it is the panel opening or
 being dismissed, which also set the view: doing so made an operation in flight
 vanish the moment the user pressed Escape, and reported a failure that landed
-while the panel was closed precisely nowhere. Those two paths go through
+while the panel was closed precisely nowhere. Nor may the merge goroutine, which
+moves to the list on its way to putting its own outcome card up, nor the render
+path's merge fallback, which fires when the plan cannot be computed against
+accounts a merge is halfway through archiving. Those three go through
 `setViewKeepingProgress` instead.
+
+On macOS the stickiness flag is written under the same lock as the state it
+describes, and read synchronously by the popover as it opens rather than
+dispatched to. Released early, two goroutines' updates could land in the wrong
+order and leave the popover stuck open with no card on screen; dispatched, the
+flag would arrive after the popover was already shown, which is too late,
+because AppKit installs the transient popover's event monitor at show time.
 
 The panel is also stopped from closing itself while the card is up. Both hosts
 dismiss the panel when something else takes focus, and a switch ENDS by

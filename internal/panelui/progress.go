@@ -225,7 +225,7 @@ func SyncOutcome(target string, rep *core.SyncReport, err error) *ProgressVM {
 	if err != nil {
 		return &ProgressVM{
 			Phase: ProgressFailed, Title: "Sync failed",
-			Err: core.SyncFailureMessage(err), Dismiss: "showSync",
+			Err: core.SyncFailureReason(err), Dismiss: "showSync",
 		}
 	}
 	summary, skipped := core.SyncResultParts(rep, target)
@@ -261,19 +261,40 @@ func BackupStarting() *ProgressVM {
 	return &ProgressVM{Title: "Backing up accounts", Dismiss: "showSettings"}
 }
 
-// BackupOutcome reports how many accounts were backed up. Nothing here fails
-// outright: a per-account failure is logged and the run carries on, so the
-// count IS the outcome.
-func BackupOutcome(n int) *ProgressVM {
+// BackupOutcome reports how many accounts were backed up, and how many tried
+// and failed. The run carries on past a failure, so one call can be both.
+//
+// failed is a separate count rather than folded into done because the card
+// states a cause. With only a total, a run in which every backup failed looks
+// exactly like a run in which no account had anything to back up, and the panel
+// said the latter, under a green tick: a false cause on the one screen whose
+// purpose is not lying.
+func BackupOutcome(done, failed int) *ProgressVM {
+	if done == 0 && failed > 0 {
+		return &ProgressVM{
+			Phase: ProgressFailed, Title: "Backup failed",
+			Err:     plural(failed, "account", "accounts") + " could not be backed up (see the log).",
+			Dismiss: "showSettings",
+		}
+	}
 	vm := &ProgressVM{Phase: ProgressDone, Title: "Backup finished", Dismiss: "showSettings"}
-	switch n {
-	case 0:
+	switch {
+	case done == 0:
 		vm.Title = "Nothing to back up"
 		vm.Detail = "No account had any conversations stored yet."
-	case 1:
-		vm.Detail = "Backed up 1 account."
 	default:
-		vm.Detail = "Backed up " + strconv.Itoa(n) + " accounts."
+		vm.Detail = "Backed up " + plural(done, "account", "accounts") + "."
+	}
+	if failed > 0 {
+		vm.Warn = plural(failed, "other account", "other accounts") + " could not be backed up (see the log)."
 	}
 	return vm
+}
+
+// plural renders a count with its noun, so "1 accounts" never reaches a screen.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return strconv.Itoa(n) + " " + many
 }

@@ -49,9 +49,13 @@ func TestProgressCardGoesInsideTheBody(t *testing.T) {
 func TestEveryScreenCanCarryTheCard(t *testing.T) {
 	vm := &ProgressVM{Title: "Working"}
 	pages := map[string]string{
-		"list":     RenderList(progressAccounts(), false, ""),
-		"sync":     RenderSync(progressAccounts(), "", false),
-		"settings": RenderSettings(SettingsVM{Version: "0.13.1"}),
+		"list":       RenderList(progressAccounts(), false, ""),
+		"sync":       RenderSync(progressAccounts(), "", false),
+		"settings":   RenderSettings(SettingsVM{Version: "0.13.1"}),
+		"rescan":     RenderRescan(nil, map[string]bool{}),
+		"newprofile": RenderNewProfile(NewProfileVM{SuggestedName: "Work"}),
+		"removed":    RenderRemoved(RemovedVM{Name: "Old one"}),
+		"debug":      RenderDebug(DebugVM{Report: "MCS 0.13.1"}),
 		"merge": RenderMerge(
 			MergeCandidateVM{Folder: "Claude", Name: "Work", Current: true},
 			MergeCandidateVM{Folder: "Claude_2", Name: "Work 2"},
@@ -289,19 +293,52 @@ func TestSyncOutcomeFailureUsesTheActionableMessage(t *testing.T) {
 }
 
 func TestBackupOutcomeCounts(t *testing.T) {
-	if got := BackupOutcome(0); strings.Contains(got.Detail, "0 accounts") {
+	if got := BackupOutcome(0, 0); strings.Contains(got.Detail, "0 accounts") {
 		t.Errorf("a backup that found nothing said %q", got.Detail)
 	}
-	if got := BackupOutcome(1); got.Detail != "Backed up 1 account." {
+	if got := BackupOutcome(1, 0); got.Detail != "Backed up 1 account." {
 		t.Errorf("one account produced %q", got.Detail)
 	}
-	if got := BackupOutcome(3); got.Detail != "Backed up 3 accounts." {
+	if got := BackupOutcome(3, 0); got.Detail != "Backed up 3 accounts." {
 		t.Errorf("three accounts produced %q", got.Detail)
 	}
 	for _, n := range []int{0, 1, 3} {
-		if got := BackupOutcome(n); got.Dismiss != "showSettings" {
+		if got := BackupOutcome(n, 0); got.Dismiss != "showSettings" {
 			t.Errorf("backup of %d sent the user to %q, not back to Settings", n, got.Dismiss)
 		}
+	}
+}
+
+// Every backup failing used to render as a green tick over "No account had any
+// conversations stored yet": a stated cause that is false, on the one screen
+// whose purpose is not lying. A disk full or a bad permission on the backup
+// root is exactly how a user reaches it.
+func TestBackupOutcomeDoesNotBlameEmptinessForFailure(t *testing.T) {
+	got := BackupOutcome(0, 4)
+	if got.Phase != ProgressFailed {
+		t.Fatalf("four failed backups produced phase %v, want ProgressFailed", got.Phase)
+	}
+	if strings.Contains(got.Detail, "conversations stored") || strings.Contains(got.Err, "conversations stored") {
+		t.Errorf("a failed backup blamed the user having no data: %+v", got)
+	}
+	if !strings.Contains(got.Err, "4 accounts could not be backed up") {
+		t.Errorf("the failure lost its count: %q", got.Err)
+	}
+}
+
+// A partial failure is still a success for the accounts that worked, so it
+// keeps the tick and puts the rest in the warning box, where the card waits to
+// be closed instead of clearing itself.
+func TestBackupOutcomePartialFailureWarns(t *testing.T) {
+	got := BackupOutcome(2, 1)
+	if got.Phase != ProgressDone {
+		t.Fatalf("two of three backed up produced phase %v, want ProgressDone", got.Phase)
+	}
+	if got.Detail != "Backed up 2 accounts." {
+		t.Errorf("the successful count was lost: %q", got.Detail)
+	}
+	if got.Warn != "1 other account could not be backed up (see the log)." {
+		t.Errorf("the failed count was lost or mis-pluralised: %q", got.Warn)
 	}
 }
 
@@ -316,12 +353,18 @@ func TestMergeOutcome(t *testing.T) {
 }
 
 // The screen underneath is still rendered on purpose: the user can see where
-// they are. What they cannot do is start the same operation twice, and the
-// scrim is what stops them, rather than the host's busy flag silently dropping
-// the click.
-func TestProgressKeepsTheScreenBehindIt(t *testing.T) {
+// they are. What they cannot do is reach it, and the scrim is what stops them,
+// rather than the host's busy flag silently dropping the click. That only holds
+// if the scrim stacks above everything else the panel can have open, so the
+// z-index is the thing worth pinning: a row menu is 5 and the confirmation
+// dialog is 10, and a card drawn under either would leave a live control on a
+// screen the user is being told to wait on.
+func TestProgressScrimStacksAboveEveryOtherLayer(t *testing.T) {
 	html := listWith(&ProgressVM{Title: "Switching profile"})
 	if !strings.Contains(html, `>Home<`) {
 		t.Error("the list was not rendered behind the progress card")
+	}
+	if !strings.Contains(html, ".prog-bg{position:fixed;inset:0;background:rgba(30,20,50,.32);display:flex;align-items:center;justify-content:center;z-index:11") {
+		t.Error("the progress scrim is not at z-index 11, above the dialog (10) and the row menu (5)")
 	}
 }

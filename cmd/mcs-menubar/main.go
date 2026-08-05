@@ -256,6 +256,17 @@ func cachedPlan(path string) string {
 	return p
 }
 
+// goProgressSticky reports whether a card is on screen, for the popover to read
+// synchronously as it opens. See the comment at its call site in menubar.m.
+//
+//export goProgressSticky
+func goProgressSticky() C.int {
+	if getProgress() != nil {
+		return 1
+	}
+	return 0
+}
+
 //export goPanelAction
 func goPanelAction(caction, cfolder *C.char) {
 	action := C.GoString(caction)
@@ -651,9 +662,16 @@ func reopenClaudeIfWeOweIt() {
 
 // doBackupAll backs up every profile that has session data and returns how many
 // were backed up.
-func doBackupAll() int {
+// doBackupAll returns how many accounts were backed up and how many tried and
+// failed.
+//
+// The two are counted separately because the card reports a cause, not just a
+// number: with only a total, a run where every backup failed is indistinguishable
+// from a run where no account had anything to back up, and the panel said the
+// latter, under a green tick. The per-account error is also logged now, which it
+// never was.
+func doBackupAll() (done, failed int) {
 	bm := core.NewBackupManager("")
-	n := 0
 	for _, p := range mustFindProfiles() {
 		if !core.ProfileHasSessions(p.Path) {
 			continue
@@ -661,11 +679,14 @@ func doBackupAll() int {
 		// CreateBackup, not BackupIfHasData: the user pressed a button that says it
 		// backs things up, so it has to actually take a snapshot rather than reuse
 		// yesterday's and report a number that means nothing.
-		if _, err := bm.CreateBackup(p.Path); err == nil {
-			n++
+		if _, err := bm.CreateBackup(p.Path); err != nil {
+			log.Printf("backup of %s failed: %v", p.Path, err)
+			failed++
+			continue
 		}
+		done++
 	}
-	return n
+	return done, failed
 }
 
 func folderPath(folder string) string {
@@ -724,31 +745,38 @@ func setView(v string) {
 	// nowhere. Returning to the list deliberately clears it instead, in the
 	// showList action.
 	progress = nil
-	mu.Unlock()
+	// Inside the lock, deliberately. Released first, this call could be
+	// overtaken by another goroutine's, leaving the popover stuck in
+	// ApplicationDefined with no card on screen: the panel would then never
+	// close by itself again, for the rest of the session, with nothing to
+	// explain why. SetPopoverSticky only dispatches to the main queue, so it
+	// cannot re-enter this lock.
 	setPopoverSticky(false)
+	mu.Unlock()
 }
 
 // setViewKeepingProgress moves the view without taking down a card that is
-// still on screen. Used by the two paths that are not the user navigating:
-// opening the panel, which always lands on the list, and the quit handler.
-// Clearing there is what used to make a switch in flight vanish the moment the
-// user pressed Escape and reopened the panel, and made a failure that landed
-// while the panel was closed get reported nowhere at all.
+// still on screen. Three callers, none of them the user navigating: opening the
+// panel, which always lands on the list; the merge goroutine, which moves to the
+// list on its way to putting its own outcome card up; and reloadPanel's merge
+// branch when the plan cannot be computed. Clearing in those is what used to
+// make an operation in flight vanish the moment the user pressed Escape and
+// reopened the panel, and made a failure that landed while the panel was closed
+// get reported nowhere at all.
 func setViewKeepingProgress(v string) {
 	mu.Lock()
 	currentView = v
 	renameOpen = false
-	sticky := progress != nil
+	setPopoverSticky(progress != nil) // inside the lock; see setView
 	mu.Unlock()
-	setPopoverSticky(sticky)
 }
 
 // setProgress puts up, updates or takes down the card.
 func setProgress(vm *panelui.ProgressVM) {
 	mu.Lock()
 	progress = vm
+	setPopoverSticky(vm != nil) // inside the lock; see setView
 	mu.Unlock()
-	setPopoverSticky(vm != nil)
 }
 
 // setPopoverSticky ties the panel's auto-close to whether a switch card is on
@@ -820,9 +848,12 @@ func reloadPanel() {
 		plan, planErr := mergePlanFor(keep, archive)
 		if planErr != nil {
 			// Fall back to the list with the reason rather than showing a merge whose
-			// outcome is unknown.
+			// outcome is unknown. Keeping any card: this runs during a render, and
+			// a merge already in flight re-computes its plan against accounts it is
+			// halfway through archiving, so the plan failing here is expected and
+			// must not take down the card reporting on that very merge.
 			setStatus(planErr.Error())
-			setView("list")
+			setViewKeepingProgress("list")
 			htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())
 			break
 		}
@@ -890,6 +921,9 @@ func mustFindProfiles() []*platform.ProfileInfo {
 // account, and the panel said nothing. The Windows host has always returned it.
 func doSwitch(folder string) error {
 	if folder == "" {
+		// Capitalised on purpose, here and below: these are not wrapped by
+		// anything, they are printed verbatim as the one sentence under the
+		// card's heading. ST1005 disagrees; the user reads the screen.
 		return fmt.Errorf("No account was named")
 	}
 	profiles := mustFindProfiles()

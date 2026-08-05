@@ -785,9 +785,12 @@ func reloadPanel() {
 		plan, planErr := mergePlanFor(keep, archive)
 		if planErr != nil {
 			// Fall back to the list with the reason rather than showing a merge whose
-			// outcome is unknown.
+			// outcome is unknown. Keeping any card: this runs during a render, and
+			// a merge already in flight re-computes its plan against accounts it is
+			// halfway through archiving, so the plan failing here is expected and
+			// must not take down the card reporting on that very merge.
 			panelSetStatus(planErr.Error())
-			panelSetView("list")
+			panelSetViewKeepingProgress("list")
 			htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus())
 			break
 		}
@@ -841,11 +844,12 @@ func panelSetView(v string) {
 }
 
 // panelSetViewKeepingProgress moves the view without taking down a card that is
-// still on screen. Used by the paths that are not the user navigating: parking
-// the panel when it loses focus, and the quit handler. Clearing there is what
-// used to make an operation in flight vanish the moment the user clicked away,
-// and made a failure that landed while the panel was parked get reported
-// nowhere at all.
+// still on screen. Three callers, none of them the user navigating: parking the
+// panel when it loses focus; the merge goroutine, which moves to the list on its
+// way to putting its own outcome card up; and reloadPanel's merge branch when
+// the plan cannot be computed. Clearing in those is what used to make an
+// operation in flight vanish the moment the user clicked away, and made a
+// failure that landed while the panel was parked get reported nowhere at all.
 func panelSetViewKeepingProgress(v string) {
 	panelMu.Lock()
 	panelView = v
@@ -1157,9 +1161,16 @@ func panelSourceProfilePath(targetPath string, profiles []*platform.ProfileInfo)
 }
 
 // doPanelBackupAll snapshots every profile that has session data.
-func doPanelBackupAll() int {
+// doPanelBackupAll returns how many accounts were backed up and how many tried and
+// failed.
+//
+// The two are counted separately because the card reports a cause, not just a
+// number: with only a total, a run where every backup failed is indistinguishable
+// from a run where no account had anything to back up, and the panel said the
+// latter, under a green tick. The per-account error is also logged now, which it
+// never was.
+func doPanelBackupAll() (done, failed int) {
 	bm := core.NewBackupManager("")
-	n := 0
 	for _, p := range panelMustFindProfiles() {
 		if !core.ProfileHasSessions(p.Path) {
 			continue
@@ -1167,11 +1178,14 @@ func doPanelBackupAll() int {
 		// CreateBackup, not BackupIfHasData: the user pressed a button that says it
 		// backs things up, so it has to actually take a snapshot rather than reuse
 		// yesterday's and report a number that means nothing.
-		if _, err := bm.CreateBackup(p.Path); err == nil {
-			n++
+		if _, err := bm.CreateBackup(p.Path); err != nil {
+			log.Printf("backup of %s failed: %v", p.Path, err)
+			failed++
+			continue
 		}
+		done++
 	}
-	return n
+	return done, failed
 }
 
 // doSyncPanel copies one account's Code sessions into another.

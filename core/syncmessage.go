@@ -32,7 +32,10 @@ func SyncResultParts(rep *SyncReport, targetDisplay string) (summary, skipped st
 	if rep == nil {
 		return "Sync finished.", ""
 	}
-	summary = fmt.Sprintf("✓ Copied %s into %s.", pluralConversations(rep.CopiedCount), targetDisplay)
+	// No tick in the text: the progress card draws its own, and two in a row
+	// reads as a stutter. The one-line banner this also feeds never needed it to
+	// be understood.
+	summary = fmt.Sprintf("Copied %s into %s.", pluralConversations(rep.CopiedCount), targetDisplay)
 	if rep.ConflictCount > 0 {
 		// The target already had a newer version of these, so they were left
 		// alone. Worth saying, because otherwise a sync that copied little looks
@@ -69,6 +72,23 @@ func pluralConversations(n int) string {
 // act on. Only the cases a user can actually do something about are translated;
 // anything else is passed through so a real fault is never hidden.
 func SyncFailureMessage(err error) string {
+	reason := SyncFailureReason(err)
+	if reason == "" || errors.Is(err, ErrRunningProfileUnknown) {
+		// The translated message below is already a complete instruction;
+		// prefixing it would read as "Sync failed: quit Claude Desktop first".
+		return reason
+	}
+	return "Sync failed: " + reason
+}
+
+// SyncFailureReason is the same text without the "Sync failed" prefix, for a
+// caller that has already said so.
+//
+// The progress card has "Sync failed" as its heading, so the prefixed form put
+// it on screen twice. Splitting it here rather than trimming the prefix at the
+// call site keeps one source for the wording, the same way SyncResultParts does
+// for the success case.
+func SyncFailureReason(err error) string {
 	if err == nil {
 		return ""
 	}
@@ -78,5 +98,5 @@ func SyncFailureMessage(err error) string {
 		// not something to put in front of a user; the action is.
 		return "Quit Claude Desktop first, then try Sync again."
 	}
-	return "Sync failed: " + err.Error()
+	return err.Error()
 }
