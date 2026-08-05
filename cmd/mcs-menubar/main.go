@@ -874,7 +874,8 @@ func main() {
 	}
 	plat = platform.New()
 	switcher = core.NewSwitcher(plat, core.NewBackupManager(""))
-	startUpdateChecker() // periodic background self-update
+	core.StartTidyMisfiled(plat) // one-off cleanup of what the pre-0.11.2 sync misfiled
+	startUpdateChecker()         // periodic background self-update
 	C.RunMenuBar()
 }
 
