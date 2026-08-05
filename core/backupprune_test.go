@@ -158,6 +158,19 @@ func (f *fakeFS) ops() pruneOps {
 				return err
 			}
 			f.moved = append(f.moved, [2]string{src, dst})
+			// Actually move it in the fake. Without this the fake cannot
+			// model staging followed by deletion in one run, which is exactly
+			// where the retention period went missing.
+			parent, name := filepath.Dir(dst), filepath.Base(dst)
+			f.dirs[parent] = append(f.dirs[parent], name)
+			srcParent, srcName := filepath.Dir(src), filepath.Base(src)
+			var kept []string
+			for _, n := range f.dirs[srcParent] {
+				if n != srcName {
+					kept = append(kept, n)
+				}
+			}
+			f.dirs[srcParent] = kept
 			return nil
 		},
 		remove: func(path string) error {
@@ -201,7 +214,9 @@ func TestPruneStagesIntoTheTrashDirectory(t *testing.T) {
 	}
 	want := [2]string{
 		filepath.Join(root, "Claude_20260801_120000"),
-		filepath.Join(root, ".trash", "Claude_20260801_120000"),
+		// The staging date leads the name: it is where the retention clock is
+		// read from, because a rename does not change a directory's mtime.
+		filepath.Join(root, ".trash", "20260805-Claude_20260801_120000"),
 	}
 	if f.moved[0] != want {
 		t.Errorf("moved %v, want %v", f.moved[0], want)
@@ -240,17 +255,16 @@ func TestPruneDeletesOnlyWhatHasWaitedLongEnough(t *testing.T) {
 	root := "/root"
 	trash := filepath.Join(root, ".trash")
 	now := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+	old := stagedName(now.Add(-31*24*time.Hour), "Claude_20260601_120000")
+	fresh := stagedName(now.Add(-29*24*time.Hour), "Claude_20260602_120000")
+	exactly := stagedName(now.Add(-trashRetention), "Claude_20260603_120000")
 	f := &fakeFS{
 		dirs: map[string][]string{
 			root:  {".trash"},
-			trash: {"old", "fresh", "exactly30"},
+			trash: {old, fresh, exactly},
 		},
-		mtimes: map[string]time.Time{
-			filepath.Join(trash, "old"):       now.Add(-31 * 24 * time.Hour),
-			filepath.Join(trash, "fresh"):     now.Add(-29 * 24 * time.Hour),
-			filepath.Join(trash, "exactly30"): now.Add(-trashRetention),
-		},
-		now: now,
+		mtimes: map[string]time.Time{},
+		now:    now,
 	}
 	bm := &BackupManager{BackupRootDir: root}
 	_, deleted := bm.pruneWith(f.ops())
@@ -259,33 +273,34 @@ func TestPruneDeletesOnlyWhatHasWaitedLongEnough(t *testing.T) {
 		t.Fatalf("deleted=%d, want 2 (older than 30 days, and exactly 30 days)", deleted)
 	}
 	sort.Strings(f.removed)
-	want := []string{filepath.Join(trash, "exactly30"), filepath.Join(trash, "old")}
+	want := []string{filepath.Join(trash, old), filepath.Join(trash, exactly)}
+	sort.Strings(want)
 	if !reflect.DeepEqual(f.removed, want) {
 		t.Errorf("removed %v, want %v: the 29-day-old one must survive", f.removed, want)
 	}
 }
 
-// Unknown age must never be read as old. This is the only operation in MCS with
-// no way back, so an unreadable timestamp has to mean "leave it".
-func TestPruneLeavesStagedSnapshotsWhoseAgeCannotBeRead(t *testing.T) {
+// The trash gets the same protection the backups root gets: a directory this
+// code did not name is never deleted. Somebody who parks a folder in there, or
+// a leftover from a future version, keeps it.
+func TestPruneLeavesTrashEntriesItDidNotName(t *testing.T) {
 	root := "/root"
 	trash := filepath.Join(root, ".trash")
 	now := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+	old := stagedName(now.Add(-31*24*time.Hour), "Claude_20260601_120000")
 	f := &fakeFS{
 		dirs: map[string][]string{
 			root:  {".trash"},
-			trash: {"unreadable", "old"},
+			trash: {"my-own-folder", "Claude_20260601_120000", old},
 		},
-		mtimes: map[string]time.Time{
-			filepath.Join(trash, "old"): now.Add(-31 * 24 * time.Hour),
-		},
-		now: now,
+		mtimes: map[string]time.Time{},
+		now:    now,
 	}
 	bm := &BackupManager{BackupRootDir: root}
 	_, deleted := bm.pruneWith(f.ops())
 
-	if deleted != 1 || len(f.removed) != 1 || filepath.Base(f.removed[0]) != "old" {
-		t.Errorf("removed %v (deleted=%d), want only \"old\": an unreadable timestamp must not be treated as expired", f.removed, deleted)
+	if deleted != 1 || len(f.removed) != 1 || filepath.Base(f.removed[0]) != old {
+		t.Errorf("removed %v (deleted=%d), want only %q", f.removed, deleted, old)
 	}
 }
 
@@ -331,9 +346,50 @@ func TestFreeTrashPathAvoidsCollisions(t *testing.T) {
 		filepath.Join("/t", "snap"):   true,
 		filepath.Join("/t", "snap-2"): true,
 	}
-	got := freeTrashPath("/t", "snap", func(p string) bool { return taken[p] })
+	got, err := freeTrashPath("/t", "snap", func(p string) bool { return taken[p] })
+	if err != nil {
+		t.Fatalf("freeTrashPath: %v", err)
+	}
 	if want := filepath.Join("/t", "snap-3"); got != want {
 		t.Errorf("freeTrashPath = %q, want %q", got, want)
+	}
+}
+
+// Out of names must be an error, not a path somebody else's data is already at.
+// The caller moves a directory onto whatever it is handed.
+func TestFreeTrashPathRefusesWhenEveryNameIsTaken(t *testing.T) {
+	if _, err := freeTrashPath("/t", "snap", func(string) bool { return true }); err == nil {
+		t.Error("freeTrashPath returned a path with every name taken")
+	}
+}
+
+func TestStagedNameRoundTrips(t *testing.T) {
+	at := time.Date(2026, 8, 5, 13, 45, 0, 0, time.Local)
+	name := stagedName(at, "Claude_20260722_170103")
+	if name != "20260805-Claude_20260722_170103" {
+		t.Errorf("stagedName = %q", name)
+	}
+	got, ok := stagedTime(name)
+	if !ok || !got.Equal(time.Date(2026, 8, 5, 0, 0, 0, 0, time.Local)) {
+		t.Errorf("stagedTime(%q) = %v, %v", name, got, ok)
+	}
+}
+
+// Anything this code did not write is never given an age, so it is never
+// deleted. Somebody who parks a folder in the trash keeps it.
+func TestStagedTimeRejectsNamesItDidNotWrite(t *testing.T) {
+	for _, name := range []string{
+		"my-own-folder",
+		"Claude_20260722_170103", // a snapshot name, not a staged one
+		"org-cleanup-2026-08-04",
+		"20260805",  // date but nothing after it
+		"-Claude_x", // nothing before the dash
+		"notadate-Claude_x",
+		"",
+	} {
+		if _, ok := stagedTime(name); ok {
+			t.Errorf("stagedTime(%q) claimed to know when it was staged", name)
+		}
 	}
 }
 
@@ -445,22 +501,31 @@ func TestRestoreDoesNotTidy(t *testing.T) {
 
 // Pruning is best-effort in the strongest sense: a panic inside it must not
 // escape into the switch that is holding Claude Desktop closed.
+//
+// It panics inside the ops, which is where a real one would come from, and goes
+// through pruneWith, the function prune actually calls. An earlier version
+// called a wrapper directly and asserted that the wrapper's own defer worked,
+// which stayed green no matter what prune did.
 func TestPruneContainsAPanic(t *testing.T) {
+	ops := realPruneOps()
+	ops.listDirs = func(string) ([]string, error) { panic("boom") }
+
 	bm := &BackupManager{BackupRootDir: t.TempDir()}
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("a panic escaped prune and would have taken down the caller: %v", r)
+			t.Fatalf("a panic escaped and would have taken down the switch that called it: %v", r)
 		}
 	}()
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("panic escaped: %v", r)
-			}
-		}()
-		// prune's own recover is what has to catch this.
-		bm.pruneCatching(func() { panic("boom") })
-	}()
+	staged, deleted := bm.pruneWith(ops)
+	if staged != 0 || deleted != 0 {
+		t.Errorf("staged=%d deleted=%d after a panic, want 0 and 0", staged, deleted)
+	}
+}
+
+// And the real entry point goes through it.
+func TestPruneOnARootThatIsNotThere(t *testing.T) {
+	bm := &BackupManager{BackupRootDir: filepath.Join(t.TempDir(), "nope")}
+	bm.prune() // must not panic or block
 }
 
 func TestMoveDirMovesTheWholeTree(t *testing.T) {
@@ -506,5 +571,53 @@ func TestMoveDirReportsAFailure(t *testing.T) {
 	}
 	if _, err := os.Stat(src); err != nil {
 		t.Errorf("the source was removed even though the move failed: %v", err)
+	}
+}
+
+// Reproduction for the defect this file's staging existed to prevent: a
+// snapshot older than the retention period was staged and permanently deleted
+// in the same prune run, so the promised month to fetch it back never existed.
+//
+// The cause was reading the staging time from the directory's modification
+// time. os.Rename does not touch it, so a staged snapshot kept the mtime it had
+// as a snapshot, which is roughly when it was created. Any snapshot older than
+// the retention period was therefore already expired the instant it was staged.
+//
+// Nobody noticed because the machine it was written on had no snapshot older
+// than two weeks.
+func TestAFreshlyStagedSnapshotSurvivesItsOwnPruneRun(t *testing.T) {
+	root := t.TempDir()
+	profile := makeProfile(t, filepath.Join(t.TempDir(), "Claude"))
+
+	// Old enough that the retention period has already passed, which is the
+	// ordinary case for anyone who has had MCS installed for a month.
+	old := time.Now().Add(-60 * 24 * time.Hour)
+	for i := 1; i <= pruneKeep+3; i++ {
+		p := makeSnapshot(t, root, fmt.Sprintf("Claude_2026060%d_120000", i))
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	bm := &BackupManager{BackupRootDir: root}
+	if _, err := bm.CreateBackup(profile); err != nil {
+		t.Fatalf("CreateBackup: %v", err)
+	}
+
+	staged, err := os.ReadDir(filepath.Join(root, trashDirName))
+	if err != nil {
+		t.Fatalf("nothing was staged at all: %v", err)
+	}
+	if len(staged) == 0 {
+		t.Fatal("everything staged in this run was deleted in the same run: the retention period does not exist")
+	}
+	// pruneKeep+3 old snapshots plus the one CreateBackup just took, keeping
+	// pruneKeep, leaves 4 staged.
+	if len(staged) != 4 {
+		var names []string
+		for _, e := range staged {
+			names = append(names, e.Name())
+		}
+		t.Errorf("staged %v, want all 4 to still be there", names)
 	}
 }

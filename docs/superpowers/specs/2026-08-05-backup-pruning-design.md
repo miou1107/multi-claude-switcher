@@ -61,9 +61,22 @@ exist because a user asked for them.
 
 ## The two stages, and why not the operating system's trash
 
-Stage one moves a snapshot into `backups/.trash/<name>/`. Stage two deletes it thirty days
-later. `.trash/` is not a snapshot name `parseBackupName` accepts, so a staged snapshot can
-never be considered for retention again.
+Stage one moves a snapshot into `backups/.trash/<YYYYMMDD>-<name>/`. Stage two deletes it
+thirty days later. `.trash/` is not a snapshot name `parseBackupName` accepts, so a staged
+snapshot can never be considered for retention again.
+
+**The staging date is in the name, not read from the filesystem.** The first implementation
+took it from the directory's modification time, which review showed does not work: `os.Rename`
+does not change a directory's mtime, so a staged snapshot still carried the mtime it had as a
+snapshot. Anything older than the retention period was therefore already expired the instant
+it was staged and was deleted in the same run, which removed the entire point of staging. It
+went unnoticed because the machine this was written on had no snapshot older than two weeks;
+any user who had installed MCS a month earlier would have lost their oldest snapshots outright
+on the first switch after upgrading.
+
+The name also decides what stage two may touch. An entry whose name this code did not write
+has no staging date and is never deleted, which gives the trash the same protection the
+backups root has: a folder somebody put there themselves stays.
 
 The operating system's trash was the first choice and was rejected on review.
 
@@ -111,16 +124,20 @@ and that inversion is correct only because pruning never puts live data at risk.
 
 ## Errors and edge cases
 
-- **Cross-volume move.** `backups/` and `backups/.trash/` are always on one volume: every
-  caller constructs `NewBackupManager("")`, so the root is always
-  `~/.multi-claude-switcher/backups`. `os.Rename` still falls back to copy-then-remove on
-  `EXDEV` so a future configurable root cannot silently stop pruning.
-- **Name collision in `.trash/`.** A snapshot name already present is suffixed `-2`, `-3`
-  and so on. `os.Rename` onto a non-empty directory fails rather than merging, so this
-  must be handled rather than left to chance.
-- **`.trash/` missing.** Created on demand.
-- **A directory in `.trash/` with no readable modification time** is left alone rather than
-  being treated as old.
+- **Cross-volume move: not handled, deliberately.** A copy-then-delete fallback was written
+  for a future configurable root and then removed on review, because it made three things
+  worse inside a switch that has Claude Desktop closed. It removed a destination it had not
+  necessarily created, so two hosts pruning at once could have the loser delete what the
+  winner had just staged. On Windows a rename fails with a sharing violation whenever an
+  indexer holds a handle inside the directory, which turned a fast logged failure into a full
+  recursive copy of a several-hundred-megabyte tree while the user waited. And if the copy
+  succeeded while the delete then failed, the snapshot existed twice and the next prune would
+  copy it again. A rename is all that is needed while the trash is a subdirectory of the root.
+- **Name collision in `.trash/`.** Suffixed `-2`, `-3` and so on. When every name is taken it
+  returns an error rather than a taken path: handing a caller a path that already holds
+  somebody else's data is not a decision to make on the way out of a loop.
+- **`.trash/` missing.** Created on demand. One that exists but cannot be read is logged,
+  since that is the path that frees disk failing silently.
 - **Concurrency.** Two operations pruning at once may both select the same snapshot; the
   second `os.Rename` fails with ENOENT, which is logged and skipped like any other failure.
 
@@ -131,7 +148,8 @@ size, and one line when a prune finds nothing to do. Silent means undiagnosable,
 is the one part of MCS that removes data.
 
 The Debug info screen gains one line: `Backups: <n> snapshots, <size>` plus, when
-non-empty, `<n> awaiting deletion`. That screen exists to be pasted into an issue, and
+non-empty, `<n> awaiting deletion, <size>`. The two sizes are reported apart, or a reader
+attributes bytes already on their way out to the snapshots being kept. That screen exists to be pasted into an issue, and
 disk usage is the first thing anyone would ask about.
 
 ## Tests
@@ -147,8 +165,12 @@ The rule is tested through an injected move function, so no test touches a real 
 - a move failure on one snapshot does not stop the others and does not fail the caller
 - a profile with 5 or fewer snapshots produces no moves
 - `.trash/` entries older than 30 days are deleted; younger ones are not
-- a `.trash/` entry whose modification time cannot be read is left alone
+- a snapshot staged in this very run survives it, which is the property the first
+  implementation silently did not have
+- a `.trash/` entry whose name this code did not write is never deleted
 - `RestoreBackup`'s pre-restore backup does not prune
+- a panic inside the prune does not escape, driven through the real entry point rather
+  than through a wrapper whose own defer proves nothing
 
 Each test is verified by breaking the code it guards and confirming it fails.
 

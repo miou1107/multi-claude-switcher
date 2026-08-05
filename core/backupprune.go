@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -97,41 +98,50 @@ func realPruneOps() pruneOps {
 // CreateBackup into SafeSwitch and take down a switch that had already closed
 // Claude Desktop, which is the worst moment to stop.
 func (bm *BackupManager) prune() {
-	bm.pruneCatching(func() { bm.pruneWith(realPruneOps()) })
+	bm.pruneWith(realPruneOps())
 }
 
-// pruneCatching runs the tidy-up and swallows a panic. Split out from prune so
-// a test can prove the containment rather than trusting the defer is written
-// correctly, which is not something reading it can establish.
-func (bm *BackupManager) pruneCatching(run func()) {
+// pruneWith is prune with its filesystem passed in.
+//
+// The recover lives here rather than in prune so that a test can reach it: a
+// wrapper around prune could be deleted and every test would stay green while
+// the containment was gone. Driving it through the ops means the test panics
+// where a real failure would.
+func (bm *BackupManager) pruneWith(ops pruneOps) (staged, deleted int) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[Backup] prune panicked and was contained, backups were not tidied: %v", r)
+			staged, deleted = 0, 0
 		}
 	}()
-	run()
-}
-
-func (bm *BackupManager) pruneWith(ops pruneOps) (staged, deleted int) {
 	names, err := ops.listDirs(bm.BackupRootDir)
 	if err != nil {
 		log.Printf("[Backup] could not read the backups folder to tidy it: %v", err)
 		return 0, 0
 	}
 
+	troubled := false
 	trashRoot := filepath.Join(bm.BackupRootDir, trashDirName)
 	if doomed := snapshotsToPrune(names, pruneKeep); len(doomed) > 0 {
 		if err := ops.mkdirAll(trashRoot); err != nil {
 			log.Printf("[Backup] could not create %s, leaving %d old snapshots in place: %v", trashRoot, len(doomed), err)
+			troubled = true
 		} else {
+			stampedAt := ops.now()
 			for _, name := range doomed {
 				src := filepath.Join(bm.BackupRootDir, name)
-				dst := freeTrashPath(trashRoot, name, ops.exists)
+				dst, err := freeTrashPath(trashRoot, stagedName(stampedAt, name), ops.exists)
+				if err != nil {
+					log.Printf("[Backup] could not find a free name in %s for %s: %v", trashRoot, name, err)
+					troubled = true
+					continue
+				}
 				if err := ops.move(src, dst); err != nil {
 					// Two operations pruning at once both pick the same
 					// snapshot and the loser lands here. So does a permissions
 					// problem. Neither is worth failing anything over.
 					log.Printf("[Backup] could not set aside old snapshot %s: %v", name, err)
+					troubled = true
 					continue
 				}
 				staged++
@@ -141,7 +151,10 @@ func (bm *BackupManager) pruneWith(ops pruneOps) (staged, deleted int) {
 	}
 
 	deleted = bm.emptyTrash(ops, trashRoot)
-	if staged == 0 && deleted == 0 {
+	// Only when there was genuinely nothing to do. Saying it after a failure
+	// contradicts the line that just explained the failure, and whoever reads
+	// the log later believes the wrong one.
+	if staged == 0 && deleted == 0 && !troubled {
 		log.Printf("[Backup] nothing to tidy: no profile has more than %d snapshots and nothing has been set aside long enough to delete", pruneKeep)
 	}
 	return staged, deleted
@@ -151,28 +164,35 @@ func (bm *BackupManager) pruneWith(ops pruneOps) (staged, deleted int) {
 func (bm *BackupManager) emptyTrash(ops pruneOps, trashRoot string) int {
 	names, err := ops.listDirs(trashRoot)
 	if err != nil {
-		return 0 // no trash yet, which is the ordinary case
+		// A trash that has never been created is the ordinary case and says
+		// nothing. One that exists and cannot be read is the code path that
+		// frees disk failing silently, which is worth a line.
+		if !os.IsNotExist(err) {
+			log.Printf("[Backup] could not read %s, nothing was deleted: %v", trashRoot, err)
+		}
+		return 0
 	}
 	cutoff := ops.now().Add(-trashRetention)
 	deleted := 0
 	for _, name := range names {
+		stagedOn, ok := stagedTime(name)
+		if !ok {
+			// Not a name this code wrote. Somebody's own folder, or something
+			// from a future version. Never deleted: this is the one operation
+			// with no way back, and the same rule that protects a hand-made
+			// directory in the backups root has to protect one here.
+			continue
+		}
+		if stagedOn.After(cutoff) {
+			continue
+		}
 		path := filepath.Join(trashRoot, name)
-		mt, err := ops.modTime(path)
-		if err != nil {
-			// Unreadable means unknown age, and unknown age must not be
-			// treated as old. This is the one operation with no way back.
-			log.Printf("[Backup] could not tell how long %s has been set aside, leaving it: %v", name, err)
-			continue
-		}
-		if mt.After(cutoff) {
-			continue
-		}
 		if err := ops.remove(path); err != nil {
 			log.Printf("[Backup] could not delete %s: %v", name, err)
 			continue
 		}
 		deleted++
-		log.Printf("[Backup] deleted %s, set aside on %s", name, mt.Format("2006-01-02"))
+		log.Printf("[Backup] deleted %s, set aside on %s", name, stagedOn.Format("2006-01-02"))
 	}
 	return deleted
 }
@@ -212,7 +232,7 @@ func snapshotsToPrune(names []string, keep int) []string {
 			}
 			return snaps[i].seq > snaps[j].seq
 		})
-		for _, s := range snaps[min(keep, len(snaps)):] {
+		for _, s := range snaps[keepCount(keep, len(snaps)):] {
 			out = append(out, s.name)
 		}
 	}
@@ -220,63 +240,98 @@ func snapshotsToPrune(names []string, keep int) []string {
 	return out
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+// keepCount is how many of a profile's snapshots survive: keep, or all of them
+// when there are fewer than that. Named rather than using the builtin min,
+// which this file would otherwise shadow for every other file in the package.
+func keepCount(keep, have int) int {
+	if keep < have {
+		return keep
 	}
-	return b
+	return have
+}
+
+// stagedName is the name a snapshot takes in the trash: the date it was staged,
+// then the snapshot's own name.
+//
+// The date is in the name rather than read back from the filesystem because
+// os.Rename does not change a directory's modification time. Reading it from
+// there meant a staged snapshot still carried the mtime it had as a snapshot,
+// so anything older than the retention period was already expired the moment it
+// was staged and was deleted in the same run. The promised month to fetch
+// something back did not exist, and the only reason it went unnoticed is that
+// the machine it was written on had no snapshot older than two weeks.
+//
+// A name also survives being copied, and says plainly, to somebody looking at
+// the folder in Finder, when the thing was set aside.
+func stagedName(at time.Time, snapshot string) string {
+	return at.Format("20060102") + "-" + snapshot
+}
+
+// stagedTime reads back what stagedName wrote. ok is false for any name this
+// code did not write, which is what keeps somebody's own folder in the trash
+// from ever being deleted.
+func stagedTime(name string) (time.Time, bool) {
+	date, rest, found := strings.Cut(name, "-")
+	if !found || rest == "" {
+		return time.Time{}, false
+	}
+	t, err := time.ParseInLocation("20060102", date, time.Local)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
 }
 
 // freeTrashPath picks a name inside the trash that is not already taken.
 //
-// A collision is not far-fetched: a profile removed and recreated can produce
-// the same snapshot name twice. os.Rename onto an existing non-empty directory
-// fails rather than merging, so this has to be handled rather than left to luck.
-func freeTrashPath(trashRoot, name string, exists func(string) bool) string {
+// A collision is not far-fetched: two snapshots of one profile staged on the
+// same day differ only by the snapshot name, and a profile removed and
+// recreated can produce the same snapshot name twice.
+//
+// It returns an error rather than a taken path when it runs out. An earlier
+// version returned the last candidate "so the move fails and is logged", which
+// was safe only while the move was a bare os.Rename. Handing a caller a path
+// that already holds somebody else's data is not a decision to make on the way
+// out of a loop.
+func freeTrashPath(trashRoot, name string, exists func(string) bool) (string, error) {
 	candidate := filepath.Join(trashRoot, name)
 	if !exists(candidate) {
-		return candidate
+		return candidate, nil
 	}
 	for n := 2; n < backupCollisionLimit; n++ {
 		candidate = filepath.Join(trashRoot, fmt.Sprintf("%s-%d", name, n))
 		if !exists(candidate) {
-			return candidate
+			return candidate, nil
 		}
 	}
-	// Every name taken. Return the last one so the move fails and is logged,
-	// rather than silently overwriting something.
-	return candidate
+	return "", fmt.Errorf("every name from %s to %s-%d is taken", name, name, backupCollisionLimit-1)
 }
 
-// moveDir relocates a directory, falling back to copy-then-delete if the rename
-// will not do.
+// moveDir relocates a directory, and does nothing else.
 //
-// It does not try to work out WHY the rename failed. An earlier version matched
-// the error against "cross-device", which is what Unix says and is not what
-// Windows says (it says the file cannot be moved to a different disk drive), so
-// the fallback it existed for would not have run on the platform most likely to
-// need it. Classifying errors by their text is guessing; trying the other route
-// and reporting its error instead is not. A rename that failed for a real
-// reason, a locked directory or a permission, fails the copy too and that
-// error is what the caller sees.
+// There is deliberately no copy-then-delete fallback. One was written, on the
+// grounds that a configurable backups root could later put the trash on another
+// volume. It made things worse in three ways, all of them inside a switch that
+// has Claude Desktop closed:
 //
-// The fallback is unreachable today: every caller builds NewBackupManager(""),
-// so the trash is always a subdirectory of the backups root and the two ends
-// are on one volume. It is here so that making the root configurable later
-// cannot quietly stop pruning working, which is the failure this whole file
-// exists to prevent.
+//   - On a failure it removed the destination, which it had not necessarily
+//     created. Two hosts pruning at once could have the loser delete the
+//     snapshot the winner had just staged, bypassing the retention period
+//     entirely.
+//   - On Windows a rename fails with a sharing violation whenever an indexer or
+//     antivirus holds a handle inside the directory, which is routine. That
+//     turned a fast logged failure into a full recursive copy of a
+//     several-hundred-megabyte tree while the user waited.
+//   - If the copy succeeded and the delete then failed for the same lock, the
+//     snapshot existed twice, and the next prune would copy it again.
 //
-// dst is guaranteed not to exist (see freeTrashPath), so the copy cannot merge
-// into somebody else's directory.
+// Every caller in the shipped hosts builds NewBackupManager(""), so both ends
+// are on one volume today and a rename is all that is needed. MergeRequest.
+// BackupRoot is a public field and only tests set it, but it is API rather than
+// an internal, so that could change; whoever changes it owns this decision, and
+// the failure here will be a logged skip rather than anything destructive.
 func moveDir(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
-		return nil
-	}
-	if err := copyDir(src, dst); err != nil {
-		_ = os.RemoveAll(dst)
-		return err
-	}
-	return os.RemoveAll(src)
+	return os.Rename(src, dst)
 }
 
 // BackupUsage describes what the backups folder is holding, for the Debug info
@@ -288,10 +343,12 @@ func moveDir(src, dst string) error {
 // pruning will and will not touch, so the report does not invite anyone to
 // wonder why a number does not add up.
 type BackupUsage struct {
-	Snapshots int
-	Bytes     int64
-	Staged    int
-	Err       string
+	Snapshots   int
+	Bytes       int64 // the surviving snapshots only
+	Staged      int
+	StagedBytes int64 // what is waiting to be deleted
+	Other       int   // directories MCS did not name, counted so the numbers add up
+	Err         string
 }
 
 func (bm *BackupManager) Usage() BackupUsage {
@@ -314,10 +371,11 @@ func (bm *BackupManager) Usage() BackupUsage {
 					u.Staged++
 				}
 			}
-			u.Bytes += dirBytes(filepath.Join(bm.BackupRootDir, e.Name()))
+			u.StagedBytes += dirBytes(filepath.Join(bm.BackupRootDir, e.Name()))
 			continue
 		}
 		if _, _, _, ok := parseBackupName(e.Name()); !ok {
+			u.Other++
 			continue
 		}
 		u.Snapshots++

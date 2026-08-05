@@ -47,7 +47,8 @@ func Gather(profiles []*platform.ProfileInfo, plat platform.Platform, osVersion,
 	// shared. NewBackupManager("") is the same root every caller uses.
 	usage := core.NewBackupManager("").Usage()
 	in.BackupCount, in.BackupBytes = usage.Snapshots, usage.Bytes
-	in.BackupStaged, in.BackupReadErr = usage.Staged, usage.Err
+	in.BackupStaged, in.BackupStagedBytes = usage.Staged, usage.StagedBytes
+	in.BackupReadErr = usage.Err
 
 	in.Home, _ = os.UserHomeDir()
 	in.HostName, _ = os.Hostname()

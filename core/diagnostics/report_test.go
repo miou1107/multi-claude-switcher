@@ -409,11 +409,11 @@ func TestBackupsLine(t *testing.T) {
 		{"nothing yet", Input{}, "Backups: none"},
 		{"one snapshot", Input{BackupCount: 1, BackupBytes: 1536}, "Backups: 1 snapshot, 1.5 KB"},
 		{"several", Input{BackupCount: 10, BackupBytes: 241172480}, "Backups: 10 snapshots, 230.0 MB"},
-		{"with staged", Input{BackupCount: 5, BackupBytes: 1024, BackupStaged: 3}, "Backups: 5 snapshots, 1.0 KB · 3 awaiting deletion"},
+		{"with staged", Input{BackupCount: 5, BackupBytes: 1024, BackupStaged: 3, BackupStagedBytes: 5242880}, "Backups: 5 snapshots, 1.0 KB · 3 awaiting deletion, 5.0 MB"},
 		// "none" and "could not look" are different facts and must read
 		// differently, or a reader takes an unreadable folder for an empty one.
 		{"unreadable", Input{BackupReadErr: "permission denied"}, "Backups: could not read (permission denied)"},
-		{"staged only", Input{BackupStaged: 2, BackupBytes: 2048}, "Backups: 0 snapshots, 2.0 KB · 2 awaiting deletion"},
+		{"staged only", Input{BackupStaged: 2, BackupStagedBytes: 2048}, "Backups: 0 snapshots, 0 B · 2 awaiting deletion, 2.0 KB"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := backupsLine(tc.in); got != tc.want {

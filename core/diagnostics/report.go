@@ -62,10 +62,11 @@ type Input struct {
 	// this thing using" is the first question anyone asks about a tool that
 	// copies a session tree before every switch. Zero snapshots renders as
 	// "none", not as a missing line, so its absence is never ambiguous.
-	BackupCount   int
-	BackupBytes   int64
-	BackupStaged  int
-	BackupReadErr string
+	BackupCount       int
+	BackupBytes       int64
+	BackupStaged      int
+	BackupStagedBytes int64
+	BackupReadErr     string
 
 	Home            string
 	HomeReplacement string
@@ -376,9 +377,11 @@ func backupsLine(in Input) string {
 	if in.BackupCount == 0 && in.BackupStaged == 0 {
 		return "Backups: none"
 	}
+	// The two sizes are reported apart. Pooling them made a reader attribute
+	// bytes that are already on their way out to the snapshots being kept.
 	line := fmt.Sprintf("Backups: %s, %s", plural(in.BackupCount, "snapshot", "snapshots"), humanBytes(in.BackupBytes))
 	if in.BackupStaged > 0 {
-		line += fmt.Sprintf(" · %d awaiting deletion", in.BackupStaged)
+		line += fmt.Sprintf(" · %d awaiting deletion, %s", in.BackupStaged, humanBytes(in.BackupStagedBytes))
 	}
 	return line
 }

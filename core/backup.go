@@ -334,7 +334,10 @@ func (bm *BackupManager) ListBackups() ([]string, error) {
 	}
 	var backups []string
 	for _, entry := range entries {
-		if entry.IsDir() {
+		// The trash is a directory in here but is not a backup, and offering it
+		// as one puts an entry in the CLI's list that RestoreBackup then
+		// refuses.
+		if entry.IsDir() && entry.Name() != trashDirName {
 			backups = append(backups, filepath.Join(bm.BackupRootDir, entry.Name()))
 		}
 	}
