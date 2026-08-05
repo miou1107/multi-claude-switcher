@@ -2,15 +2,6 @@
 
 ## [Unreleased]
 
-### Fixed
-- **Releases are gated on the test suite.** `go vet` and `go test` now run on
-  Windows, macOS and Linux before either build job starts, so a tag can no
-  longer publish a build whose tests fail. Nothing behind `//go:build windows`
-  had ever been executed anywhere before this: the suite was only ever run by
-  hand, on a Mac. The first thing it catches was already fixed alongside it, a
-  diagnostics test that made its file unreadable with `os.Chmod(0o000)`, which
-  does nothing of the sort on Windows.
-
 ## [0.13.1] - 2026-08-05
 
 ### Added
@@ -26,12 +17,29 @@
   stays open until the card is done with, instead of closing itself the moment
   Claude comes back to the front, which is what used to make the result of a
   switch impossible to see. Escape and the icon still close it.
+- **The same card for Sync, Merge and Backup.** All three close Claude or take
+  seconds, and all three used to say so in one line of small text that was
+  usually gone before it could be read. Sync gains the most: it now shows how
+  many conversations moved and how many were already newer, and conversations
+  whose files could not be read are shown as a warning on an otherwise
+  successful sync rather than being lost or mistaken for a failure.
 
 ### Fixed
 - **A failed switch no longer looks like a successful one on macOS.** The menu
   bar app threw away the error, so a switch that never happened left the panel
   saying nothing at all. It is now shown on the card. The Windows tray already
   reported it.
+- **A backup that could not write anything no longer says you had nothing to
+  back up.** Every account failing and no account having any data produced the
+  same message, with a tick next to it. Failures are now counted and logged
+  separately, and reported as failures.
+- **Releases are gated on the test suite.** `go vet` and `go test` now run on
+  Windows, macOS and Linux before either build job starts, so a tag can no
+  longer publish a build whose tests fail. Nothing behind `//go:build windows`
+  had ever been executed anywhere before this: the suite was only ever run by
+  hand, on a Mac. The first thing it catches was already fixed alongside it, a
+  diagnostics test that made its file unreadable with `os.Chmod(0o000)`, which
+  does nothing of the sort on Windows.
 
 ## [0.13.0] - 2026-08-04
 
