@@ -97,7 +97,8 @@ is no way to move a running instance to a different account. While that is
 happening the panel shows a card in place of the confirmation, so you can see
 the switch is running rather than wondering whether the click registered. It
 tells you when you are on the new account, and if the switch failed it says so
-and why.
+and why. Syncing, merging and backing up show the same card, and the panel
+stays open until you are done with it.
 
 **Rescan** finds accounts already on the machine, including any you have not
 signed into yet. **Change name** and **Remove from list** both live behind the

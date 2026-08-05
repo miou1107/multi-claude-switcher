@@ -626,11 +626,7 @@ func editRow(esc func(string) string, name string) string {
 		`<button type="button" class="rnsave" onclick="event.stopPropagation();rowRenameSave(this)">Save</button></div>`
 }
 
-// switching, when non nil, draws the progress card over the list: the panel had
-// no way to say "an action is running", only a modal for questions and a banner
-// for results, so a switch looked like a click that had been ignored. Nil is the
-// ordinary list, unchanged.
-func RenderList(profiles []ProfileVM, canAddAccount bool, status string, switching *SwitchProgressVM) string {
+func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string {
 	esc := html.EscapeString
 	dupFolder, dupWarning := duplicateAccounts(profiles, esc)
 	// status carries the result of an action that ended back on the list — a
@@ -693,7 +689,7 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string, switchi
   <button class="btn btn-light" onclick="send('showRescan','')">⟳&nbsp; Rescan</button>
   <button class="btn btn-light" onclick="send('showSettings','')">⚙&nbsp; Settings</button>
 </div>
-<div class="about">v` + esc(core.Version) + `</div>` + renderSwitchProgress(switching)
+<div class="about">v` + esc(core.Version) + `</div>`
 	return shell(body)
 }
 

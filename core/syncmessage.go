@@ -13,10 +13,26 @@ import (
 // cmd packages have no tests, and this string is the only place a clash is ever
 // reported to a user of the panel.
 func SyncResultMessage(rep *SyncReport, targetDisplay string) string {
-	if rep == nil {
-		return "Sync finished."
+	summary, skipped := SyncResultParts(rep, targetDisplay)
+	if skipped == "" {
+		return summary
 	}
-	msg := fmt.Sprintf("✓ Copied %s into %s.", pluralConversations(rep.CopiedCount), targetDisplay)
+	return summary + " " + skipped
+}
+
+// SyncResultParts splits that sentence in two: what the sync did, and what it
+// could not read.
+//
+// The panel needs them apart. Files that could not be read are a warning, and
+// the progress card puts a warning in its own box and then waits to be closed,
+// rather than clearing itself after two seconds like a clean result does. Both
+// halves still come from here so the card and the one-line message cannot end
+// up wording the same fact differently.
+func SyncResultParts(rep *SyncReport, targetDisplay string) (summary, skipped string) {
+	if rep == nil {
+		return "Sync finished.", ""
+	}
+	summary = fmt.Sprintf("✓ Copied %s into %s.", pluralConversations(rep.CopiedCount), targetDisplay)
 	if rep.ConflictCount > 0 {
 		// The target already had a newer version of these, so they were left
 		// alone. Worth saying, because otherwise a sync that copied little looks
@@ -25,7 +41,7 @@ func SyncResultMessage(rep *SyncReport, targetDisplay string) string {
 		if rep.ConflictCount != 1 {
 			tail = "were already newer here and left alone."
 		}
-		msg += " " + pluralConversations(rep.ConflictCount) + " " + tail
+		summary += " " + pluralConversations(rep.ConflictCount) + " " + tail
 	}
 	if n := len(rep.SkipErrors); n > 0 {
 		// These could not be read or written at all. A count with a pointer to the
@@ -35,9 +51,9 @@ func SyncResultMessage(rep *SyncReport, targetDisplay string) string {
 		if n != 1 {
 			tail = "files could not be read and were skipped (see the log)."
 		}
-		msg += fmt.Sprintf(" %d %s", n, tail)
+		skipped = fmt.Sprintf("%d %s", n, tail)
 	}
-	return msg
+	return summary, skipped
 }
 
 // pluralConversations renders a count with its noun, so "1 conversation" never

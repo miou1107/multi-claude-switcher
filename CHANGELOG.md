@@ -5,7 +5,7 @@
 ## [0.13.1] - 2026-08-05
 
 ### Added
-- **The panel says a switch is running.** Pressing Switch used to leave one
+- **The panel says when it is working, and what came of it.** Pressing Switch used to leave one
   static line of text on the account list, in the same green the panel uses for
   "done", while the cards still looked clickable, so a switch read as a click
   that had been ignored. A card now takes the place of the confirmation dialog,

@@ -1,6 +1,7 @@
 package panelui
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -155,7 +156,7 @@ func TestEmDashGuardCatchesTextInsideTheOldBlindWindow(t *testing.T) {
 // script — askRemove moved there with the row menu that replaced the deleted
 // Account settings screen); askReport on RenderDebug.
 func TestEmDashGuardCoversTheFourDialogHelpers(t *testing.T) {
-	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
+	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
 	debug := RenderDebug(DebugVM{Report: "MCS 0.11.2"})
 
 	cases := []struct{ name, html, from, to string }{
@@ -228,10 +229,10 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		{Folder: "Claude_new", Name: "New one", SignedIn: false},
 		// Two profiles sharing a UUID: the duplicate-account warning banner.
 		{Folder: "Claude_dup", Name: "Work", Plan: "Pro", Convos: 1, SignedIn: true, UUID: "dup-uuid"},
-	}, true, "Backed up 3 accounts", nil)
+	}, true, "Backed up 3 accounts")
 	// The empty list has its own copy ("No managed accounts yet…") that a
 	// non-empty list can never reach in the same call.
-	listEmpty := RenderList(nil, false, "", nil)
+	listEmpty := RenderList(nil, false, "")
 
 	newProfile := RenderNewProfile(NewProfileVM{SuggestedName: "Work", Convos: 0, Err: "That name is already taken"})
 	// RecoverUUID switches the title, subtitle and hint text to the recovery
@@ -288,23 +289,35 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 			"The switcher's own account list still mentions it. Nothing needs doing: the panel only shows accounts whose folder is still there. (write managed.json: permission denied)\n" +
 			"Its name is still recorded as \"Old one\". If you sign in to this account again later it will come back under that name, which you can change with Rename. (write names.json: permission denied)"})
 
-	// The switch card's three phases are mutually exclusive in one call, so each
-	// gets its own entry. The failed one carries a real SafeSwitch message
-	// rather than a paraphrase, for the same reason removedFailed above does:
-	// this screen prints the error verbatim, so a trimmed stand-in trims the
-	// part worth checking. The done card is the only one that names the
-	// account, and the working card the only one with no way out of it.
-	switchWorking := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchWorking, Target: "Work"})
-	switchDone := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchDone, Target: "Work"})
-	switchFailed := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchFailed, Target: "Work",
-		Err: "can't switch to Claude_Old: no profile folder there"})
-	// Switched, but the session sync did not: the done card's other branch, and
-	// the only one that prints a message it did not write itself.
-	switchWarned := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchDone, Target: "Work",
-		Err: "", Warn: "skipped auto sync: failed to back up source profile (refusing to write without a backup): permission denied"})
+	// The card's four shapes are mutually exclusive in one call, so each gets
+	// its own entry, and they are built through the outcome helpers the hosts
+	// really use rather than by hand: a fixture that sets the fields directly
+	// would still pass if those helpers started wording things differently.
+	// The failed one carries a real SafeSwitch message rather than a paraphrase,
+	// for the same reason removedFailed above does: this card prints the error
+	// verbatim, so a trimmed stand-in trims the part worth checking.
+	cardOver := func(vm *ProgressVM) string { return WithProgress(listEmpty, vm) }
+	switchWorking := cardOver(SwitchStarting())
+	switchDone := cardOver(SwitchOutcome("Work", nil))
+	switchWarned := cardOver(SwitchOutcome("Work", &core.SwitchedWithWarning{
+		Err: errors.New("skipped auto sync: failed to back up source profile " +
+			"(refusing to write without a backup): permission denied")}))
+	switchFailed := cardOver(SwitchOutcome("Work",
+		errors.New("can't switch to Claude_Old: no profile folder there")))
 	// Failure with nothing to report takes the other branch: the card falls back
 	// to its own sentence, which no other fixture here can reach.
-	switchFailedNoMessage := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchFailed})
+	progressFailedBare := cardOver(&ProgressVM{Phase: ProgressFailed, Title: "Merge failed"})
+	// The other three operations' copy, which the switch fixtures never render.
+	syncWorking := cardOver(SyncStarting())
+	syncDone := cardOver(SyncOutcome("Work", &core.SyncReport{CopiedCount: 3, ConflictCount: 1,
+		SkipErrors: []string{"a.json: unreadable"}}, nil))
+	syncFailed := cardOver(SyncOutcome("Work", nil, core.ErrRunningProfileUnknown))
+	mergeWorking := cardOver(MergeStarting())
+	mergeDone := cardOver(MergeOutcome(nil))
+	backupWorking := cardOver(BackupStarting())
+	backupDone := cardOver(BackupOutcome(3))
+	// Zero accounts takes its own branch, with its own sentence.
+	backupNothing := cardOver(BackupOutcome(0))
 
 	views := map[string]string{
 		"debug":                 RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "typed", Status: "Copied"}),
@@ -322,9 +335,17 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		"removed_registry_note": removedWithRegistryNote,
 		"switch_working":        switchWorking,
 		"switch_done":           switchDone,
-		"switch_failed":         switchFailed,
 		"switch_warned":         switchWarned,
-		"switch_failed_bare":    switchFailedNoMessage,
+		"switch_failed":         switchFailed,
+		"progress_failed_bare":  progressFailedBare,
+		"sync_working":          syncWorking,
+		"sync_done":             syncDone,
+		"sync_failed":           syncFailed,
+		"merge_working":         mergeWorking,
+		"merge_done":            mergeDone,
+		"backup_working":        backupWorking,
+		"backup_done":           backupDone,
+		"backup_nothing":        backupNothing,
 	}
 	for name, h := range views {
 		for _, v := range emDashViolations(h) {

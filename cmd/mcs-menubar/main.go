@@ -24,7 +24,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -83,11 +82,11 @@ var (
 	// holds still while this is set. It is client-side state mirrored here
 	// because only Go knows when a reload is about to happen.
 	renameOpen bool
-	// switchProgress is the card drawn over the list while a switch runs, and
-	// for a moment after it ends. Held here rather than only in the page so a
-	// panel closed and reopened mid switch comes back showing the switch, not an
-	// idle list while Claude is shut. Nil means no switch is on screen.
-	switchProgress *panelui.SwitchProgressVM
+	// progress is the card drawn over whatever screen the user is on while a
+	// long operation runs, and for a moment after it ends. Held here rather than
+	// only in the page so a panel closed and reopened mid operation comes back
+	// showing it, not an idle screen while Claude is shut. Nil means no card.
+	progress *panelui.ProgressVM
 
 	planMu    sync.Mutex
 	planCache = map[string]string{} // profile path -> plan label (leveldb read is heavy; cache it)
@@ -224,8 +223,8 @@ func goPanelReady() { reloadPanel() }
 
 //export goPanelWillOpen
 func goPanelWillOpen() {
-	setView("list") // always open to the account list
-	setStatus("")   // clear any stale feedback
+	setViewKeepingProgress("list") // always open to the account list
+	setStatus("")                  // clear any stale feedback
 	// Render asynchronously so the popover appears instantly; the account-type
 	// scan (a leveldb copy per profile) must not block the click on the main
 	// thread. The webview keeps its previous content until the refresh lands.
@@ -277,9 +276,7 @@ func goPanelAction(caction, cfolder *C.char) {
 		// two copies of "switching" on one screen, one of them in the colour
 		// this panel uses for "done", is worse than one.
 		setBusyStatus(true, "")
-		setSwitchProgress(&panelui.SwitchProgressVM{
-			Phase: panelui.SwitchWorking, Target: core.DisplayName(arg),
-		})
+		setProgress(panelui.SwitchStarting())
 		reloadPanel()
 		go func() {
 			err := doSwitch(arg)
@@ -290,7 +287,7 @@ func goPanelAction(caction, cfolder *C.char) {
 			// The card goes up before busy comes down, so there is no instant in
 			// which the panel accepts a second switch while still showing the
 			// first one running.
-			setSwitchProgress(vm)
+			setProgress(vm)
 			setBusyStatus(false, "")
 			reloadPanel()
 		}()
@@ -301,11 +298,6 @@ func goPanelAction(caction, cfolder *C.char) {
 		setView("list")
 		setStatus("") // a deliberate return to the list starts clean; the paths that
 		// want a message set it and render the list themselves without this action
-		// This is the switch card's only exit: its own auto dismiss and its Close
-		// button both send this. Merely opening the panel does not, which is what
-		// lets a switch still running, or a failure nobody has read yet, survive
-		// the panel being closed and opened again.
-		setSwitchProgress(nil)
 		go reloadPanel()
 	case "showSettings":
 		// Shared by the plain Settings gear and the Debug view's back button
@@ -332,10 +324,12 @@ func goPanelAction(caction, cfolder *C.char) {
 		if len(parts) != 2 {
 			return
 		}
-		setBusyStatus(true, "Closing Claude Desktop and syncing…")
+		setBusyStatus(true, "")
+		setProgress(panelui.SyncStarting())
 		reloadPanel()
 		go func() {
-			setBusyStatus(false, doSync(parts[0], parts[1]))
+			setProgress(doSync(parts[0], parts[1]))
+			setBusyStatus(false, "")
 			reloadPanel()
 		}()
 	case "confirmManaged":
@@ -360,18 +354,12 @@ func goPanelAction(caction, cfolder *C.char) {
 		if getBusy() {
 			return // already backing up; ignore repeat clicks
 		}
-		setBusyStatus(true, "Backing up…")
+		setBusyStatus(true, "")
+		setProgress(panelui.BackupStarting())
 		reloadPanel()
 		go func() {
-			n := doBackupAll()
-			switch {
-			case n == 0:
-				setBusyStatus(false, "No accounts had sessions to back up.")
-			case n == 1:
-				setBusyStatus(false, "✓ Backed up 1 account.")
-			default:
-				setBusyStatus(false, "✓ Backed up "+itoa(n)+" accounts.")
-			}
+			setProgress(panelui.BackupOutcome(doBackupAll()))
+			setBusyStatus(false, "")
 			reloadPanel()
 		}()
 	case "renameOpen":
@@ -488,24 +476,24 @@ func goPanelAction(caction, cfolder *C.char) {
 			return
 		}
 		keep, archive := parts[0], parts[1]
-		setBusyStatus(true, "Merging…")
+		setBusyStatus(true, "")
+		setProgress(panelui.MergeStarting())
 		reloadPanel()
 		go func() {
-			if err := plat.TerminateApp(); err != nil {
-				setBusyStatus(false, err.Error())
-				reloadPanel()
-				return
+			err := plat.TerminateApp()
+			if err == nil {
+				_, err = core.MergeDuplicates(plat, core.MergeRequest{
+					KeepIdentity: keep, ArchiveIdentity: archive,
+				})
 			}
-			_, err := core.MergeDuplicates(plat, core.MergeRequest{
-				KeepIdentity: keep, ArchiveIdentity: archive,
-			})
-			if err != nil {
-				setBusyStatus(false, err.Error())
-				reloadPanel()
-				return
-			}
-			setBusyStatus(false, "Merged.")
-			setView("list")
+			// The card lands on the list either way, so the view moves before it
+			// goes up: on success one of the two rows is gone, which is the
+			// confirmation, and on failure the list is where the user tries
+			// again from. Keeping the merge screen would leave a keeper/archive
+			// choice on screen for accounts that are already one.
+			setViewKeepingProgress("list")
+			setProgress(panelui.MergeOutcome(err))
+			setBusyStatus(false, "")
 			reloadPanel()
 		}()
 	case "removeProfile":
@@ -680,10 +668,6 @@ func doBackupAll() int {
 	return n
 }
 
-func itoa(n int) string {
-	return strconv.Itoa(n)
-}
-
 func folderPath(folder string) string {
 	for _, p := range mustFindProfiles() {
 		if p.Name == folder {
@@ -695,10 +679,10 @@ func folderPath(folder string) string {
 
 // doSync copies one account's Code sessions into another and returns a result
 // message for the status banner.
-func doSync(fromFolder, toFolder string) string {
+func doSync(fromFolder, toFolder string) *panelui.ProgressVM {
 	from, to := folderPath(fromFolder), folderPath(toFolder)
 	if from == "" || to == "" {
-		return "Sync failed: account not found."
+		return panelui.SyncOutcome("", nil, fmt.Errorf("that account is no longer there. Run Rescan"))
 	}
 	// ManualAlign, not SyncSessions: it closes Claude Desktop before writing and
 	// reopens the profile the user was on, and it snapshots the target first.
@@ -707,22 +691,21 @@ func doSync(fromFolder, toFolder string) string {
 	// backup the README promises for every write.
 	rep, err := switcher.ManualAlign(from, to)
 	if err != nil {
-		return core.SyncFailureMessage(err)
+		return panelui.SyncOutcome(core.DisplayName(toFolder), nil, err)
 	}
-	msg := core.SyncResultMessage(rep, core.DisplayName(toFolder))
 	for _, e := range rep.SkipErrors {
-		// The message says "see the log", so it has to actually be there.
+		// The card says "see the log", so it has to actually be there.
 		log.Printf("sync skipped a session file: %s", e)
 	}
 	if len(rep.SkipErrors) > 0 {
-		// The panel is a transient popover and ManualAlign has just reopened
-		// Claude Desktop, which takes the foreground and dismisses it, so this
-		// status line is usually gone before it is read. Files that could not be
-		// read are the outcome worth surviving that. A conflict is not: it only
-		// means the target's copy was already newer, which is ordinary.
-		notify("Some conversations were skipped", msg)
+		// Belt and braces. The card now survives Claude taking the foreground,
+		// which is what used to lose this message, but a notification also
+		// reaches a user who has already walked away from the panel. Files that
+		// could not be read are the one outcome worth that: a conflict is not,
+		// it only means the target's copy was already newer, which is ordinary.
+		notify("Some conversations were skipped", core.SyncResultMessage(rep, core.DisplayName(toFolder)))
 	}
-	return msg
+	return panelui.SyncOutcome(core.DisplayName(toFolder), rep, nil)
 }
 
 func setView(v string) {
@@ -740,18 +723,30 @@ func setView(v string) {
 	// a failure that landed while the panel was closed was then reported
 	// nowhere. Returning to the list deliberately clears it instead, in the
 	// showList action.
-	if v != "list" {
-		switchProgress = nil
-	}
-	sticky := switchProgress != nil
+	progress = nil
+	mu.Unlock()
+	setPopoverSticky(false)
+}
+
+// setViewKeepingProgress moves the view without taking down a card that is
+// still on screen. Used by the two paths that are not the user navigating:
+// opening the panel, which always lands on the list, and the quit handler.
+// Clearing there is what used to make a switch in flight vanish the moment the
+// user pressed Escape and reopened the panel, and made a failure that landed
+// while the panel was closed get reported nowhere at all.
+func setViewKeepingProgress(v string) {
+	mu.Lock()
+	currentView = v
+	renameOpen = false
+	sticky := progress != nil
 	mu.Unlock()
 	setPopoverSticky(sticky)
 }
 
-// setSwitchProgress puts up, updates or takes down the switch card.
-func setSwitchProgress(vm *panelui.SwitchProgressVM) {
+// setProgress puts up, updates or takes down the card.
+func setProgress(vm *panelui.ProgressVM) {
 	mu.Lock()
-	switchProgress = vm
+	progress = vm
 	mu.Unlock()
 	setPopoverSticky(vm != nil)
 }
@@ -769,10 +764,10 @@ func setPopoverSticky(on bool) {
 	C.SetPopoverSticky(v)
 }
 
-func getSwitchProgress() *panelui.SwitchProgressVM {
+func getProgress() *panelui.ProgressVM {
 	mu.Lock()
 	defer mu.Unlock()
-	return switchProgress
+	return progress
 }
 
 // reloadPanel renders the current view and pushes it into the popover webview.
@@ -780,7 +775,7 @@ func reloadPanel() {
 	mu.Lock()
 	view := currentView
 	editing := renameOpen
-	switching := switchProgress != nil
+	switching := progress != nil
 	mu.Unlock()
 
 	// Hold the list still while a row's rename editor is open. A reload replaces
@@ -828,7 +823,7 @@ func reloadPanel() {
 			// outcome is unknown.
 			setStatus(planErr.Error())
 			setView("list")
-			htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus(), getSwitchProgress())
+			htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())
 			break
 		}
 		htmlStr = panelui.RenderMerge(a, b, plan, getStatus(), getBusy())
@@ -859,9 +854,13 @@ func reloadPanel() {
 			Status:  getStatus(),
 		})
 	default:
-		htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus(), getSwitchProgress())
+		htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())
 	}
-	c := C.CString(htmlStr)
+	// One call for every screen, rather than a view model threaded through each
+	// renderer: the card is an overlay that does not care what is underneath it,
+	// and passing it per-renderer is how one host ends up drawing it on a screen
+	// the other forgot.
+	c := C.CString(panelui.WithProgress(htmlStr, getProgress()))
 	defer C.free(unsafe.Pointer(c))
 	C.LoadPanelHTML(c)
 }

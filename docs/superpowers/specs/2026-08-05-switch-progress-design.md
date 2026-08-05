@@ -1,4 +1,4 @@
-# Switch progress: telling the user the switch is running
+# Progress: telling the user a long operation is running
 
 Date: 2026-08-05
 
@@ -72,33 +72,47 @@ host can tell the two apart.
 
 ### `internal/panelui`
 
-`SwitchProgressVM` carries the state:
+`ProgressVM` carries the state, and is deliberately not switch-specific:
 
 ```go
-type SwitchProgressVM struct {
-    Phase  SwitchPhase // SwitchWorking | SwitchDone | SwitchFailed
-    Target string      // display name of the account switched to
-    Err    string      // failure text; only read when Phase is SwitchFailed
+type ProgressVM struct {
+    Phase   ProgressPhase // ProgressWorking | ProgressDone | ProgressFailed
+    Title   string        // "Switching profile", "Sync finished"
+    Detail  string        // the sentence under it
+    Warn    string        // it worked, but; read only when Phase is ProgressDone
+    Err     string        // read only when Phase is ProgressFailed
+    Dismiss string        // where Close lands; allowlisted, "" means the list
 }
 ```
 
-`RenderList` gains a `switching *SwitchProgressVM` parameter. Nil renders the
-list exactly as it renders today, so every existing caller and test keeps its
-current meaning.
+`WithProgress(page, vm)` lays the card over an already-rendered page rather than
+each renderer taking a view model. Four renderers each taking a parameter is
+four places for one host to pass it and the other to forget; this way every
+screen gets it from one call in each host's reload, and a fifth screen needs no
+change at all. A nil VM returns the page untouched.
 
-Rendering the card is a pure function over the VM, so the three states are
-testable without a host.
+Each operation supplies its own copy through a `*Starting` / `*Outcome` pair
+(`SwitchStarting`, `SwitchOutcome`, `SyncStarting`, `SyncOutcome`,
+`MergeStarting`, `MergeOutcome`, `BackupStarting`, `BackupOutcome`). Those are
+pure functions over what the operation returned, so every wording and every
+phase decision is testable without a host, and the two hosts cannot word the
+same outcome differently.
+
+`Dismiss` is written straight into an `onclick`, so it is checked against a
+short allowlist rather than escaped: escaping is exactly what failed in v0.9.1.
 
 ### Hosts
 
-Both hosts hold the progress state next to the panel state they already keep.
-Leaving the list clears it, the way the rename editor state is cleared, but
-arriving at the list must not: `setView("list")` is also how the panel opens on
-macOS and how it is dismissed on Windows, so clearing there would make a switch
-in flight vanish the moment the user pressed Escape, and would report a failure
-that landed while the panel was closed precisely nowhere. Returning to the list
-clears it deliberately, in the `showList` action, which is what both the auto
-dismiss and the Close button send.
+Both hosts hold one progress state next to the panel state they already keep,
+and apply it in one place: the last line of the reload, for every view.
+
+Navigating clears it, the way the rename editor state is cleared, and that
+covers the card's own exits, since Close and the auto dismiss both send an
+ordinary navigation action. What must NOT clear it is the panel opening or
+being dismissed, which also set the view: doing so made an operation in flight
+vanish the moment the user pressed Escape, and reported a failure that landed
+while the panel was closed precisely nowhere. Those two paths go through
+`setViewKeepingProgress` instead.
 
 The panel is also stopped from closing itself while the card is up. Both hosts
 dismiss the panel when something else takes focus, and a switch ENDS by
@@ -107,7 +121,7 @@ that was reporting on it. macOS switches the popover from Transient to
 ApplicationDefined; Windows skips its park on WA_INACTIVE. Escape and the menu
 bar icon still close the panel on both, so nothing here can trap the user.
 
-The rename editor's reload hold is overridden while a switch is on screen.
+The rename editor's reload hold is overridden while a card is on screen.
 Renaming one row does not stop the user clicking another and switching to it,
 and holding the reload swallowed the card entirely: no sign of the switch while
 it ran, then a stale success card appearing whenever the edit happened to end.
@@ -125,6 +139,26 @@ If the panel is closed and reopened mid switch, the host still holds the working
 phase, so the card is rendered again rather than the panel looking idle while
 Claude is shut.
 
+### The other three operations
+
+Sync, Merge and Backup follow the same five steps, differing only in their copy
+and in where their card dismisses to (Sync back to Sync, Backup back to
+Settings, Merge to the account list, since after a merge the merge screen is
+about two accounts that are now one).
+
+Sync is the one that needed this most. It takes longer than a switch, it has a
+real result to report (how many conversations moved, how many were already
+newer, how many files could not be read), and its outcome was the most reliably
+lost: there is a comment in the sync code saying exactly that, with a system
+notification bolted on to rescue the one case nobody could afford to miss. The
+notification stays, because it also reaches a user who has walked away from the
+panel, but it is no longer the only way that message survives.
+
+Files that could not be read are a warning, not a failure. The run continued
+past them deliberately and the conversations that did copy really did copy.
+`core.SyncResultParts` splits the summary from the skipped-file sentence so the
+card can put them in different places while both still come from one source.
+
 ## Out of scope
 
 - Waiting for Claude Desktop to actually appear before saying the switch is
@@ -133,9 +167,9 @@ Claude is shut.
 - Drawing the outcome when the user asked to quit mid switch. Quit waits for the
   operation to finish and then exits, so the card that would report the result
   is never drawn. The user asked to leave; the log still has it.
-- The same treatment for sync, merge, backup and removal. They have the same
-  gap, but each has its own confirmation flow and its own failure wording, and
-  doing them together would make one change impossible to review.
+- Removal. It already has a result screen of its own, added in 0.13.0, and
+  folding that into the card is a separate change with its own wording to get
+  right.
 
 ## Verification
 
