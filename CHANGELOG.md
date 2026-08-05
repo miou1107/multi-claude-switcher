@@ -29,9 +29,10 @@
   the two switches, a **More** screen and Quit. More is where syncing between
   accounts, backing up, and the backup and archive folders live. Checking for
   updates and reporting a bug moved to the line at the bottom, next to the
-  version number. The shortcut to the log folder is gone: the end of every log
-  already travels inside a bug report, which is the only reason to open it. A
-  row that opens another screen now says so with an arrow.
+  version number. The panel's shortcut to the log folder is gone: the end of
+  every log already travels inside a bug report, which is the only reason to
+  open it, and on Windows the tray's own menu still has one. A row that opens
+  another screen now says so with an arrow.
 - **The two platforms can no longer drift apart in the panel.** macOS and Windows
   show the same panel but each host kept its own copy of which screen is up,
   whether a row is being renamed and whether a progress card is over the top,

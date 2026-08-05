@@ -178,7 +178,7 @@ handling, and the warnings that used to appear before syncing into one are gone.
 
 ## Reporting a problem
 
-Settings → **Debug info** shows what the switcher knows about your machine:
+Settings → **Report a bug** shows what the switcher knows about your machine:
 versions, what each account looks like on disk, and the tail of every log file.
 **Report a problem** copies that report to your clipboard and opens a new GitHub
 issue for you to paste it into.
@@ -224,7 +224,8 @@ so there is a month to fetch one back. Anything you put in that folder yourself
 is left alone.
 
 **Where are the logs?**
-Settings → **Open log folder**, or `~/.multi-claude-switcher/logs/`.
+In `~/.multi-claude-switcher/logs/`. The end of each one also travels inside a
+bug report, which is usually enough.
 
 **How do I remove it completely?**
 

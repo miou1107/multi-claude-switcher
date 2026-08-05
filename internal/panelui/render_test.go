@@ -1,6 +1,7 @@
 package panelui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -997,18 +998,21 @@ func TestNoScreenOffersTheLogFolder(t *testing.T) {
 // A chevron means the row opens another screen. Rows that act carry none, or
 // the mark stops meaning anything.
 func TestChevronsMarkNavigationOnly(t *testing.T) {
+	// navchev, not chev: chev is the account list's switch chip and the sync
+	// screen's direction chip, and the first version of this reused that name,
+	// repainting both from lilac to grey.
 	settings := RenderSettings(SettingsVM{Version: "0.13.2"})
-	if strings.Count(settings, `class="chev"`) != 1 {
+	if strings.Count(settings, `class="navchev"`) != 1 {
 		t.Errorf("Settings should carry exactly one chevron, on More:\n%s", settings)
 	}
-	if !strings.Contains(settings, `send('showMore','')">More<span class="chev">`) {
+	if !strings.Contains(settings, `send('showMore','')">More<span class="navchev">`) {
 		t.Error("the chevron is not on the More row")
 	}
 	more := RenderMore(MoreVM{})
-	if strings.Count(more, `class="chev"`) != 1 {
+	if strings.Count(more, `class="navchev"`) != 1 {
 		t.Errorf("More should carry exactly one chevron, on the sync row:\n%s", more)
 	}
-	if !strings.Contains(more, `send('showSync','')">Sync between accounts<span class="chev">`) {
+	if !strings.Contains(more, `send('showSync','')">Sync between accounts<span class="navchev">`) {
 		t.Error("the chevron is not on the sync row")
 	}
 }
@@ -1499,5 +1503,61 @@ func TestRenderRemovedShowsProgressOnRetry(t *testing.T) {
 		Err: "Claude may still be holding its files."})
 	if strings.Contains(quiet, `<div class="status">`) {
 		t.Fatalf("no status, no banner:\n%s", quiet)
+	}
+}
+
+// No class may be styled from two places. This is not housekeeping: adding a
+// second `.chev` rule for the new navigation chevron silently repainted the
+// account list's switch chip and the sync screen's direction chip from lilac to
+// grey, and handed the new chevron a 24px chip background it never wanted. The
+// stylesheet is one long literal, so nothing about writing it flags a name that
+// is already taken.
+//
+// Selectors that legitimately appear more than once are exempt by shape rather
+// than by name: a state (`:hover`, `.on`, `[disabled]`) or a descendant is a
+// refinement of a rule, not a second definition of it.
+func TestNoClassIsStyledFromTwoPlaces(t *testing.T) {
+	css := RenderList(nil, false, "")
+	start := strings.Index(css, "<style>")
+	end := strings.Index(css, "</style>")
+	if start < 0 || end < 0 {
+		t.Fatal("no stylesheet in the rendered page")
+	}
+	css = css[start:end]
+
+	// Comments first. Splitting on "}" makes everything since the previous rule
+	// part of the next selector, so a rule preceded by a comment reads as
+	// "/* ... */ .name" and is skipped. That is not hypothetical: it is why the
+	// first version of this test passed against the exact collision it was
+	// written for.
+	css = regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+
+	// Split into rules and read each selector whole. A regex over the raw text
+	// was tried and counted descendant selectors: ".modal .btn" is a refinement
+	// of .btn in one context, not a second definition of it, and so are
+	// ".selected .chk" and ".card.renaming .editrow".
+	seen := map[string]int{}
+	for _, rule := range strings.Split(css, "}") {
+		open := strings.Index(rule, "{")
+		if open < 0 {
+			continue
+		}
+		for _, sel := range strings.Split(rule[:open], ",") {
+			sel = strings.TrimSpace(sel)
+			// Exactly one class and nothing else: no state, no descendant, no
+			// element, no second class.
+			if len(sel) < 2 || sel[0] != '.' || strings.ContainsAny(sel[1:], " .:>#[") {
+				continue
+			}
+			seen[sel[1:]]++
+		}
+	}
+	if len(seen) < 20 {
+		t.Fatalf("only %d classes found: the scan is not reading the stylesheet", len(seen))
+	}
+	for name, n := range seen {
+		if n > 1 {
+			t.Errorf("class %q is defined %d times: a later rule silently changes every element already using it", name, n)
+		}
 	}
 }

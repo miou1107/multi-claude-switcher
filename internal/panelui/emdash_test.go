@@ -2,7 +2,12 @@ package panelui
 
 import (
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -411,6 +416,9 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 	views := map[string]string{
 		"debug":                 RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "typed", Status: "Copied"}),
 		"settings":              RenderSettings(SettingsVM{Version: "0.11.2", Status: "Backed up", AutoSync: true, StartLogin: true}),
+		"settings_busy":         RenderSettings(SettingsVM{Version: "0.11.2", Busy: true}),
+		"more":                  RenderMore(MoreVM{}),
+		"more_busy":             RenderMore(MoreVM{Busy: true}),
 		"list":                  list,
 		"list_empty":            listEmpty,
 		"rescan":                rescan,
@@ -437,6 +445,9 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		"backup_nothing":        backupNothing,
 		"backup_failed":         backupFailed,
 		"backup_partial":        backupPartial,
+	}
+	for _, missing := range screensWithNoFixture(t, views) {
+		t.Errorf("%s renders a screen with no fixture here, so its copy is unchecked", missing)
 	}
 	for name, h := range views {
 		for _, v := range emDashViolations(h) {
@@ -558,4 +569,56 @@ func TestEmDashGuardIgnoresNonCopyAttributes(t *testing.T) {
 	if got := emDashViolations(html); len(got) != 0 {
 		t.Errorf("violations = %q, want none: class names, data-* payloads and handlers are not copy", got)
 	}
+}
+
+// screensWithNoFixture returns the Render* functions this guard has no fixture
+// for, so a screen added without being added here is a failure rather than a
+// silent gap.
+//
+// This exists because one appeared. RenderMore was written, and neither the em
+// dash guard's own view list nor the progress card's page list gained an entry,
+// so an em dash in the More screen's subtitle passed the whole suite. Verified
+// by putting one there and watching everything stay green.
+//
+// internal/hostparity has the same check for its own list. Nothing in this
+// package had one.
+func screensWithNoFixture(t *testing.T, views map[string]string) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var missing []string
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Recv != nil || !strings.HasPrefix(fd.Name.Name, "Render") {
+				continue
+			}
+			// RenderNewProfile -> "newprofile", which is the fixture naming
+			// convention: a screen's fixtures are its name, optionally followed
+			// by an underscore and a variant.
+			screen := strings.ToLower(strings.TrimPrefix(fd.Name.Name, "Render"))
+			found := false
+			for name := range views {
+				if base, _, _ := strings.Cut(name, "_"); base == screen {
+					found = true
+					break
+				}
+			}
+			if !found {
+				missing = append(missing, fd.Name.Name)
+			}
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }

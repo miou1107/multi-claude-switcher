@@ -144,19 +144,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .toggle.on{background:#7c6cf0}
 .toggle::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .toggle.on::after{left:21px}
-.about{text-align:center;font-size:11.5px;color:#8b8598;margin-top:14px}
-/* The footer carries the version and the two actions nobody performs daily.
-   They are links rather than buttons on purpose: a button says "press me",
-   and checking for updates or filing a bug is not what somebody opened this
-   screen to do. */
-.about{display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap}
+/* The footer carries the version and the two actions nobody performs daily,
+   drawn quietly because neither is what somebody opened this screen to do.
+   They are still BUTTONS: an <a> with no href is not a tab stop and does not
+   answer Enter, and the bug report screen is reached only from here now, so
+   anchors would have put it beyond anyone not using a mouse. */
+.about{display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap;font-size:11.5px;color:#8b8598;margin-top:14px}
 .about .sep{opacity:.35}
-.aboutlink{color:#6b6480;text-decoration:none;cursor:pointer}
+.aboutlink{color:#6b6480;background:none;border:none;padding:0;font:inherit;font-size:11.5px;cursor:pointer}
 .aboutlink:hover{text-decoration:underline}
-.aboutlink.off{opacity:.45;cursor:default;text-decoration:none}
+.aboutlink:disabled{opacity:.45;cursor:default;text-decoration:none}
 /* A chevron means the row opens another screen, mirroring the back button's
-   own arrow. Rows that act rather than navigate carry nothing. */
-.chev{float:right;color:#b3aec0;font-weight:400}
+   own arrow. Rows that act rather than navigate carry nothing.
+   NOT .chev: that name was already taken by the account list's switch chip and
+   the sync screen's direction chip, and adding to it repainted both from lilac
+   to grey and handed this one a 24px chip background it never wanted. */
+.navchev{float:right;color:#b3aec0;font-weight:400}
 .status{background:#e3f3e8;color:#1a7a3d;font-size:12.5px;font-weight:600;padding:9px 13px;border-radius:11px;margin-bottom:11px;text-align:center}
 .rninput{width:100%;font:inherit;font-size:15px;padding:13px 15px;border:2px solid #e0dcf3;border-radius:14px;background:#fff;color:#241f38;outline:none}
 .rninput:focus{border-color:#7c6cf0}
@@ -706,12 +709,11 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 }
 
 // SettingsVM holds the state shown in the Settings view.
-// MoreVM is the More screen's state: the same transient banner and busy flag
-// the Settings screen carries, since the backup that used to live there lives
-// here now.
+// MoreVM is the More screen's state. Only Busy: the backup that lives here
+// reports through the progress card rather than a banner, and showMore clears
+// any leftover banner on the way in, so a Status field would never be set.
 type MoreVM struct {
-	Status string
-	Busy   bool
+	Busy bool
 }
 
 type SettingsVM struct {
@@ -739,9 +741,9 @@ func RenderSettings(vm SettingsVM) string {
 	// The update check is disabled while a maintenance action runs, the same as
 	// the button it used to be. As a link that means greying it and dropping the
 	// handler, since a link has no disabled attribute to honour.
-	update := `<a class="aboutlink" onclick="send('checkUpdates','')">Check for updates</a>`
+	update := `<button class="aboutlink" onclick="send('checkUpdates','')">Check for updates</button>`
 	if vm.Busy {
-		update = `<span class="aboutlink off">Check for updates</span>`
+		update = `<button class="aboutlink" disabled>Check for updates</button>`
 	}
 	body := `<div class="header">
   <button class="back" onclick="send('showList','')">‹</button>
@@ -752,7 +754,7 @@ func RenderSettings(vm SettingsVM) string {
     <div class="` + toggleClass(vm.AutoSync) + `" onclick="send('toggleAutoSync','')"></div></div>
   <div class="srow"><div class="slabel"><div class="t">Start at login</div><div class="s">Launch Multi-Claude Switcher when you log in</div></div>
     <div class="` + toggleClass(vm.StartLogin) + `" onclick="send('toggleLogin','')"></div></div>
-  <button class="sbtn" onclick="send('showMore','')">More<span class="chev">›</span></button>
+  <button class="sbtn" onclick="send('showMore','')">More<span class="navchev">›</span></button>
   <button class="sbtn danger" onclick="send('quit','')">Quit Multi-Claude Switcher</button>
 </div>
 <div class="about">
@@ -760,7 +762,7 @@ func RenderSettings(vm SettingsVM) string {
   <span class="sep">·</span>
   ` + update + `
   <span class="sep">·</span>
-  <a class="aboutlink" onclick="send('showDebug','')">Report a bug</a>
+  <button class="aboutlink" onclick="send('showDebug','')">Report a bug</button>
 </div>`
 	return shell(body)
 }
@@ -772,10 +774,6 @@ func RenderSettings(vm SettingsVM) string {
 // four opens the archive folder, which holds removed accounts rather than
 // conversations, so the more descriptive name was the less accurate one.
 func RenderMore(vm MoreVM) string {
-	status := ""
-	if vm.Status != "" {
-		status = `<div class="status">` + html.EscapeString(vm.Status) + `</div>`
-	}
 	// The backup is the one thing here that takes time, so it is the one thing
 	// disabled while a maintenance action runs. The folder shortcuts and the
 	// sync screen are safe to reach at any moment.
@@ -786,9 +784,9 @@ func RenderMore(vm MoreVM) string {
 	body := `<div class="header">
   <button class="back" onclick="send('showSettings','')">‹</button>
   <div class="htext"><h1>More</h1><p>Sync, backups, and where things are kept</p></div>
-</div>` + status + `
+</div>
 <div class="slist">
-  <button class="sbtn" onclick="send('showSync','')">Sync between accounts<span class="chev">›</span></button>
+  <button class="sbtn" onclick="send('showSync','')">Sync between accounts<span class="navchev">›</span></button>
   ` + backup + `
   <button class="sbtn" onclick="send('openBackups','')">Open backup folder</button>
   <button class="sbtn" onclick="send('openArchive','')">Open archive folder</button>
@@ -1116,8 +1114,8 @@ func RenderSync(profiles []ProfileVM, status string, busy bool) string {
 			waiting, word))
 	}
 	body := `<div class="header">
-  <button class="back" onclick="send('showSettings','')">‹</button>
-  <div class="htext"><h1>Sync sessions</h1><p>Claude closes, then reopens where you were</p></div>
+  <button class="back" onclick="send('showMore','')">‹</button>
+  <div class="htext"><h1>Sync between accounts</h1><p>Claude closes, then reopens where you were</p></div>
 </div>` + st + `
 <div class="cards">` + cards.String() + `</div>`
 	return shell(body)

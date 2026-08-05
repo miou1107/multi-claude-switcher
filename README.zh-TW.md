@@ -139,7 +139,7 @@ xattr -dr com.apple.quarantine "/Applications/Multi-Claude Switcher.app"
 
 ## 回報問題
 
-Settings → **Debug info** 會列出這個切換工具知道的機器資訊：版本號、每個帳號在硬碟上
+Settings 最下面的 **Report a bug** 會列出這個切換工具知道的機器資訊：版本號、每個帳號在硬碟上
 長什麼樣子、還有每個 log 檔案最後的內容。按 **Report a problem** 會把這份報告複製到
 剪貼簿，並開啟一個預先填好的 GitHub issue 頁面讓你貼上去。
 
@@ -173,7 +173,8 @@ Email、帳號 ID、你的使用者名稱和家目錄路徑，在報告顯示出
 所以有一個月的時間可以把東西拿回來。你自己放進那個資料夾的東西不會被動到。
 
 **Q：log 在哪裡？**
-Settings → **Open log folder**，或直接找 `~/.multi-claude-switcher/logs/`。
+在 `~/.multi-claude-switcher/logs/`。每個 log 的最後幾行也會一起放進 bug report，
+通常那樣就夠了。
 
 **Q：如何徹底移除？**
 

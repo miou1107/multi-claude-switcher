@@ -767,7 +767,7 @@ func reloadPanel() {
 		accounts := core.ScanAccounts(panelMustFindProfiles(), core.LoadPending())
 		htmlStr = panelui.RenderRescan(accounts, panelui.ComputePreselect(accounts, core.LoadManaged()))
 	case "more":
-		htmlStr = panelui.RenderMore(panelui.MoreVM{Status: panelGetStatus(), Busy: panelGetBusy()})
+		htmlStr = panelui.RenderMore(panelui.MoreVM{Busy: panelGetBusy()})
 	case "sync":
 		htmlStr = panelui.RenderSync(panelBuildProfiles(), panelGetStatus(), panelGetBusy())
 	case "newprofile":

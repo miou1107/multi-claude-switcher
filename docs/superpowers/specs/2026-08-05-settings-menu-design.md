@@ -43,9 +43,14 @@ a `…` beside it says the same thing twice.
 
 ## What moved out of sight, and why that is acceptable
 
-**Check for updates** and **Report a bug** are now text in the footer rather than buttons.
-Neither is a daily action. Putting the update check beside the version number also puts it
-where somebody is already looking when the question occurs to them.
+**Check for updates** and **Report a bug** are now quiet text in the footer rather than
+full-width buttons. Neither is a daily action. Putting the update check beside the version
+number also puts it where somebody is already looking when the question occurs to them.
+
+They are still `<button>` elements, drawn flat. Anchors were tried first and were wrong:
+an `<a>` with no `href` is not a tab stop and does not answer Enter, and the bug report
+screen is reachable ONLY from here now, so anchors would have put it beyond anyone not
+using a mouse.
 
 **Quit stays a button.** It was offered as footer text and as half a shared row, and both
 were declined: it is a thing people deliberately go looking for, and this project's own
@@ -76,7 +81,15 @@ opens the archive folder, which holds removed accounts rather than conversations
 action and a `more` view, and lose `openLog`.
 
 `SettingsVM` keeps `Busy`, which now disables the footer's update check rather than a
-button. `MoreVM` carries `Status` and `Busy` for the backup that lives there.
+full-width button. `MoreVM` carries only `Busy`: the backup that lives there reports
+through the progress card rather than a banner, and `showMore` clears any leftover banner
+on the way in.
+
+The chevron's class is `.navchev`, not `.chev`. That name was already the account list's
+switch chip and the sync screen's direction chip, and adding a second rule for it repainted
+both from lilac to grey.
+
+The Sync screen's back button now returns to More, which is where it is entered from.
 
 `internal/hostparity` already fails when the two hosts stop offering the same set of panel
 actions, which is what makes adding one action and removing another across two files safe
@@ -90,8 +103,14 @@ to do in one pass. This is the first change to rely on it.
 - More offers exactly the four that moved
 - `openLog` is gone from the page and from both hosts
 - the busy state disables the update check and the backup, and nothing else
-- the em dash guard covers both screens, including the new footer, through
-  `TestEveryScreenCanCarryTheCard` and the attribute pass
+- the em dash guard covers both screens in both their idle and busy states, and
+  fails when a renderer exists with no fixture at all. Review found the first
+  version of this claim false twice over: the guard's own screen list omitted
+  More, so an em dash there passed the whole suite, and the test named as
+  providing the coverage checks progress-card placement rather than copy
+- no class is styled from two places. Adding a second `.chev` rule for the
+  navigation chevron repainted the account list's switch chip and the sync
+  screen's direction chip from lilac to grey, which nothing would have caught
 
 Each verified by breaking what it guards, with the broken version confirmed to compile.
 
