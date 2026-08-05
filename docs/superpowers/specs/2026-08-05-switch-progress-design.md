@@ -100,6 +100,13 @@ that landed while the panel was closed precisely nowhere. Returning to the list
 clears it deliberately, in the `showList` action, which is what both the auto
 dismiss and the Close button send.
 
+The panel is also stopped from closing itself while the card is up. Both hosts
+dismiss the panel when something else takes focus, and a switch ENDS by
+launching Claude Desktop, so Claude coming to the front was dismissing the card
+that was reporting on it. macOS switches the popover from Transient to
+ApplicationDefined; Windows skips its park on WA_INACTIVE. Escape and the menu
+bar icon still close the panel on both, so nothing here can trap the user.
+
 The rename editor's reload hold is overridden while a switch is on screen.
 Renaming one row does not stop the user clicking another and switching to it,
 and holding the reload swallowed the card entirely: no sign of the switch while

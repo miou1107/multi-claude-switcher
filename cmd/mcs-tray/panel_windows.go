@@ -1672,7 +1672,16 @@ func panelWndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 			// click the shell is still settling the foreground, and acting on
 			// that first deactivation would close the panel before the user
 			// ever sees it.
-			if panelActivated.Load() {
+			if panelGetSwitchProgress() != nil {
+				// A switch ENDS by launching Claude Desktop, and Claude taking
+				// the foreground arrives here as an outside click. Parking on it
+				// means the card reporting the outcome is dismissed by the very
+				// thing it was reporting, and a switch that failed says so to a
+				// window nobody can see. The card's own Close and auto dismiss
+				// both go through showList, which clears this, and Escape still
+				// parks the panel, so nothing here can strand the user.
+				log.Println("panel deactivated while a switch is on screen; staying up")
+			} else if panelActivated.Load() {
 				// Defer to keep the message pump healthy; park right after.
 				go func() {
 					time.Sleep(20 * time.Millisecond)

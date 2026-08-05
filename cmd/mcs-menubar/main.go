@@ -743,7 +743,9 @@ func setView(v string) {
 	if v != "list" {
 		switchProgress = nil
 	}
+	sticky := switchProgress != nil
 	mu.Unlock()
+	setPopoverSticky(sticky)
 }
 
 // setSwitchProgress puts up, updates or takes down the switch card.
@@ -751,6 +753,20 @@ func setSwitchProgress(vm *panelui.SwitchProgressVM) {
 	mu.Lock()
 	switchProgress = vm
 	mu.Unlock()
+	setPopoverSticky(vm != nil)
+}
+
+// setPopoverSticky ties the panel's auto-close to whether a switch card is on
+// screen. Called from both mutators above rather than from the switch action, so
+// there is no path that puts the card up and leaves the panel free to close
+// itself the moment Claude Desktop takes the foreground, which is the event a
+// switch ends with.
+func setPopoverSticky(on bool) {
+	v := C.int(0)
+	if on {
+		v = 1
+	}
+	C.SetPopoverSticky(v)
 }
 
 func getSwitchProgress() *panelui.SwitchProgressVM {

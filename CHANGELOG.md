@@ -13,7 +13,10 @@
   reopened, then a tick and the name of the account you are now on, which clears
   itself. A switch that failed says so, with the reason, and waits for you to
   close it. The list stays visible behind the card and the card is what stops a
-  second switch, rather than the click being silently dropped.
+  second switch, rather than the click being silently dropped. The panel also
+  stays open until the card is done with, instead of closing itself the moment
+  Claude comes back to the front, which is what used to make the result of a
+  switch impossible to see. Escape and the icon still close it.
 
 ### Fixed
 - **A failed switch no longer looks like a successful one on macOS.** The menu
