@@ -108,6 +108,43 @@ func TestMaskerRewritesTheHomePrefix(t *testing.T) {
 	}
 }
 
+// TestMaskerRewritesTheHomePrefixWithDoubledSeparators covers a path that has
+// been through a Go %q or a JSON encoder before reaching the log, which doubles
+// every separator. Found on a real report: one [msix] log line carried
+// `C:\\Users\\vin\\AppData\\Local\\Packages\\…` and was the only place in 379
+// lines still showing a home directory, because the rule matched exactly one
+// separator and the line had two.
+func TestMaskerRewritesTheHomePrefixWithDoubledSeparators(t *testing.T) {
+	m := NewMasker()
+	m.RegisterHome(`C:\Users\Adam`, "%USERPROFILE%")
+
+	cases := []struct{ in, want string }{
+		{
+			`roaming="C:\\Users\\Adam\\AppData\\Local\\Packages\\Claude\\LocalCache"`,
+			`roaming="%USERPROFILE%\\AppData\\Local\\Packages\\Claude\\LocalCache"`,
+		},
+		// The singly-spelled form must keep working unchanged.
+		{`C:\Users\Adam\AppData`, `%USERPROFILE%\AppData`},
+	}
+	for _, c := range cases {
+		if got := m.Apply(c.in); got != c.want {
+			t.Errorf("got  %q\nwant %q", got, c.want)
+		}
+	}
+}
+
+// A doubled separator must not become a way round the sibling-home protection
+// RegisterHome's trailing boundary exists to provide.
+func TestMaskerDoubledSeparatorsDoNotReachASiblingsHome(t *testing.T) {
+	m := NewMasker()
+	m.RegisterHome(`C:\Users\Adam`, "%USERPROFILE%")
+
+	const in = `C:\\Users\\Adamson\\AppData`
+	if got := m.Apply(in); got != in {
+		t.Errorf("a sibling's home was rewritten: got %q, want it left alone", got)
+	}
+}
+
 // TestMaskerRewritesTheHomePrefixWithMixedSeparators covers what Windows
 // actually emits: one string carrying both spellings, because a Go-built path
 // and a command line reported by the OS meet in the same log line.

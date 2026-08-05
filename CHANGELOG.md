@@ -1,6 +1,41 @@
 # CHANGELOG
 
-## [0.13.2] - 2026-08-05
+## [Unreleased]
+
+All four of these came out of the first real Windows session against the Debug
+info screen (issue #13), on a Traditional Chinese machine. None of them could
+have been found by building for Windows from a Mac, which is all the evidence
+any of this code had.
+
+### Fixed
+- **The bug report's first line was not valid UTF-8 on any non-English Windows.**
+  The OS version came from `cmd /c ver`, which answers in the console code page,
+  so a Traditional Chinese machine put the CP950 bytes for 版本 straight into the
+  report — four invalid bytes in the first line of the text a user is about to
+  paste into a GitHub issue. It now reads the version from the registry instead:
+  `10.0.19045.7548 (22H2)`, always ASCII, never localized, and more precise than
+  before. It also spawns no process, so the console window that had to be hidden
+  by hand — a `hideConsole` call that was already missed once and restored in
+  review — cannot come back. `Gather` sanitizes the value as a backstop.
+- **One log line in the report still showed a real home directory.** Paths that
+  reach a log through `%q` or a JSON encoder carry doubled separators
+  (`C:\\Users\\vin\\AppData`), and the masking rule matched exactly one, so that
+  line was the only place in 379 that was not rewritten to `%USERPROFILE%`. The
+  user name was still masked by its own rule, so nothing identifying escaped,
+  but the report contradicted itself about what it hides.
+- **Update checks could fail silently forever.** A background check says nothing
+  when it cannot reach GitHub, which is right for a transient blip and wrong
+  with no floor under it. Measured on a real machine: seven consecutive
+  `lookup api.github.com: no such host`, two days, two minor versions behind,
+  and nothing on screen ever suggesting it. It only updated because the user
+  opened Settings and pressed the button. Three consecutive failures now
+  surface one notice, once per run of failures rather than once per failure.
+- **`go test ./...` failed on Windows for anyone not running as administrator.**
+  `TestMSIXSlotAliasesKeepsARedirectedAppData` builds a junction to stand in for
+  the MSIX redirect and skips if it cannot create one. But `mklink` succeeds
+  unelevated; what fails is the *traversal* afterwards, which Windows refuses
+  for a junction an unelevated process made. The skip guarded the wrong call, so
+  the test failed on every developer machine and CI runner rather than skipping.
 
 ### Added
 - **Conversations an old version filed in the wrong place are cleared away.**

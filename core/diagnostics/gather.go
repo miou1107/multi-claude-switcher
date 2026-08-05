@@ -3,6 +3,8 @@ package diagnostics
 import (
 	"os"
 	"runtime"
+	"strings"
+	"unicode"
 
 	"github.com/miou1107/multi-claude-switcher/core"
 	"github.com/miou1107/multi-claude-switcher/platform"
@@ -33,7 +35,14 @@ func Gather(profiles []*platform.ProfileInfo, plat platform.Platform, osVersion,
 		Version:         core.Version,
 		OS:              runtime.GOOS,
 		Arch:            runtime.GOARCH,
-		OSVersion:       osVersion,
+		// Sanitized for the same reason log lines are (see readLogTail): the
+		// value comes from whatever the OS handed back, and on a Windows whose
+		// console code page is not UTF-8 that is not valid UTF-8 — a
+		// Traditional Chinese machine's `cmd /c ver` returns "版本" in CP950,
+		// which lands in the report's very first line as four invalid bytes.
+		// The host helpers avoid producing those now; this is the backstop, so
+		// no future OS-version source can put invalid UTF-8 into the report.
+		OSVersion:       strings.ToValidUTF8(osVersion, string(unicode.ReplacementChar)),
 		Install:         plat.InstallKind(),
 		AutoSync:        core.AutoSyncOnSwitch(),
 		LoginItem:       core.LoginItemEnabled(),

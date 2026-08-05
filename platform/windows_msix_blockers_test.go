@@ -283,6 +283,16 @@ func TestMSIXSlotAliasesKeepsARedirectedAppData(t *testing.T) {
 	if err := exec.Command("cmd", "/c", "mklink", "/J", link, slot).Run(); err != nil {
 		t.Skipf("cannot create a junction here: %v", err)
 	}
+	// mklink succeeding is not enough. Windows refuses to follow a junction
+	// created by a process that is not elevated ("the path cannot be traversed
+	// because it contains an untrusted mount point"), so the link exists and
+	// then cannot be opened. That is an environment limit, not a defect in
+	// msixSlotAliases, and it made this test fail for every unelevated run —
+	// which is every developer machine and every CI runner. The existing skip
+	// guarded the wrong call.
+	if _, err := os.Stat(link); err != nil {
+		t.Skipf("the junction cannot be traversed here, so it cannot stand in for the MSIX redirect: %v", err)
+	}
 	t.Setenv("APPDATA", appData)
 
 	aliases := msixSlotAliases(roaming)

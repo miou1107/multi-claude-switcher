@@ -54,3 +54,29 @@ func TestIsInsideAppBundle(t *testing.T) {
 		}
 	}
 }
+
+// A background check stays quiet about a transient failure but must not stay
+// quiet forever. Observed on a real machine: seven consecutive DNS failures
+// over two days, the app two minor versions behind, and nothing on screen ever
+// saying so. The rule is one notice per run of failures — hence equality, not
+// >=, which would toast every 6 hours for as long as the network stayed down.
+func TestShouldWarnAboutFailedChecks(t *testing.T) {
+	cases := []struct {
+		name        string
+		consecutive int
+		want        bool
+	}{
+		{name: "first failure stays quiet", consecutive: 1, want: false},
+		{name: "second failure stays quiet", consecutive: 2, want: false},
+		{name: "third failure is the notice", consecutive: checkFailuresBeforeNotifying, want: true},
+		{name: "fourth does not repeat it", consecutive: checkFailuresBeforeNotifying + 1, want: false},
+		{name: "nor does the twentieth", consecutive: 20, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldWarnAboutFailedChecks(tc.consecutive); got != tc.want {
+				t.Errorf("shouldWarnAboutFailedChecks(%d) = %v, want %v", tc.consecutive, got, tc.want)
+			}
+		})
+	}
+}

@@ -46,6 +46,27 @@ func findAppZip(assets map[string]string) (string, bool) {
 // corrupt binary with no rollback. A second run bails immediately.
 var updating sync.Mutex
 
+// consecutiveCheckFailures counts background checks that could not reach
+// GitHub, and resets on the first that can. Guarded by `updating`, which every
+// read and write below is already inside.
+//
+// checkFailuresBeforeNotifying is deliberately larger than one: checks run at
+// startup and then every 6 hours, so three failures means roughly half a day
+// of not reaching GitHub, which is past any plausible transient. The notice
+// fires once per run of failures, not once per failure — the counter passes
+// the threshold exactly once on its way up.
+var consecutiveCheckFailures int
+
+const checkFailuresBeforeNotifying = 3
+
+// shouldWarnAboutFailedChecks reports whether this failure is the one to say
+// something about. Split out so the "once per run of failures, not once per
+// failure" rule is testable without a network, a tray, or a 6-hour wait —
+// equality, not >=, is the whole of that rule and is easy to get wrong.
+func shouldWarnAboutFailedChecks(consecutive int) bool {
+	return consecutive == checkFailuresBeforeNotifying
+}
+
 // startUpdateChecker checks for a newer release at startup (after a short delay)
 // and then periodically. `auto` runs are quiet on "already up to date".
 func startUpdateChecker() {
@@ -76,9 +97,24 @@ func checkForUpdate(auto bool) {
 		log.Printf("Update check failed: %v", err)
 		if !auto {
 			notify("Update check failed", err.Error())
+			return
+		}
+		// A background check stays quiet about a single failure: the network
+		// comes and goes, and a toast every 6 hours over a transient DNS blip
+		// would be worse than saying nothing. But staying quiet forever is a
+		// blind spot with no floor. Observed on a real machine: seven
+		// consecutive "lookup api.github.com: no such host" over two days,
+		// with the app sitting two minor versions behind and nothing on
+		// screen ever suggesting so. It only updated because the user opened
+		// Settings and pressed the button by hand.
+		consecutiveCheckFailures++
+		if shouldWarnAboutFailedChecks(consecutiveCheckFailures) {
+			notify("Update checks are failing",
+				"Multi-Claude Switcher has not been able to reach GitHub for a while, so it may be out of date.")
 		}
 		return
 	}
+	consecutiveCheckFailures = 0
 	if !core.IsNewer(tag, core.Version) {
 		log.Printf("Up to date (current v%s, latest %s)", core.Version, tag)
 		if !auto {
