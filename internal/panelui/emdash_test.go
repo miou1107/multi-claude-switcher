@@ -298,6 +298,10 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 	switchDone := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchDone, Target: "Work"})
 	switchFailed := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchFailed, Target: "Work",
 		Err: "can't switch to Claude_Old: no profile folder there"})
+	// Switched, but the session sync did not: the done card's other branch, and
+	// the only one that prints a message it did not write itself.
+	switchWarned := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchDone, Target: "Work",
+		Err: "", Warn: "skipped auto sync: failed to back up source profile (refusing to write without a backup): permission denied"})
 	// Failure with nothing to report takes the other branch: the card falls back
 	// to its own sentence, which no other fixture here can reach.
 	switchFailedNoMessage := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchFailed})
@@ -319,6 +323,7 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		"switch_working":        switchWorking,
 		"switch_done":           switchDone,
 		"switch_failed":         switchFailed,
+		"switch_warned":         switchWarned,
 		"switch_failed_bare":    switchFailedNoMessage,
 	}
 	for name, h := range views {

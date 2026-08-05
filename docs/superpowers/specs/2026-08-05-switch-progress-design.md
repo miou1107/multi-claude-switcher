@@ -33,7 +33,17 @@ Three states, all of them the same card:
 |---|---|
 | Working | Spinner, **Switching profile**, "Claude will restart in a moment." |
 | Done | Green tick, **Switched successfully**, "You are now on `<name>`." |
+| Done, with a warning | The same, plus what did not work, and a Close button |
 | Failed | Red mark, **Switch failed**, the error text, and a Close button |
+
+The fourth row is not decoration. `SafeSwitch` returns a non-nil error in cases
+where the switch itself worked and only the optional session sync failed: the
+target is open and the account has been recorded. Treating that as a failure
+would put "Switch failed" over an account list already showing the target as
+current, which is the panel contradicting itself with the wrong half winning.
+`core.SwitchedWithWarning` marks those, and `panelui.SwitchOutcome` is the one
+place that reads it, shared so the two hosts cannot disagree about whether a
+switch happened.
 
 The done card dismisses itself after a short delay and returns to the list, where
 the target row is now marked as the current account. The failed card waits for
@@ -81,8 +91,19 @@ testable without a host.
 
 ### Hosts
 
-Both hosts hold the progress state next to the busy flag they already keep, and
-both clear it on `setView`, the way the rename editor state is cleared.
+Both hosts hold the progress state next to the panel state they already keep.
+Leaving the list clears it, the way the rename editor state is cleared, but
+arriving at the list must not: `setView("list")` is also how the panel opens on
+macOS and how it is dismissed on Windows, so clearing there would make a switch
+in flight vanish the moment the user pressed Escape, and would report a failure
+that landed while the panel was closed precisely nowhere. Returning to the list
+clears it deliberately, in the `showList` action, which is what both the auto
+dismiss and the Close button send.
+
+The rename editor's reload hold is overridden while a switch is on screen.
+Renaming one row does not stop the user clicking another and switching to it,
+and holding the reload swallowed the card entirely: no sign of the switch while
+it ran, then a stale success card appearing whenever the edit happened to end.
 
 The sequence for a switch becomes:
 
@@ -102,6 +123,9 @@ Claude is shut.
 - Waiting for Claude Desktop to actually appear before saying the switch is
   done. The user chose not to: it would add three to eight seconds to every
   switch to buy a more literal message.
+- Drawing the outcome when the user asked to quit mid switch. Quit waits for the
+  operation to finish and then exits, so the card that would report the result
+  is never drawn. The user asked to leave; the log still has it.
 - The same treatment for sync, merge, backup and removal. They have the same
   gap, but each has its own confirmation flow and its own failure wording, and
   doing them together would make one change impossible to review.

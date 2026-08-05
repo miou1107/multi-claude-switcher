@@ -211,6 +211,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .prog p{font-size:12.5px;color:#6b6580;line-height:1.5;margin:0}
 .prog .btn{width:100%;margin-top:15px}
 .prog-err{color:#a32d2d;font-weight:600;word-break:break-word}
+.prog-warn{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.45;text-align:left;padding:9px 11px;border-radius:10px;margin-top:12px;word-break:break-word}
 .prog-spin{width:34px;height:34px;border:3px solid #e6e3f0;border-top-color:#7c6cf0;border-radius:50%;margin:0 auto 15px;animation:progspin .8s linear infinite}
 @keyframes progspin{to{transform:rotate(360deg)}}
 .prog-mark{width:38px;height:38px;border-radius:50%;color:#fff;font-size:19px;font-weight:800;line-height:38px;margin:0 auto 13px}

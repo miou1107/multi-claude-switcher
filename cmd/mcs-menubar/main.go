@@ -283,13 +283,10 @@ func goPanelAction(caction, cfolder *C.char) {
 		reloadPanel()
 		go func() {
 			err := doSwitch(arg)
-			vm := &panelui.SwitchProgressVM{Phase: panelui.SwitchDone, Target: core.DisplayName(arg)}
 			if err != nil {
-				log.Printf("switch to %s failed: %v", arg, err)
-				vm = &panelui.SwitchProgressVM{
-					Phase: panelui.SwitchFailed, Target: core.DisplayName(arg), Err: err.Error(),
-				}
+				log.Printf("switch to %s: %v", arg, err)
 			}
+			vm := panelui.SwitchOutcome(core.DisplayName(arg), err)
 			// The card goes up before busy comes down, so there is no instant in
 			// which the panel accepts a second switch while still showing the
 			// first one running.
@@ -304,6 +301,11 @@ func goPanelAction(caction, cfolder *C.char) {
 		setView("list")
 		setStatus("") // a deliberate return to the list starts clean; the paths that
 		// want a message set it and render the list themselves without this action
+		// This is the switch card's only exit: its own auto dismiss and its Close
+		// button both send this. Merely opening the panel does not, which is what
+		// lets a switch still running, or a failure nobody has read yet, survive
+		// the panel being closed and opened again.
+		setSwitchProgress(nil)
 		go reloadPanel()
 	case "showSettings":
 		// Shared by the plain Settings gear and the Debug view's back button
@@ -730,10 +732,17 @@ func setView(v string) {
 	// markup, which is gone. Clearing it here rather than in each caller is what
 	// stops a stuck flag freezing the list for good.
 	renameOpen = false
-	// Same reason as the rename editor above: the card belongs to the list it
-	// was drawn over. Navigating away, including the list's own auto dismiss,
-	// is what takes it down.
-	switchProgress = nil
+	// The card is drawn over the list, so leaving the list takes it down. Coming
+	// back TO the list must not: setView("list") is also how the panel opens
+	// (goPanelWillOpen) and how it is dismissed, and clearing here meant a
+	// switch in flight vanished the moment the user pressed Escape and reopened
+	// the panel, leaving them an idle-looking list while Claude was shut. Worse,
+	// a failure that landed while the panel was closed was then reported
+	// nowhere. Returning to the list deliberately clears it instead, in the
+	// showList action.
+	if v != "list" {
+		switchProgress = nil
+	}
 	mu.Unlock()
 }
 
@@ -755,13 +764,21 @@ func reloadPanel() {
 	mu.Lock()
 	view := currentView
 	editing := renameOpen
+	switching := switchProgress != nil
 	mu.Unlock()
 
 	// Hold the list still while a row's rename editor is open. A reload replaces
 	// the document, so a backup or sync finishing at that moment took away what
 	// the user was halfway through typing, silently. The list is a few seconds
 	// stale instead, and the next reload after the edit ends catches it up.
-	if view == "list" && editing {
+	//
+	// A switch overrides that. Renaming one row does not stop the user clicking
+	// another and switching to it, and holding the reload then swallowed the
+	// whole card: no sign of the switch while it ran, and a stale "Switched
+	// successfully" appearing out of nowhere whenever the edit happened to end.
+	// The half-typed name is the smaller loss, and the card covers the editor
+	// anyway.
+	if view == "list" && editing && !switching {
 		return
 	}
 
@@ -858,7 +875,7 @@ func mustFindProfiles() []*platform.ProfileInfo {
 // account, and the panel said nothing. The Windows host has always returned it.
 func doSwitch(folder string) error {
 	if folder == "" {
-		return fmt.Errorf("no account was named")
+		return fmt.Errorf("No account was named")
 	}
 	profiles := mustFindProfiles()
 	var target *platform.ProfileInfo
@@ -869,7 +886,7 @@ func doSwitch(folder string) error {
 		}
 	}
 	if target == nil {
-		return fmt.Errorf("that account is no longer there. Run Rescan")
+		return fmt.Errorf("That account is no longer there. Run Rescan")
 	}
 	return switcher.SafeSwitch(sourceProfilePath(target.Path, profiles), target.Path, target.Name)
 }

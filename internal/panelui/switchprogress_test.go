@@ -1,8 +1,12 @@
 package panelui
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/miou1107/multi-claude-switcher/core"
 )
 
 func progressAccounts() []ProfileVM {
@@ -55,7 +59,10 @@ func TestSwitchProgressDoneCardNamesTheAccount(t *testing.T) {
 	for _, want := range []string{
 		"Switched successfully",
 		"You are now on Home.",
-		"setTimeout", // returns to the list on its own
+		// The whole call, not just "setTimeout": a timer that fires a
+		// misspelled action leaves the card on screen for good, which is this
+		// feature's worst failure and would pass a check for the word alone.
+		`setTimeout(function(){send('showList','')},2200)`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("done card is missing %q", want)
@@ -89,7 +96,9 @@ func TestSwitchProgressFailedCardShowsTheErrorAndWaits(t *testing.T) {
 	for _, want := range []string{
 		"Switch failed",
 		"no profile folder there",
-		">Close<",
+		// Same reason as the timer above: a Close button wired to nothing, or to
+		// a misspelled action, is a card with no way out at all.
+		`onclick="send('showList','')">Close<`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("failed card is missing %q", want)
@@ -128,6 +137,63 @@ func TestSwitchProgressWithoutATargetName(t *testing.T) {
 		if strings.Contains(html, "You are now on .") {
 			t.Errorf("phase %v rendered an empty account name", phase)
 		}
+	}
+}
+
+// A switch that moved the user but failed to sync their sessions is not a
+// failed switch. Saying so would contradict the account list right behind the
+// card, which already shows the target as current.
+func TestSwitchProgressWarningCardKeepsTheSuccessAndWaits(t *testing.T) {
+	html := RenderList(progressAccounts(), false, "", &SwitchProgressVM{
+		Phase: SwitchDone, Target: "Home",
+		Warn: "skipped auto sync: failed to back up source profile",
+	})
+	for _, want := range []string{
+		"Switched successfully",
+		"You are now on Home.",
+		"skipped auto sync: failed to back up source profile",
+		`onclick="send('showList','')">Close<`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("warning card is missing %q", want)
+		}
+	}
+	if strings.Contains(html, "Switch failed") {
+		t.Error("a switch that worked was reported as failed")
+	}
+	// A warning that clears itself after two seconds is a warning nobody read.
+	if strings.Contains(html, "setTimeout") {
+		t.Error("the warning card dismissed itself")
+	}
+}
+
+// SwitchOutcome is the three-way split both hosts share. Written once because
+// they are separate copies of the same flow and have drifted before, and the
+// drift that matters here is one host calling a switch failed while the other
+// calls it done.
+func TestSwitchOutcomeSplitsTheThreeCases(t *testing.T) {
+	if got := SwitchOutcome("Home", nil); got.Phase != SwitchDone || got.Warn != "" || got.Target != "Home" {
+		t.Errorf("a clean switch produced %+v", got)
+	}
+
+	warn := &core.SwitchedWithWarning{Err: errors.New("failed to auto sync sessions")}
+	got := SwitchOutcome("Home", fmt.Errorf("switching: %w", warn))
+	if got.Phase != SwitchDone {
+		t.Errorf("a sync failure after a completed switch was reported as phase %v, want SwitchDone", got.Phase)
+	}
+	if !strings.Contains(got.Warn, "failed to auto sync sessions") {
+		t.Errorf("the warning lost its reason: %q", got.Warn)
+	}
+	if got.Err != "" {
+		t.Errorf("a completed switch carried a failure message: %q", got.Err)
+	}
+
+	got = SwitchOutcome("Home", errors.New("failed to launch target profile"))
+	if got.Phase != SwitchFailed {
+		t.Errorf("a switch that never landed was reported as phase %v, want SwitchFailed", got.Phase)
+	}
+	if got.Err != "failed to launch target profile" {
+		t.Errorf("the failure lost its reason: %q", got.Err)
 	}
 }
 

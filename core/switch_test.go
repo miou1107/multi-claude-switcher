@@ -355,6 +355,81 @@ func TestSafeSwitchSkipsSyncButStillLaunchesWhenBackupFails(t *testing.T) {
 	}
 }
 
+// A sync that failed after the user was already moved is not a failed switch.
+// The panel draws this: it used to say "Switch failed" over an account list
+// that already showed the target as the current account, and the wrong half of
+// that contradiction was the one shouting.
+func TestSafeSwitchMarksAPostSwitchSyncFailureAsAWarning(t *testing.T) {
+	withStubbedSettings(t)
+	if err := SetAutoSyncOnSwitch(true); err != nil { // ON so the sync step runs at all
+		t.Fatal(err)
+	}
+	tempDir := t.TempDir()
+
+	src := filepath.Join(tempDir, "Src")
+	writeAccountConfig(t, src, "uuid1")
+	// The source needs a session for BackupIfHasData to have anything to back
+	// up: with nothing there it returns cleanly and the align never fails.
+	srcSessions := filepath.Join(platform.GetProfileSessionsDir(src), "uuid1")
+	if err := os.MkdirAll(srcSessions, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcSessions, "local_src.json"), []byte(`{"src":1}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfig(t, dst, "uuid2")
+
+	// Same trick as the test above: a regular file where the backup root needs a
+	// directory, so the align fails while everything else succeeds.
+	blocker := filepath.Join(tempDir, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mp := &mockPlatform{}
+	s := NewSwitcher(mp, NewBackupManager(filepath.Join(blocker, "backups")))
+
+	err := s.SafeSwitch(src, dst, "")
+	if err == nil {
+		t.Fatal("expected the skipped sync to be reported, got nil error")
+	}
+	var warn *SwitchedWithWarning
+	if !errors.As(err, &warn) {
+		t.Fatalf("a sync failure after a completed switch must be a SwitchedWithWarning, got %T: %v", err, err)
+	}
+	if !mp.launched || mp.launchedPath != dst {
+		t.Fatalf("the switch did not actually complete, so the warning would be wrong: launched=%v path=%q",
+			mp.launched, mp.launchedPath)
+	}
+	if warn.Error() != err.Error() {
+		t.Errorf("the wrapper changed the message the user reads: %q vs %q", warn.Error(), err.Error())
+	}
+}
+
+// The other direction: a target that never opened is a failed switch, and must
+// NOT be dressed up as a warning. Without this the wrapper could be applied to
+// everything and the caller would never say "failed" again.
+func TestSafeSwitchDoesNotWarnWhenTheSwitchItselfFailed(t *testing.T) {
+	withStubbedSettings(t)
+	tempDir := t.TempDir()
+	src := filepath.Join(tempDir, "Src")
+	writeAccountConfig(t, src, "uuid1")
+	dst := filepath.Join(tempDir, "Dst")
+	writeAccountConfig(t, dst, "uuid2")
+
+	mp := &mockPlatform{launchErr: map[string]error{dst: errors.New("no such application")}}
+	s := NewSwitcher(mp, NewBackupManager(filepath.Join(tempDir, "backups")))
+
+	err := s.SafeSwitch(src, dst, "")
+	if err == nil {
+		t.Fatal("expected a failed launch to be reported")
+	}
+	var warn *SwitchedWithWarning
+	if errors.As(err, &warn) {
+		t.Errorf("a switch whose target never opened was reported as merely a warning: %v", err)
+	}
+}
+
 // TestSafeSwitchOffMovesNoData verifies that with auto sync OFF (the
 // default), SafeSwitch is a pure account switch — no session data moves.
 func TestSafeSwitchOffMovesNoData(t *testing.T) {

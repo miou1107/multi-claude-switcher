@@ -1,6 +1,11 @@
 package panelui
 
-import "html"
+import (
+	"errors"
+	"html"
+
+	"github.com/miou1107/multi-claude-switcher/core"
+)
 
 // SwitchPhase is where a switch has got to. It is deliberately not a bool pair:
 // "working", "done" and "failed" are three cards with three different jobs, and
@@ -34,6 +39,36 @@ type SwitchProgressVM struct {
 
 	// Err is the failure text, read only when Phase is SwitchFailed.
 	Err string
+
+	// Warn is something that went wrong AFTER the user was already moved: the
+	// account changed, and the optional session sync did not. Read only when
+	// Phase is SwitchDone, where it turns the card into "switched, but", which
+	// then waits to be closed instead of clearing itself. Saying "Switch failed"
+	// here would contradict the list behind the card, which already shows the
+	// target as the current account. See core.SwitchedWithWarning.
+	Warn string
+}
+
+// SwitchOutcome turns what SafeSwitch returned into the card that says so.
+//
+// Shared by the two hosts rather than written twice: they are separate copies of
+// the same flow and have drifted before, and the drift that matters here is one
+// host telling the user their switch failed while the other says it worked.
+//
+// The three-way split is the point. A nil error is a plain success; a
+// core.SwitchedWithWarning means the user WAS moved and only the optional
+// session sync failed, so calling it a failed switch would contradict the
+// account list sitting right behind the card; anything else really did leave
+// them where they were, or worse.
+func SwitchOutcome(target string, err error) *SwitchProgressVM {
+	if err == nil {
+		return &SwitchProgressVM{Phase: SwitchDone, Target: target}
+	}
+	var warn *core.SwitchedWithWarning
+	if errors.As(err, &warn) {
+		return &SwitchProgressVM{Phase: SwitchDone, Target: target, Warn: err.Error()}
+	}
+	return &SwitchProgressVM{Phase: SwitchFailed, Target: target, Err: err.Error()}
 }
 
 // renderSwitchProgress builds the centred card and the scrim under it. A nil VM
@@ -57,6 +92,16 @@ func renderSwitchProgress(vm *SwitchProgressVM) string {
 		sub := ""
 		if vm.Target != "" {
 			sub = `<p>You are now on ` + esc(vm.Target) + `.</p>`
+		}
+		if vm.Warn != "" {
+			// The switch worked, so the tick and the heading stay; what did not
+			// work is said underneath, and the card waits, because a warning
+			// that clears itself after two seconds is a warning nobody read.
+			inner = `<div class="prog-mark ok">&#10003;</div>
+    <h2>Switched successfully</h2>` + sub + `
+    <div class="prog-warn">` + esc(vm.Warn) + `</div>
+    <button class="btn btn-light" onclick="send('showList','')">Close</button>`
+			break
 		}
 		// Dismisses itself: the switch is over, and a card the user has to close
 		// to get back to a list that already shows the change is a chore. The
