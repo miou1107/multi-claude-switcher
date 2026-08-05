@@ -214,8 +214,10 @@ Usually WebView2 is missing. Right-click the eyes icon in the tray, choose
 
 **My conversation history is a mess. Can I get the old one back?**
 Yes. Settings → **Open backup folder** holds timestamped snapshots, kept per
-profile. They are never pruned automatically, so delete old ones by hand if the
-folder gets large.
+profile. The five most recent of each account are kept. Older ones are moved to
+a `.trash` folder beside them, where they stay for 30 days before being deleted,
+so there is a month to fetch one back. Anything you put in that folder yourself
+is left alone.
 
 **Where are the logs?**
 Settings → **Open log folder**, or `~/.multi-claude-switcher/logs/`.

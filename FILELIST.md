@@ -115,6 +115,8 @@
 - `packaging/Info.plist.template` — macOS bundle Info.plist template (LSUIElement agent; version substituted at build).
 - `packaging/windows-setup.iss` — Inno Setup script for the Windows installer (per-user install, Start Menu shortcut, uninstaller). Also the second half of the Windows auto-updater: the `[Run]` entry has no `skipifsilent`, so a `/VERYSILENT` upgrade relaunches the app.
 - `scripts/package-app.sh` — Assembles Multi-Claude Switcher.app (binary + Info.plist + icon), ad-hoc signs it (`codesign --sign -`, no Apple Developer account needed), and zips it via ditto.
+- `core/backupprune.go` — Keeps the backups folder bounded: after every backup, snapshots beyond the newest five for a profile are moved into `backups/.trash/`, and anything staged there for over 30 days is deleted. Only directories `parseBackupName` accepts are ever touched, so a folder somebody made by hand survives. Best-effort throughout, including a recover, because it runs inside a switch that has Claude Desktop closed. Also holds `BackupManager.Usage` for the Debug info screen.
+- `core/backupprune_test.go` — Tests for the retention rule through an injected filesystem, plus end-to-end checks that a backup tidies, that a restore does not, and that a panic cannot escape.
 - `core/backup.go` — Profile backup & snapshot restoration module. Copies are staged and swapped so an interrupted one leaves the destination untouched; the automatic safety backup reuses the newest snapshot when the profile has not changed, while an explicit backup always takes a fresh one.
 - `core/backup_test.go` — Unit tests for backup & restore manager.
 - `core/backup_perm_unix_test.go` — Test helper (non-Windows): make a dir reject new children via chmod, to exercise staging-failure paths.

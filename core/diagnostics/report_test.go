@@ -399,3 +399,36 @@ func TestBuildSanitizesInvalidUTF8InLogLines(t *testing.T) {
 		t.Errorf("the rest of the corrupted line must survive:\n%s", got)
 	}
 }
+
+func TestBackupsLine(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   Input
+		want string
+	}{
+		{"nothing yet", Input{}, "Backups: none"},
+		{"one snapshot", Input{BackupCount: 1, BackupBytes: 1536}, "Backups: 1 snapshot, 1.5 KB"},
+		{"several", Input{BackupCount: 10, BackupBytes: 241172480}, "Backups: 10 snapshots, 230.0 MB"},
+		{"with staged", Input{BackupCount: 5, BackupBytes: 1024, BackupStaged: 3}, "Backups: 5 snapshots, 1.0 KB · 3 awaiting deletion"},
+		// "none" and "could not look" are different facts and must read
+		// differently, or a reader takes an unreadable folder for an empty one.
+		{"unreadable", Input{BackupReadErr: "permission denied"}, "Backups: could not read (permission denied)"},
+		{"staged only", Input{BackupStaged: 2, BackupBytes: 2048}, "Backups: 0 snapshots, 2.0 KB · 2 awaiting deletion"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := backupsLine(tc.in); got != tc.want {
+				t.Errorf("backupsLine = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The line has to actually reach the report, not just exist as a function.
+func TestReportCarriesTheBackupsLine(t *testing.T) {
+	in := fullInput(t)
+	in.BackupCount, in.BackupBytes = 7, 1048576
+	got := Build(in)
+	if !strings.Contains(got, "Backups: 7 snapshots, 1.0 MB") {
+		t.Errorf("the report does not carry the backups line:\n%s", got)
+	}
+}

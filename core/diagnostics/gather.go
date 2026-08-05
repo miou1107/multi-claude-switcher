@@ -41,6 +41,14 @@ func Gather(profiles []*platform.ProfileInfo, plat platform.Platform, osVersion,
 		HomeReplacement: homeReplacement,
 		LogDir:          core.LogDir(),
 	}
+	// Gathered here rather than in each host: this is the second thing both
+	// hosts would have had to remember to do the same way, and the first one
+	// (the panel's own state) had already drifted once before it was made
+	// shared. NewBackupManager("") is the same root every caller uses.
+	usage := core.NewBackupManager("").Usage()
+	in.BackupCount, in.BackupBytes = usage.Snapshots, usage.Bytes
+	in.BackupStaged, in.BackupReadErr = usage.Staged, usage.Err
+
 	in.Home, _ = os.UserHomeDir()
 	in.HostName, _ = os.Hostname()
 	in.UserName = userNameEnv
