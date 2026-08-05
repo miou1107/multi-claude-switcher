@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.13.2] - 2026-08-05
 
 ### Added
 - **Conversations an old version filed in the wrong place are cleared away.**
