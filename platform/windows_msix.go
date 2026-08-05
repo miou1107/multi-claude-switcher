@@ -181,7 +181,7 @@ func renameWithRetry(from, to string) error {
 	// they can act on where "Access is denied" is not.
 	if holders := msixDescribeHolders(from); holders != "" {
 		log.Printf("[msix] still running from inside %q: %s", filepath.Base(from), holders)
-		return fmt.Errorf("%w — still running from inside it: %s", err, holders)
+		return fmt.Errorf("%w. Still running from inside it: %s", err, holders)
 	}
 	return err
 }
@@ -232,7 +232,7 @@ func msixClearSlot(roaming string) error {
 		return err
 	}
 	if err := renameWithRetry(slot, stray); err != nil {
-		return fmt.Errorf("Claude recreated its data folder during the switch and it could not be moved out of the way — fully quit Claude and try again (%w)", err)
+		return fmt.Errorf("Claude recreated its data folder during the switch and it could not be moved out of the way. Fully quit Claude and try again (%w)", err)
 	}
 	log.Printf("[msix] Claude recreated the slot during the switch; moved it aside to %q (kept, not deleted)", filepath.Base(stray))
 	return nil
@@ -304,7 +304,7 @@ func msixRecordStrandedSlot(roaming string, st msixState, what, current, parked 
 			what, current, rollbackErr, werr, parked, slot)
 	}
 	log.Printf("[msix] %s failed and the rollback failed too; the slot holds a directory Claude recreated, now recorded as %q so %q stays listed and switchable", what, stranded, current)
-	return fmt.Errorf("couldn't %[1]s, and %[2]q could not be put back into the live slot: %[3]w. Nothing is lost — %[2]q is still listed, so fully quit Claude and switch to it to put it back. The live slot currently holds a folder Claude recreated, listed as %[4]q",
+	return fmt.Errorf("couldn't %[1]s, and %[2]q could not be put back into the live slot: %[3]w. Nothing is lost: %[2]q is still listed, so fully quit Claude and switch to it to put it back. The live slot currently holds a folder Claude recreated, listed as %[4]q",
 		what, current, rollbackErr, stranded)
 }
 
@@ -370,7 +370,7 @@ func msixSwapToIn(roaming, targetName string) error {
 	slotParked := false
 	if _, err := os.Stat(slot); err == nil {
 		if err := renameWithRetry(slot, parked); err != nil {
-			return fmt.Errorf("couldn't switch — Claude is still holding its files. Fully quit Claude (check the tray / Task Manager) and try again. (%w)", err)
+			return fmt.Errorf("couldn't switch: Claude is still holding its files. Fully quit Claude (check the tray / Task Manager) and try again. (%w)", err)
 		}
 		slotParked = true
 	}
@@ -427,7 +427,7 @@ func msixParkForNewIn(roaming, newName string) error {
 	if _, err := os.Stat(slot); err == nil {
 		if err := renameWithRetry(slot, parked); err != nil {
 			removeIfEmpty(container)
-			return fmt.Errorf("couldn't save your current account — Claude is still holding its files. Fully quit Claude (check the tray / Task Manager) and try again. (%w)", err)
+			return fmt.Errorf("couldn't save your current account: Claude is still holding its files. Fully quit Claude (check the tray / Task Manager) and try again. (%w)", err)
 		}
 		didPark = true
 	}

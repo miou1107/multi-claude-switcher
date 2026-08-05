@@ -15,6 +15,15 @@
   at the "account removed" screen now ends an inline rename the way every other
   navigation already did.
 
+### Fixed
+- **Sixteen messages had a dash style the rest of the app does not use.** They
+  sat in the Windows-only code and in both hosts, where the check that enforces
+  the house style could not see them: it only ever read one package, plus the
+  finished panel HTML. Wording is unchanged apart from the punctuation. The
+  check now reads every package's source, and the one that reads the panel can
+  see three kinds of text it used to miss, including anything containing an
+  apostrophe.
+
 ### Build / CI
 - **The tests run when work lands, not when someone tries to ship.** The suite
   already gated releases, but nothing ran between tags, so a test broken on a

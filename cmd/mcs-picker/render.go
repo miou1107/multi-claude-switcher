@@ -62,7 +62,7 @@ func renderPicker(accounts []core.ScannedAccount, preselected map[string]bool) s
 
 	for _, a := range accounts {
 		team, teamCls := teamPill(a)
-		date := "—"
+		date := "-"
 		if !a.LastUpdated.IsZero() {
 			date = a.LastUpdated.Format("2006-01-02")
 		}
@@ -109,7 +109,7 @@ func renderPicker(accounts []core.ScannedAccount, preselected map[string]bool) s
 
 	sub := "Choose the accounts Multi-Claude Switcher should manage."
 	if completeCount == 0 {
-		sub = "No switchable accounts were found — only orphaned data."
+		sub = "No switchable accounts were found: only orphaned data."
 	}
 
 	return `<!doctype html><html lang="en"><head><meta charset="utf-8">

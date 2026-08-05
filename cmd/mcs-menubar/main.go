@@ -412,7 +412,7 @@ func goPanelAction(caction, cfolder *C.char) {
 		}
 		row, ok := ghostRow(arg)
 		if !ok || !row.Recoverable {
-			setStatus("That account is no longer recoverable — run Rescan")
+			setStatus("That account is no longer recoverable. Run Rescan")
 			panelState.SetView("list")
 			go reloadPanel()
 			return
@@ -443,7 +443,7 @@ func goPanelAction(caction, cfolder *C.char) {
 				// sources' paths must come from the scan current at the moment of copy.
 				row, ok := ghostRow(req.RecoverUUID)
 				if !ok || !row.Recoverable {
-					setBusyStatus(false, "That account is no longer recoverable — run Rescan")
+					setBusyStatus(false, "That account is no longer recoverable. Run Rescan")
 					panelState.SetView("list")
 					reloadPanel()
 					return
@@ -975,7 +975,7 @@ func mergeCandidate(identity string) panelui.MergeCandidateVM {
 func mergePlanFor(keepIdentity, archiveIdentity string) (core.MergePlan, error) {
 	keepPath, archivePath := profilePathFor(keepIdentity), profilePathFor(archiveIdentity)
 	if keepPath == "" || archivePath == "" {
-		return core.MergePlan{}, fmt.Errorf("one of those profiles is no longer there — run Rescan")
+		return core.MergePlan{}, fmt.Errorf("one of those profiles is no longer there. Run Rescan")
 	}
 	uuid, err := platform.GetProfileAccountUUID(keepPath)
 	if err != nil {

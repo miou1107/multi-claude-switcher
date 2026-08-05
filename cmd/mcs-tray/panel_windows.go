@@ -566,7 +566,7 @@ func dispatchAction(action, arg string) {
 		}
 		row, ok := ghostRow(arg)
 		if !ok || !row.Recoverable {
-			panelSetStatus("That account is no longer recoverable — run Rescan")
+			panelSetStatus("That account is no longer recoverable. Run Rescan")
 			panelState.SetView("list")
 			go reloadPanel()
 			return
@@ -597,7 +597,7 @@ func dispatchAction(action, arg string) {
 				// sources' paths must come from the scan current at the moment of copy.
 				row, ok := ghostRow(req.RecoverUUID)
 				if !ok || !row.Recoverable {
-					panelSetBusy(false, "That account is no longer recoverable — run Rescan")
+					panelSetBusy(false, "That account is no longer recoverable. Run Rescan")
 					panelState.SetView("list")
 					reloadPanel()
 					return
@@ -1037,7 +1037,7 @@ func mergeCandidate(identity string) panelui.MergeCandidateVM {
 func mergePlanFor(keepIdentity, archiveIdentity string) (core.MergePlan, error) {
 	keepPath, archivePath := profilePathFor(keepIdentity), profilePathFor(archiveIdentity)
 	if keepPath == "" || archivePath == "" {
-		return core.MergePlan{}, fmt.Errorf("one of those profiles is no longer there — run Rescan")
+		return core.MergePlan{}, fmt.Errorf("one of those profiles is no longer there. Run Rescan")
 	}
 	uuid, err := platform.GetProfileAccountUUID(keepPath)
 	if err != nil {
@@ -1676,7 +1676,7 @@ func showRuntimeMissingDialog(cause error) {
 		"download page in your browser. Rerun Multi-Claude Switcher after " +
 		"installing.\n\n(" + cause.Error() + ")"
 	msgw, _ := syscall.UTF16PtrFromString(msg)
-	titlew, _ := syscall.UTF16PtrFromString("Multi-Claude Switcher — WebView2 Runtime missing")
+	titlew, _ := syscall.UTF16PtrFromString("Multi-Claude Switcher: WebView2 Runtime missing")
 	const mbOK = 0x00000000
 	const mbIconInfo = 0x00000040
 	messageBox := user32.NewProc("MessageBoxW")

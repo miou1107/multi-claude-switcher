@@ -30,7 +30,7 @@ func shouldWarnAutoSync(enabling, dismissed bool) bool {
 // them under the source's organization, which the target never reads. Import
 // into a Team account works, so the caveat is gone rather than reworded.
 func autoSyncWarningMessage() string {
-	return "With this on, every account switch bidirectionally syncs — both accounts' conversations will merge. Enable?"
+	return "With this on, every account switch bidirectionally syncs: both accounts' conversations will merge. Enable?"
 }
 
 // askEnableAutoSync shows the enable-time warning and returns the user's choice.

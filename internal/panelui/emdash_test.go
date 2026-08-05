@@ -62,31 +62,25 @@ import (
 //     by checking every <script> block a page contains, not assuming there
 //     is exactly one.
 //
-// Known blind spots, left in this comment rather than a report nobody
-// reopens, because this guard's whole history is things that were "not live
-// today" until they were:
-//   - Double-quoted strings ("...") and template literals (`...`) are
-//     invisible to quotedLiteral, which only matches '...'. Every dialog
-//     string in shell() today is single-quoted, so nothing is live, but a
-//     future double-quoted or templated literal would not be checked.
-//   - lineComment ("//[^\n]*") does not know about string contents: a `//`
-//     appearing inside a single-quoted literal (e.g. a URL) would eat the
-//     rest of that line, including any later quoted literal on it, before
-//     quotedLiteral ever sees it. Nothing in shell() today puts "//" inside a
-//     string.
-//   - quotedLiteral's negated class ([^'\\]*) does not resolve a JS escape:
-//     a literal containing \' (an escaped apostrophe) ends the match at the
-//     backslash instead of treating \' as one character, splitting the
-//     literal in two. Nothing in shell() today writes \' — every apostrophe
-//     that could appear in real data (a folder or display name) travels as
-//     data-* and is read back with dataset instead of being interpolated
-//     into a JS string at all, which is the whole point of that pattern (see
-//     the v0.9.1 bug notes throughout render.go).
+// The script pass used to be three regexes: strip block comments, strip line
+// comments, then match '...' literals. That left three blind spots, all of the
+// same kind — a regex cannot know whether the thing it matched was inside
+// something else:
+//
+//   - Double-quoted and template literals were never checked, because the
+//     literal pattern only matched '...'.
+//   - The line-comment pattern did not know about string contents, so a `//`
+//     inside a literal (a URL, say) ate the rest of that line, including any
+//     later literal on it.
+//   - The literal pattern's negated class did not resolve a JS escape, so a
+//     literal containing \' ended at the backslash and split in two.
+//
+// None was live at the time, which is the trap: this guard's whole history is
+// things that were not live until they were. jsStringLiterals below scans the
+// script once as a lexer would instead, which closes all three by construction
+// rather than by three more patterns to get right.
 func emDashViolations(html string) []string {
 	scriptBlock := regexp.MustCompile(`(?s)<script[^>]*>(.*?)</script>`)
-	blockComment := regexp.MustCompile(`(?s)/\*.*?\*/`)
-	lineComment := regexp.MustCompile(`//[^\n]*`)
-	quotedLiteral := regexp.MustCompile(`'([^'\\]*)'`)
 	tags := regexp.MustCompile(`</?[a-zA-Z!][^>]*>`)
 
 	var out []string
@@ -98,11 +92,76 @@ func emDashViolations(html string) []string {
 		}
 	}
 	for _, script := range scriptBlock.FindAllStringSubmatch(html, -1) {
-		code := blockComment.ReplaceAllString(script[1], "")
-		code = lineComment.ReplaceAllString(code, "")
-		for _, m := range quotedLiteral.FindAllStringSubmatch(code, -1) {
-			if strings.Contains(m[1], "—") {
-				out = append(out, "dialog copy: "+m[1])
+		for _, lit := range jsStringLiterals(script[1]) {
+			if strings.Contains(lit, "—") {
+				out = append(out, "dialog copy: "+lit)
+			}
+		}
+	}
+	return out
+}
+
+// jsStringLiterals returns the contents of every string literal in a piece of
+// JavaScript: single-quoted, double-quoted and template. Comments are skipped,
+// and a backslash escapes the next character wherever an escape is legal, so a
+// quote or a `//` inside a literal does not end it.
+//
+// A single left-to-right scan, because the states are mutually exclusive: text
+// inside a comment is not a literal, and a quote inside a literal is data. That
+// is the property the three regexes could not express, and each blind spot they
+// had was a case of one state being mistaken for another.
+//
+// It does not try to be a JavaScript parser. Regular expression literals in
+// particular are treated as division, so /'/ would open a spurious literal.
+// Nothing in this package writes one, and a guard that over-reports a string is
+// safe in a way that one silently under-reporting is not.
+func jsStringLiterals(src string) []string {
+	const (
+		code = iota
+		lineComment
+		blockComment
+		quoted // inside a string literal; quote holds which kind
+	)
+
+	var out []string
+	var lit strings.Builder
+	var quote byte
+	state := code
+
+	r := []byte(src)
+	for i := 0; i < len(r); i++ {
+		c := r[i]
+		switch state {
+		case code:
+			switch {
+			case c == '/' && i+1 < len(r) && r[i+1] == '/':
+				state, i = lineComment, i+1
+			case c == '/' && i+1 < len(r) && r[i+1] == '*':
+				state, i = blockComment, i+1
+			case c == '\'' || c == '"' || c == '`':
+				state, quote = quoted, c
+				lit.Reset()
+			}
+		case lineComment:
+			if c == '\n' {
+				state = code
+			}
+		case blockComment:
+			if c == '*' && i+1 < len(r) && r[i+1] == '/' {
+				state, i = code, i+1
+			}
+		case quoted:
+			switch {
+			case c == '\\' && i+1 < len(r):
+				// The escaped character is data, whatever it is. This is what
+				// stops \' from ending the literal early.
+				lit.WriteByte(r[i+1])
+				i++
+			case c == quote:
+				out = append(out, lit.String())
+				state = code
+			default:
+				lit.WriteByte(c)
 			}
 		}
 	}
@@ -356,5 +415,92 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		for _, v := range emDashViolations(h) {
 			t.Errorf("%s: em dash in %s", name, v)
 		}
+	}
+}
+
+// TestEmDashGuardSeesTheThreeShapesItUsedToMiss pins each of the blind spots
+// the old three-regex script pass had. Each case is written the way the guard
+// would actually meet it: a real <script> block inside a page.
+//
+// These are not hypothetical. Every previous failure of this guard was also
+// "not live today" right up until it was, and the fix that closed them is
+// worth a test that fails if someone reaches for the regexes again.
+func TestEmDashGuardSeesTheThreeShapesItUsedToMiss(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		script string
+		want   string
+	}{
+		{
+			name:   "double-quoted literal",
+			script: `askConfirm("a","b","dialog em dash — here","body","OK");`,
+			want:   "dialog em dash — here",
+		},
+		{
+			name:   "template literal",
+			script: "askConfirm(`dialog em dash — here`);",
+			want:   "dialog em dash — here",
+		},
+		{
+			name: "a // inside a literal must not eat the rest of the line",
+			// The old line-comment pattern started a comment at the // in the
+			// URL and swallowed everything after it, including the copy.
+			script: `var u='https://example.invalid/x'; askConfirm('dialog em dash — here');`,
+			want:   "dialog em dash — here",
+		},
+		{
+			name: "an escaped apostrophe must not split the literal",
+			// The old literal pattern ended its match at the backslash, so the
+			// copy after it was read as being outside any string.
+			script: `askConfirm('it\'s an em dash — here');`,
+			want:   "it's an em dash — here",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := emDashViolations("<p>ok</p><script>" + tc.script + "</script>")
+			if len(got) == 0 {
+				t.Fatalf("no violation reported for %s: the guard cannot see this shape", tc.name)
+			}
+			found := false
+			for _, g := range got {
+				if strings.Contains(g, tc.want) {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("violations = %q, want one containing %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Comments stay invisible. Nobody is shown a comment, and reporting them would
+// make the guard noisy enough to be turned off, which is the failure mode that
+// ends with real copy shipping.
+func TestEmDashGuardStillIgnoresScriptComments(t *testing.T) {
+	for _, tc := range []struct{ name, script string }{
+		{"line comment", "// an em dash — in a comment\nvar x=1;"},
+		{"block comment", "/* an em dash — in a comment */ var x=1;"},
+		{"line comment after code", "var x=1; // an em dash — here"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := emDashViolations("<p>ok</p><script>" + tc.script + "</script>"); len(got) != 0 {
+				t.Errorf("violations = %q, want none: comments are never shown to a user", got)
+			}
+		})
+	}
+}
+
+// A quote inside a comment must not open a literal, and a comment marker
+// inside a literal must not open a comment. The two states are mutually
+// exclusive, and mistaking one for the other is what every old blind spot was.
+func TestEmDashGuardKeepsCommentsAndLiteralsApart(t *testing.T) {
+	// The apostrophe in "don't" would open a literal for a scanner that did not
+	// know it was inside a comment; everything after it, including the real
+	// copy, would then be read as string contents or skipped entirely.
+	script := "// don't be fooled\naskConfirm('real em dash — here');"
+	got := emDashViolations("<p>ok</p><script>" + script + "</script>")
+	if len(got) != 1 || !strings.Contains(got[0], "real em dash — here") {
+		t.Errorf("violations = %q, want exactly the dialog copy", got)
 	}
 }
