@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-08-05
+
+### Added
+- **The panel says a switch is running.** Pressing Switch used to leave one
+  static line of text on the account list, in the same green the panel uses for
+  "done", while the cards still looked clickable, so a switch read as a click
+  that had been ignored. A card now takes the place of the confirmation dialog,
+  in the same spot: a spinner and "Switching profile" while Claude is closed and
+  reopened, then a tick and the name of the account you are now on, which clears
+  itself. A switch that failed says so, with the reason, and waits for you to
+  close it. The list stays visible behind the card and the card is what stops a
+  second switch, rather than the click being silently dropped.
+
+### Fixed
+- **A failed switch no longer looks like a successful one on macOS.** The menu
+  bar app threw away the error, so a switch that never happened left the panel
+  saying nothing at all. It is now shown on the card. The Windows tray already
+  reported it.
+
 ## [0.13.0] - 2026-08-04
 
 ### Added

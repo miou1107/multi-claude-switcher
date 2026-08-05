@@ -83,6 +83,11 @@ var (
 	// holds still while this is set. It is client-side state mirrored here
 	// because only Go knows when a reload is about to happen.
 	renameOpen bool
+	// switchProgress is the card drawn over the list while a switch runs, and
+	// for a moment after it ends. Held here rather than only in the page so a
+	// panel closed and reopened mid switch comes back showing the switch, not an
+	// idle list while Claude is shut. Nil means no switch is on screen.
+	switchProgress *panelui.SwitchProgressVM
 
 	planMu    sync.Mutex
 	planCache = map[string]string{} // profile path -> plan label (leveldb read is heavy; cache it)
@@ -268,10 +273,27 @@ func goPanelAction(caction, cfolder *C.char) {
 		if getBusy() {
 			return
 		}
-		setBusyStatus(true, "Closing Claude Desktop and switching…")
+		// The card carries the message now, so the status banner stays empty:
+		// two copies of "switching" on one screen, one of them in the colour
+		// this panel uses for "done", is worse than one.
+		setBusyStatus(true, "")
+		setSwitchProgress(&panelui.SwitchProgressVM{
+			Phase: panelui.SwitchWorking, Target: core.DisplayName(arg),
+		})
 		reloadPanel()
 		go func() {
-			doSwitch(arg)
+			err := doSwitch(arg)
+			vm := &panelui.SwitchProgressVM{Phase: panelui.SwitchDone, Target: core.DisplayName(arg)}
+			if err != nil {
+				log.Printf("switch to %s failed: %v", arg, err)
+				vm = &panelui.SwitchProgressVM{
+					Phase: panelui.SwitchFailed, Target: core.DisplayName(arg), Err: err.Error(),
+				}
+			}
+			// The card goes up before busy comes down, so there is no instant in
+			// which the panel accepts a second switch while still showing the
+			// first one running.
+			setSwitchProgress(vm)
 			setBusyStatus(false, "")
 			reloadPanel()
 		}()
@@ -708,7 +730,24 @@ func setView(v string) {
 	// markup, which is gone. Clearing it here rather than in each caller is what
 	// stops a stuck flag freezing the list for good.
 	renameOpen = false
+	// Same reason as the rename editor above: the card belongs to the list it
+	// was drawn over. Navigating away, including the list's own auto dismiss,
+	// is what takes it down.
+	switchProgress = nil
 	mu.Unlock()
+}
+
+// setSwitchProgress puts up, updates or takes down the switch card.
+func setSwitchProgress(vm *panelui.SwitchProgressVM) {
+	mu.Lock()
+	switchProgress = vm
+	mu.Unlock()
+}
+
+func getSwitchProgress() *panelui.SwitchProgressVM {
+	mu.Lock()
+	defer mu.Unlock()
+	return switchProgress
 }
 
 // reloadPanel renders the current view and pushes it into the popover webview.
@@ -756,7 +795,7 @@ func reloadPanel() {
 			// outcome is unknown.
 			setStatus(planErr.Error())
 			setView("list")
-			htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())
+			htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus(), getSwitchProgress())
 			break
 		}
 		htmlStr = panelui.RenderMerge(a, b, plan, getStatus(), getBusy())
@@ -787,7 +826,7 @@ func reloadPanel() {
 			Status:  getStatus(),
 		})
 	default:
-		htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())
+		htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus(), getSwitchProgress())
 	}
 	c := C.CString(htmlStr)
 	defer C.free(unsafe.Pointer(c))
@@ -812,9 +851,14 @@ func mustFindProfiles() []*platform.ProfileInfo {
 	return p
 }
 
-func doSwitch(folder string) {
+// doSwitch moves the user to folder and reports whether it worked.
+//
+// It used to discard SafeSwitch's error, which made a failed switch look
+// identical to a successful one: Claude stayed shut or stayed on the old
+// account, and the panel said nothing. The Windows host has always returned it.
+func doSwitch(folder string) error {
 	if folder == "" {
-		return
+		return fmt.Errorf("no account was named")
 	}
 	profiles := mustFindProfiles()
 	var target *platform.ProfileInfo
@@ -825,9 +869,9 @@ func doSwitch(folder string) {
 		}
 	}
 	if target == nil {
-		return
+		return fmt.Errorf("that account is no longer there. Run Rescan")
 	}
-	_ = switcher.SafeSwitch(sourceProfilePath(target.Path, profiles), target.Path, target.Name)
+	return switcher.SafeSwitch(sourceProfilePath(target.Path, profiles), target.Path, target.Name)
 }
 
 // buildProfiles lists the managed accounts for the list view.

@@ -126,7 +126,7 @@ func TestRenderListFlagsProfileAwaitingSignIn(t *testing.T) {
 	html := RenderList([]ProfileVM{
 		{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true},
 		{Folder: "ClaudeWork", Name: "Work"},
-	}, false, "")
+	}, false, "", nil)
 	if !strings.Contains(html, "Not signed in yet. Switch here, then sign in.") {
 		t.Fatal("the card must say why it is different, or switching to it lands on an unexplained login screen")
 	}
@@ -147,7 +147,7 @@ func TestRenderListFlagsProfileAwaitingSignIn(t *testing.T) {
 // would put one full-colour icon among a panel of flat monochrome ones and
 // render differently again in WebView2.
 func TestRenderListRowButtonIsAWrenchMenu(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", Current: true, SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", Current: true, SignedIn: true}}, false, "", nil)
 	if strings.Contains(html, ">✎<") || strings.Contains(html, ">⋯<") {
 		t.Fatal("neither the old pencil nor the old three-dot glyph may still be the row button")
 	}
@@ -176,7 +176,7 @@ func TestRenderListRowButtonIsAWrenchMenu(t *testing.T) {
 // the document-level click listener that closes whatever is open when the
 // click did not land inside a .rowmenu-wrap.
 func TestRowMenuOnlyOneOpenAtATimeAndClosesOnOutsideClick(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	if !strings.Contains(html, "function toggleRowMenu(btn){") {
 		t.Fatalf("toggleRowMenu must exist:\n%s", html)
 	}
@@ -204,7 +204,7 @@ func TestRowMenuAndRenameAreMutuallyExclusive(t *testing.T) {
 	html := RenderList([]ProfileVM{
 		{Folder: "Claude", Name: "Work", SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if !strings.Contains(html, "function cancelAllRenames(){") {
 		t.Fatalf("want a single place that ends every open rename:\n%s", html)
 	}
@@ -221,7 +221,7 @@ func TestRowMenuAndRenameAreMutuallyExclusive(t *testing.T) {
 // reaches the row's own Cancel and Save buttons. From there Escape used to fall
 // through the whole chain to hidePanel and shut the panel on a half-typed name.
 func TestEscapeCancelsAnOpenRenameBeforeHidingThePanel(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	editing := strings.Index(html, "var editing = document.querySelector('.card.renaming');")
 	hide := strings.Index(html, "send('hidePanel','');")
 	if editing < 0 {
@@ -238,7 +238,7 @@ func TestEscapeCancelsAnOpenRenameBeforeHidingThePanel(t *testing.T) {
 // Go has no way to know how tall the rendered popover actually is, since that
 // depends on how many rows and banners are on screen.
 func TestRowMenuOpensUpwardNearTheBottomDecidedInJS(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	if !strings.Contains(html, "var r = btn.getBoundingClientRect();") ||
 		!strings.Contains(html, `menu.classList.toggle('up', r.bottom > window.innerHeight - 90);`) {
 		t.Fatalf("the up/down decision must read the button's real position at click time:\n%s", html)
@@ -254,7 +254,7 @@ func TestRowMenuOpensUpwardNearTheBottomDecidedInJS(t *testing.T) {
 // chevron glyph, which against an inline SVG would delete the icon outright the
 // first time a menu closed.
 func TestRowMenuButtonShowsItsOpenStateWithoutTouchingItsIcon(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	if strings.Contains(html, "btn.textContent=") || strings.Contains(html, "b.textContent=") {
 		t.Fatalf("writing textContent on the button would delete its inline SVG icon:\n%s", html)
 	}
@@ -280,7 +280,7 @@ func TestAskRemoveClosesTheRowMenuBeforeOpeningTheDialog(t *testing.T) {
 	h := RenderList([]ProfileVM{
 		{Folder: "Claude", Name: "Work", Convos: 2, SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	fn := jsFunctions(h)["askRemove"]
 	closes := strings.Index(fn, "closeAllRowMenus();")
 	asks := strings.Index(fn, "askConfirm(")
@@ -298,7 +298,7 @@ func TestAskRemoveClosesTheRowMenuBeforeOpeningTheDialog(t *testing.T) {
 // textarea, and the generic INPUT/TEXTAREA-backs-out-to-the-list case), since
 // whichever branch runs first is the one Escape actually does.
 func TestEscapeClosesRowMenuBeforeItsOtherMeanings(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	rowMenuIdx := strings.Index(html, `if(document.querySelector('.rowmenu.open')) { closeAllRowMenus(); return; }`)
 	modalIdx := strings.Index(html, `if(document.getElementById('mcsModal').classList.contains('on')) { closeConfirm(); return; }`)
 	inputIdx := strings.Index(html, `if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA')) { send('showList',''); return; }`)
@@ -316,7 +316,7 @@ func TestEscapeClosesRowMenuBeforeItsOtherMeanings(t *testing.T) {
 // class is toggled on by startRename (asserted separately) — so the swap to
 // editable is instant and needs no round trip to Go.
 func TestRenderListRenamesInPlace(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude_Work", Name: "Work account", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude_Work", Name: "Work account", SignedIn: true}}, false, "", nil)
 	if !strings.Contains(html, `<input class="rnrow" type="text" value="Work account" onclick="event.stopPropagation()" onkeydown="rowRenameKey(event,this)">`) {
 		t.Fatalf("want an inline input pre-filled with the current name:\n%s", html)
 	}
@@ -337,7 +337,7 @@ func TestRenderListRenamesInPlace(t *testing.T) {
 // the Go side reading it needs no change. Enter must save; the same function
 // this test reads is what rowRenameKey calls on Enter.
 func TestRowRenameSaveSendsTheSameActionAndPayload(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	if !strings.Contains(html, `send('renameSave', JSON.stringify([card.dataset.folder, v]));`) {
 		t.Fatalf("Save must send the same action and payload shape as before:\n%s", html)
 	}
@@ -352,7 +352,7 @@ func TestRowRenameSaveSendsTheSameActionAndPayload(t *testing.T) {
 // generic "focus is in some INPUT, back out to the list" Escape handling —
 // stopPropagation is what keeps it from also reaching that generic branch.
 func TestRowRenameEscapeCancelsLocallyWithoutARoundTrip(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	if !strings.Contains(html, `else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelRename(input); }`) {
 		t.Fatalf("Escape must cancel locally and stop the event from bubbling further:\n%s", html)
 	}
@@ -363,7 +363,7 @@ func TestRowRenameEscapeCancelsLocallyWithoutARoundTrip(t *testing.T) {
 // guard reads the very .renaming class startRename/cancelRename toggle, so
 // there is no separate flag to fall out of sync with it.
 func TestRenamingRowIsNotASwitchTarget(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	if !strings.Contains(html, `onclick="if(!this.classList.contains('renaming'))askSwitch(this.dataset.folder,this.dataset.name)"`) {
 		t.Fatalf("the switch handler must be guarded by the renaming class:\n%s", html)
 	}
@@ -379,7 +379,7 @@ func TestRowMenuRemoveUsesTheSameAskRemoveAsBefore(t *testing.T) {
 	notCurrent := RenderList([]ProfileVM{
 		{Folder: "Claude_Old", Name: "Old one", Convos: 34, SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if !strings.Contains(notCurrent, `<button type="button" role="menuitem" class="danger" data-folder="Claude_Old" data-name="Old one" data-convos="34" data-current="0" onclick="event.stopPropagation();askRemove(this)">Remove from list</button>`) {
 		t.Fatalf("want the Remove menu item wired to askRemove with the folder, name, conversation count and current marker:\n%s", notCurrent)
 	}
@@ -387,7 +387,7 @@ func TestRowMenuRemoveUsesTheSameAskRemoveAsBefore(t *testing.T) {
 	current := RenderList([]ProfileVM{
 		{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true, SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if !strings.Contains(current, `data-folder="Claude_Live" data-name="Live" data-convos="12" data-current="1"`) {
 		t.Fatalf("the account Claude has open must carry data-current=\"1\" so askRemove opens the informational dialog:\n%s", current)
 	}
@@ -398,7 +398,7 @@ func TestRowMenuRemoveUsesTheSameAskRemoveAsBefore(t *testing.T) {
 // would leave an empty panel with no way back, so the menu holds Change name
 // alone.
 func TestRowMenuHidesRemoveWhenItIsTheOnlyProfile(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Claude", Convos: 5, SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Claude", Convos: 5, SignedIn: true}}, false, "", nil)
 	// Not a bare "Remove" check: the shared shell script's askRemove/askConfirm
 	// source carries the word "Remove" as a dialog label regardless of whether
 	// any row offers the menu item, so that substring is present on every page
@@ -421,7 +421,7 @@ func TestRowMenuAndRenameUseDataAttributesNotInlineArgs(t *testing.T) {
 	html := RenderList([]ProfileVM{
 		{Folder: "Claude_O'Brien", Name: "Pat O'Brien", Convos: 2, SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if strings.Contains(html, `askRemove('`) || strings.Contains(html, `startRename('`) || strings.Contains(html, `askSwitch('`) {
 		t.Fatalf("no inline string args (v0.9.1 bug class):\n%s", html)
 	}
@@ -438,17 +438,17 @@ func TestRenderListShowsAStatusMessage(t *testing.T) {
 	// that succeeded all end back on the list. Without a banner the list re-renders
 	// unchanged and the click reads as having done nothing.
 	profiles := []ProfileVM{{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true}}
-	if got := RenderList(profiles, true, "Merged."); !strings.Contains(got, `<div class="status">Merged.</div>`) {
+	if got := RenderList(profiles, true, "Merged.", nil); !strings.Contains(got, `<div class="status">Merged.</div>`) {
 		t.Fatalf("a status message must be shown on the list:\n%s", got)
 	}
-	if got := RenderList(profiles, true, ""); strings.Contains(got, `<div class="status">`) {
+	if got := RenderList(profiles, true, "", nil); strings.Contains(got, `<div class="status">`) {
 		t.Fatalf("no message, no banner:\n%s", got)
 	}
 }
 
 func TestVersionShownFromVariableOnBothViews(t *testing.T) {
 	want := "v" + core.Version // the "v" is a literal prefix; the number is never hardcoded
-	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true}}, false, "")
+	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Claude", Current: true, SignedIn: true}}, false, "", nil)
 	if !strings.Contains(list, want) {
 		t.Fatalf("account list must show %q sourced from core.Version", want)
 	}
@@ -546,7 +546,7 @@ func TestNoActionClosesClaudeWithoutAsking(t *testing.T) {
 		"list": RenderList([]ProfileVM{
 			{Folder: "Claude", Name: "Work", SignedIn: true, Current: true},
 			{Folder: "Claude_P", Name: "Personal", SignedIn: true},
-		}, true, ""),
+		}, true, "", nil),
 		"sync": RenderSync([]ProfileVM{
 			{Folder: "Claude", Name: "Work", SignedIn: true, Convos: 94},
 			{Folder: "Claude_P", Name: "Personal", SignedIn: true, Convos: 12},
@@ -586,7 +586,7 @@ func TestRenderSyncAsksBeforeClosingClaude(t *testing.T) {
 // TestInformationalDialogFocusesOKNotAHiddenCancel), which is the one case
 // where OK is the only, non-destructive button and focusing it is safe.
 func TestConfirmDialogFocusesCancel(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	if !strings.Contains(html, `: document.getElementById('mcsModalCancel')).focus();`) {
 		t.Error("the confirmation must open with Cancel focused when Cancel is shown")
 	}
@@ -605,7 +605,7 @@ func TestConfirmDialogFocusesCancel(t *testing.T) {
 // source of askConfirm's closing focus call is the only thing that can be
 // asserted on, the same way TestConfirmDialogFocusesCancel reads it.
 func TestInformationalDialogFocusesOKNotAHiddenCancel(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	if !strings.Contains(html, `(action === '' ? ok : document.getElementById('mcsModalCancel')).focus();`) {
 		t.Fatalf("askConfirm must focus OK when Cancel is hidden, and Cancel otherwise:\n%s", html)
 	}
@@ -614,7 +614,7 @@ func TestInformationalDialogFocusesOKNotAHiddenCancel(t *testing.T) {
 // TestConfirmDialogWarnsAboutUnsavedWork: the consequence the user cannot see for
 // themselves is that Claude is mid-work. Both dialogs carry the same line.
 func TestConfirmDialogWarnsAboutUnsavedWork(t *testing.T) {
-	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	if !strings.Contains(html, `<div class="warn">Anything unsaved in Claude is interrupted.</div>`) {
 		t.Errorf("the dialog must say what closing Claude costs:\n%s", html)
 	}
@@ -626,7 +626,7 @@ func TestConfirmDialogWarnsAboutUnsavedWork(t *testing.T) {
 func TestRenderListAddCardOnlyWhereItLeadsSomewhere(t *testing.T) {
 	profiles := []ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}
 
-	with := RenderList(profiles, true, "")
+	with := RenderList(profiles, true, "", nil)
 	if !strings.Contains(with, `onclick="send('newProfile','')"`) {
 		t.Errorf("the add card must be offered where the flow exists:\n%s", with)
 	}
@@ -634,7 +634,7 @@ func TestRenderListAddCardOnlyWhereItLeadsSomewhere(t *testing.T) {
 		t.Error("the card needs its label")
 	}
 
-	without := RenderList(profiles, false, "")
+	without := RenderList(profiles, false, "", nil)
 	if strings.Contains(without, "Add another account") {
 		t.Error("no add card where nothing is behind it")
 	}
@@ -643,7 +643,7 @@ func TestRenderListAddCardOnlyWhereItLeadsSomewhere(t *testing.T) {
 // TestRenderListAddCardShowsOnAnEmptyList: a user with nothing managed yet is
 // exactly who needs it, so the empty state must not swallow the card.
 func TestRenderListAddCardShowsOnAnEmptyList(t *testing.T) {
-	html := RenderList(nil, true, "")
+	html := RenderList(nil, true, "", nil)
 	if !strings.Contains(html, "Add another account") {
 		t.Errorf("an empty list still offers the way to add one:\n%s", html)
 	}
@@ -657,7 +657,7 @@ func TestRenderListWarnsAboutDuplicates(t *testing.T) {
 		{Folder: "Claude", Name: "Claude", UUID: "same", SignedIn: true},
 		{Folder: "Claude_Work", Name: "Work", UUID: "same", SignedIn: true},
 		{Folder: "Claude_Solo", Name: "Solo", UUID: "solo", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if !strings.Contains(html, "the same account") {
 		t.Fatalf("want a duplicate warning:\n%s", html)
 	}
@@ -682,7 +682,7 @@ func TestRenderListDuplicateWarningDisambiguatesEqualNames(t *testing.T) {
 	html := RenderList([]ProfileVM{
 		{Folder: "Claude", Name: "Claude", UUID: "same", SignedIn: true},
 		{Folder: "Claude_Work", Name: "Claude", UUID: "same", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if !strings.Contains(html, "Claude and Claude_Work are the same account") {
 		t.Fatalf("equal names must be disambiguated by folder:\n%s", html)
 	}
@@ -692,7 +692,7 @@ func TestRenderListNoWarningWhenAccountsAreUnique(t *testing.T) {
 	html := RenderList([]ProfileVM{
 		{Folder: "Claude", Name: "Claude", UUID: "a", SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", UUID: "b", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if strings.Contains(html, "the same account") {
 		t.Fatal("no duplicates, no warning")
 	}
@@ -707,7 +707,7 @@ func TestRenderListDuplicateWarningIgnoresProfilesWithNoAccount(t *testing.T) {
 	html := RenderList([]ProfileVM{
 		{Folder: "Claude_A", Name: "A", UUID: "", SignedIn: false},
 		{Folder: "Claude_B", Name: "B", UUID: "", SignedIn: false},
-	}, false, "")
+	}, false, "", nil)
 	if strings.Contains(html, "the same account") {
 		t.Fatalf("empty UUIDs must not group:\n%s", html)
 	}
@@ -719,7 +719,7 @@ func TestRenderListOneWarningForTheFirstGroupOnly(t *testing.T) {
 		{Folder: "Claude_B", Name: "B", UUID: "x", SignedIn: true},
 		{Folder: "Claude_C", Name: "C", UUID: "y", SignedIn: true},
 		{Folder: "Claude_D", Name: "D", UUID: "y", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if strings.Count(html, "the same account") != 1 {
 		t.Fatalf("one group at a time, got %d warnings:\n%s", strings.Count(html, "the same account"), html)
 	}
@@ -1062,7 +1062,7 @@ func TestAskRemoveWordsTheConversationCountNaturally(t *testing.T) {
 	h := RenderList([]ProfileVM{
 		{Folder: "Claude", Name: "Some name", Convos: 1, SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if !strings.Contains(h, `onclick="event.stopPropagation();askRemove(this)"`) {
 		t.Fatalf("precondition: this fixture must actually render a Remove menu item:\n%s", h)
 	}
@@ -1086,7 +1086,7 @@ func TestAskRemoveWordsTheConversationCountNaturally(t *testing.T) {
 // back into it on their own. Both facts must still be present, and true, but
 // must not be joined so one implies the other.
 func TestAskRemoveDoesNotPromiseConversationsComeBack(t *testing.T) {
-	h := RenderList([]ProfileVM{{Folder: "Claude", Name: "Some name", Convos: 34, SignedIn: true}}, false, "")
+	h := RenderList([]ProfileVM{{Folder: "Claude", Name: "Some name", Convos: 34, SignedIn: true}}, false, "", nil)
 	fn := jsFunctions(h)["askRemove"]
 	if strings.Contains(fn, "not deleted, and you can add it back") {
 		t.Fatalf("the kept fact and the sign-in-again fact must not be joined into one implying sentence:\n%s", fn)
@@ -1108,7 +1108,7 @@ func TestRemoveConfirmationHasNoWarningBlock(t *testing.T) {
 	h := RenderList([]ProfileVM{
 		{Folder: "Claude", Name: "Some name", Convos: 3, SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if !strings.Contains(h, `onclick="event.stopPropagation();askRemove(this)"`) {
 		t.Fatalf("precondition: this fixture must actually render a Remove menu item:\n%s", h)
 	}
@@ -1134,7 +1134,7 @@ func TestAskRemoveOpensInformationalDialogForTheAccountInUse(t *testing.T) {
 	h := RenderList([]ProfileVM{
 		{Folder: "Claude_Live", Name: "Live", Convos: 12, Current: true, SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if !strings.Contains(h, `data-current="1"`) {
 		t.Fatalf("precondition: this fixture must render the current account's Remove item:\n%s", h)
 	}
@@ -1155,7 +1155,7 @@ func TestAskRemoveOpensInformationalDialogForTheAccountInUse(t *testing.T) {
 // button with nothing to cancel, and okConfirm, on an informational dialog,
 // closes without calling send at all — there is nothing to confirm.
 func TestInformationalDialogHasNoCancelAndDoesNotSend(t *testing.T) {
-	h := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	h := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	if !strings.Contains(h, `document.getElementById('mcsModalCancel').style.display = action === '' ? 'none' : '';`) {
 		t.Fatalf("askConfirm must hide Cancel for an informational dialog:\n%s", h)
 	}
@@ -1180,7 +1180,7 @@ func TestRemovalIsTheOnlyDestructiveConfirmation(t *testing.T) {
 	h := RenderList([]ProfileVM{
 		{Folder: "Claude_Old", Name: "Old one", Convos: 3, SignedIn: true},
 		{Folder: "Claude_Two", Name: "Two", SignedIn: true},
-	}, false, "")
+	}, false, "", nil)
 	if !strings.Contains(h, `onclick="event.stopPropagation();askRemove(this)"`) {
 		t.Fatalf("precondition: this fixture must actually render a Remove menu item:\n%s", h)
 	}

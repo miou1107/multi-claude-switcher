@@ -89,6 +89,11 @@ var (
 	// holds still while this is set. It is client-side state mirrored here
 	// because only Go knows when a reload is about to happen.
 	panelRenameOpen bool
+	// panelSwitchProgress is the card drawn over the list while a switch runs,
+	// and for a moment after it ends. Held here rather than only in the page so
+	// a panel closed and reopened mid switch comes back showing the switch, not
+	// an idle list while Claude is shut. Nil means no switch is on screen.
+	panelSwitchProgress *panelui.SwitchProgressVM
 
 	panelPlanMu sync.Mutex
 	panelPlan   = map[string]string{}
@@ -326,10 +331,28 @@ func dispatchAction(action, arg string) {
 		if panelGetBusy() {
 			return
 		}
-		panelSetBusy(true, "Closing Claude Desktop and switching…")
+		// The card carries the message now, so the status banner stays empty:
+		// two copies of "switching" on one screen, one of them in the colour
+		// this panel uses for "done", is worse than one.
+		panelSetBusy(true, "")
+		panelSetSwitchProgress(&panelui.SwitchProgressVM{
+			Phase: panelui.SwitchWorking, Target: core.DisplayName(arg),
+		})
 		reloadPanel()
 		go func() {
-			panelSetBusy(false, doSwitchPanel(arg))
+			err := doSwitchPanel(arg)
+			vm := &panelui.SwitchProgressVM{Phase: panelui.SwitchDone, Target: core.DisplayName(arg)}
+			if err != nil {
+				log.Printf("switch to %s failed: %v", arg, err)
+				vm = &panelui.SwitchProgressVM{
+					Phase: panelui.SwitchFailed, Target: core.DisplayName(arg), Err: err.Error(),
+				}
+			}
+			// The card goes up before busy comes down, so there is no instant in
+			// which the panel accepts a second switch while still showing the
+			// first one running.
+			panelSetSwitchProgress(vm)
+			panelSetBusy(false, "")
 			reloadPanel()
 		}()
 	case "showRescan":
@@ -767,7 +790,7 @@ func reloadPanel() {
 			// outcome is unknown.
 			panelSetStatus(planErr.Error())
 			panelSetView("list")
-			htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus())
+			htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus(), panelGetSwitchProgress())
 			break
 		}
 		htmlStr = panelui.RenderMerge(a, b, plan, panelGetStatus(), panelGetBusy())
@@ -798,7 +821,7 @@ func reloadPanel() {
 			Status:  panelGetStatus(),
 		})
 	default:
-		htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus())
+		htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus(), panelGetSwitchProgress())
 	}
 	panelWV.Dispatch(func() { panelWV.SetHtml(htmlStr) })
 }
@@ -810,7 +833,24 @@ func panelSetView(v string) {
 	// markup, which is gone. Clearing it here rather than in each caller is what
 	// stops a stuck flag freezing the list for good.
 	panelRenameOpen = false
+	// Same reason as the rename editor above: the card belongs to the list it
+	// was drawn over. Navigating away, including the list's own auto dismiss,
+	// is what takes it down.
+	panelSwitchProgress = nil
 	panelMu.Unlock()
+}
+
+// panelSetSwitchProgress puts up, updates or takes down the switch card.
+func panelSetSwitchProgress(vm *panelui.SwitchProgressVM) {
+	panelMu.Lock()
+	panelSwitchProgress = vm
+	panelMu.Unlock()
+}
+
+func panelGetSwitchProgress() *panelui.SwitchProgressVM {
+	panelMu.Lock()
+	defer panelMu.Unlock()
+	return panelSwitchProgress
 }
 
 func panelSetStatus(s string) {
@@ -1075,15 +1115,15 @@ func panelCachedPlan(path string) string {
 }
 
 // doSwitchPanel closes the running Claude and reopens it with the target
-// account, returning the status line for the panel.
+// account, and reports whether it worked.
 //
 // The error SafeSwitch returns used to be discarded here, and that is how a
 // switch that had actually failed — a rename that never landed, a profile left
 // parked under .mcs-profiles — looked exactly like one that worked. The user
 // found out later, from an account list that had gone strange. Report it.
-func doSwitchPanel(folder string) string {
+func doSwitchPanel(folder string) error {
 	if folder == "" {
-		return ""
+		return fmt.Errorf("no account was named")
 	}
 	profiles := panelMustFindProfiles()
 	var target *platform.ProfileInfo
@@ -1094,13 +1134,9 @@ func doSwitchPanel(folder string) string {
 		}
 	}
 	if target == nil {
-		return "Switch failed: account not found."
+		return fmt.Errorf("that account is no longer there. Run Rescan")
 	}
-	if err := panelSwitcher.SafeSwitch(panelSourceProfilePath(target.Path, profiles), target.Path, target.Name); err != nil {
-		log.Printf("switch to %s failed: %v", folder, err)
-		return "Switch failed: " + err.Error()
-	}
-	return "✓ Switched to " + core.DisplayName(folder) + "."
+	return panelSwitcher.SafeSwitch(panelSourceProfilePath(target.Path, profiles), target.Path, target.Name)
 }
 
 func panelSourceProfilePath(targetPath string, profiles []*platform.ProfileInfo) string {

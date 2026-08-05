@@ -93,7 +93,11 @@ menu bar or the Windows system tray. Click it and the panel appears.
 The panel lists your accounts with their plan and marks the one you are on.
 Click a different one, confirm, and Claude Desktop restarts on it. That restart
 is unavoidable: Claude Desktop reads its account data once, at launch, so there
-is no way to move a running instance to a different account.
+is no way to move a running instance to a different account. While that is
+happening the panel shows a card in place of the confirmation, so you can see
+the switch is running rather than wondering whether the click registered. It
+tells you when you are on the new account, and if the switch failed it says so
+and why.
 
 **Rescan** finds accounts already on the machine, including any you have not
 signed into yet. **Change name** and **Remove from list** both live behind the

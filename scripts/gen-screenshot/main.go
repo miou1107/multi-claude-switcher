@@ -39,7 +39,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: gen-screenshot <output.html>")
 		os.Exit(2)
 	}
-	if err := os.WriteFile(os.Args[1], []byte(panelui.RenderList(accounts, false, "")), 0o644); err != nil {
+	if err := os.WriteFile(os.Args[1], []byte(panelui.RenderList(accounts, false, "", nil)), 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

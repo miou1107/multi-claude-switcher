@@ -155,7 +155,7 @@ func TestEmDashGuardCatchesTextInsideTheOldBlindWindow(t *testing.T) {
 // script — askRemove moved there with the row menu that replaced the deleted
 // Account settings screen); askReport on RenderDebug.
 func TestEmDashGuardCoversTheFourDialogHelpers(t *testing.T) {
-	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
+	list := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "", nil)
 	debug := RenderDebug(DebugVM{Report: "MCS 0.11.2"})
 
 	cases := []struct{ name, html, from, to string }{
@@ -228,10 +228,10 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		{Folder: "Claude_new", Name: "New one", SignedIn: false},
 		// Two profiles sharing a UUID: the duplicate-account warning banner.
 		{Folder: "Claude_dup", Name: "Work", Plan: "Pro", Convos: 1, SignedIn: true, UUID: "dup-uuid"},
-	}, true, "Backed up 3 accounts")
+	}, true, "Backed up 3 accounts", nil)
 	// The empty list has its own copy ("No managed accounts yet…") that a
 	// non-empty list can never reach in the same call.
-	listEmpty := RenderList(nil, false, "")
+	listEmpty := RenderList(nil, false, "", nil)
 
 	newProfile := RenderNewProfile(NewProfileVM{SuggestedName: "Work", Convos: 0, Err: "That name is already taken"})
 	// RecoverUUID switches the title, subtitle and hint text to the recovery
@@ -288,6 +288,20 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 			"The switcher's own account list still mentions it. Nothing needs doing: the panel only shows accounts whose folder is still there. (write managed.json: permission denied)\n" +
 			"Its name is still recorded as \"Old one\". If you sign in to this account again later it will come back under that name, which you can change with Rename. (write names.json: permission denied)"})
 
+	// The switch card's three phases are mutually exclusive in one call, so each
+	// gets its own entry. The failed one carries a real SafeSwitch message
+	// rather than a paraphrase, for the same reason removedFailed above does:
+	// this screen prints the error verbatim, so a trimmed stand-in trims the
+	// part worth checking. The done card is the only one that names the
+	// account, and the working card the only one with no way out of it.
+	switchWorking := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchWorking, Target: "Work"})
+	switchDone := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchDone, Target: "Work"})
+	switchFailed := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchFailed, Target: "Work",
+		Err: "can't switch to Claude_Old: no profile folder there"})
+	// Failure with nothing to report takes the other branch: the card falls back
+	// to its own sentence, which no other fixture here can reach.
+	switchFailedNoMessage := RenderList(nil, false, "", &SwitchProgressVM{Phase: SwitchFailed})
+
 	views := map[string]string{
 		"debug":                 RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "typed", Status: "Copied"}),
 		"settings":              RenderSettings(SettingsVM{Version: "0.11.2", Status: "Backed up", AutoSync: true, StartLogin: true}),
@@ -302,6 +316,10 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		"sync_empty":            syncEmpty,
 		"removed_failed":        removedFailed,
 		"removed_registry_note": removedWithRegistryNote,
+		"switch_working":        switchWorking,
+		"switch_done":           switchDone,
+		"switch_failed":         switchFailed,
+		"switch_failed_bare":    switchFailedNoMessage,
 	}
 	for name, h := range views {
 		for _, v := range emDashViolations(h) {
