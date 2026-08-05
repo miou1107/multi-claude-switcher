@@ -82,7 +82,7 @@
 - `cmd/mcs-tray/relaunch_unix.go` — Self-update relaunch detach on Unix (own process group via Setpgid).
 - `cmd/mcs-tray/relaunch_windows.go` — Self-update relaunch detach on Windows (CREATE_NEW_PROCESS_GROUP).
 - `cmd/mcs-tray/hidewindow_windows.go` — Windows helper: launch a spawned console helper (powershell/tasklist) with CREATE_NO_WINDOW so no console window flashes.
-- `cmd/mcs-tray/profiles_windows.go` — Windows-only tray flow: "New account profile…" (Store build) — save the current account and open a fresh Claude to sign into another, then relaunch the tray.
+- `cmd/mcs-tray/profiles_windows.go` — Windows-only tray flow: "New account profile…" (Store build) — save the current account and open a fresh Claude to sign into another, then relaunch the tray. Also holds `newProfileSupported`, which now reports true on both Windows builds: the panel's "Add another account" runs through `ProfileCreator`, whose `CreateProfile` has had a working standalone branch for some time.
 - `cmd/mcs-tray/profiles_other.go` — Non-Windows no-ops for the new-profile flow (macOS standalone profiles are ordinary sibling data dirs).
 - `cmd/mcs-tray/openurl_windows.go` — Windows helper to open a URL in the default browser (the updater's fallback: opens the releases page when a manual check cannot install on its own).
 - `cmd/mcs-tray/rescan.go` — "Rescan accounts" tray handler: launches the mcs-picker window helper, persists the chosen managed set, and rebuilds the menu.

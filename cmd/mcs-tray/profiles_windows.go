@@ -18,10 +18,20 @@ import (
 // few seconds and handles whatever is currently queued, so a second is redundant.
 var migrationWatcherRunning atomic.Bool
 
-// newProfileSupported reports whether the "New account profile…" action applies.
-// It does only for the Store/MSIX build, whose profiles MCS creates and manages
-// (the standalone build's profiles are just sibling data dirs the user picks).
-func newProfileSupported() bool { return platform.MSIXAvailable() }
+// newProfileSupported reports whether "Add another account" applies. It does on
+// both Windows builds, as it already did on macOS.
+//
+// This was MSIXAvailable() until the standalone half caught up, and stayed that
+// way after it had. WindowsPlatform.CreateProfile grew a standalone branch that
+// makes %APPDATA%\Claude_<name>, and the recover-a-ghost-account flow has been
+// calling it through this same ProfileCreator on standalone installs ever since,
+// ungated — a plain add is that same sequence minus the copy step. So the gate
+// was hiding the entry point to a path the app was already running.
+//
+// What it cost: a standalone user with two accounts had no way to add the second
+// from the panel at all, and #14's "make a throwaway account and remove it"
+// cannot be carried out on a standalone install while this reads MSIXAvailable.
+func newProfileSupported() bool { return true }
 
 // newProfileMenuLabel is the menu text for the create-profile action (Store build).
 func newProfileMenuLabel() string { return "New account profile…" }

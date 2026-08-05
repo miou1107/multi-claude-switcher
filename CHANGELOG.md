@@ -8,6 +8,20 @@ have been found by building for Windows from a Mac, which is all the evidence
 any of this code had.
 
 ### Fixed
+- **"Add another account" was missing on Windows standalone installs.** The
+  panel gated the card on `MSIXAvailable()`, so it appeared only on the Store
+  build — a standalone user with two Claude accounts had no way to add the
+  second from the panel at all, while macOS has offered it all along. The gate
+  was stale rather than deliberate: `WindowsPlatform.CreateProfile` grew a
+  standalone branch that makes `%APPDATA%\Claude_<name>`, and the
+  recover-a-ghost-account flow has been calling it through the same
+  `ProfileCreator` on standalone installs ever since, ungated. A plain add is
+  that sequence minus the copy step, so the gate was hiding the entry point to a
+  path the app was already running. Verified on a standalone install by running
+  the real create sequence with only the two steps that would close Claude
+  Desktop stubbed: the folder, the awaiting-sign-in registry entry and the
+  display name all landed correctly. The standalone branch also had no test of
+  its own — only the MSIX one did — so it has two now.
 - **The bug report's first line was not valid UTF-8 on any non-English Windows.**
   The OS version came from `cmd /c ver`, which answers in the console code page,
   so a Traditional Chinese machine put the CP950 bytes for 版本 straight into the
