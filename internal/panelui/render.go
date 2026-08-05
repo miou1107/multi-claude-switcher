@@ -145,6 +145,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .toggle::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .toggle.on::after{left:21px}
 .about{text-align:center;font-size:11.5px;color:#8b8598;margin-top:14px}
+/* The footer carries the version and the two actions nobody performs daily.
+   They are links rather than buttons on purpose: a button says "press me",
+   and checking for updates or filing a bug is not what somebody opened this
+   screen to do. */
+.about{display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap}
+.about .sep{opacity:.35}
+.aboutlink{color:#6b6480;text-decoration:none;cursor:pointer}
+.aboutlink:hover{text-decoration:underline}
+.aboutlink.off{opacity:.45;cursor:default;text-decoration:none}
+/* A chevron means the row opens another screen, mirroring the back button's
+   own arrow. Rows that act rather than navigate carry nothing. */
+.chev{float:right;color:#b3aec0;font-weight:400}
 .status{background:#e3f3e8;color:#1a7a3d;font-size:12.5px;font-weight:600;padding:9px 13px;border-radius:11px;margin-bottom:11px;text-align:center}
 .rninput{width:100%;font:inherit;font-size:15px;padding:13px 15px;border:2px solid #e0dcf3;border-radius:14px;background:#fff;color:#241f38;outline:none}
 .rninput:focus{border-color:#7c6cf0}
@@ -694,6 +706,14 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 }
 
 // SettingsVM holds the state shown in the Settings view.
+// MoreVM is the More screen's state: the same transient banner and busy flag
+// the Settings screen carries, since the backup that used to live there lives
+// here now.
+type MoreVM struct {
+	Status string
+	Busy   bool
+}
+
 type SettingsVM struct {
 	AutoSync   bool
 	StartLogin bool
@@ -716,16 +736,13 @@ func RenderSettings(vm SettingsVM) string {
 	if vm.Status != "" {
 		status = `<div class="status">` + html.EscapeString(vm.Status) + `</div>`
 	}
-	// While a maintenance action runs, disable both maintenance buttons; the
-	// status banner says which one is in progress.
-	dis := ""
-	on := func(action string) string { return `onclick="send('` + action + `','')"` }
+	// The update check is disabled while a maintenance action runs, the same as
+	// the button it used to be. As a link that means greying it and dropping the
+	// handler, since a link has no disabled attribute to honour.
+	update := `<a class="aboutlink" onclick="send('checkUpdates','')">Check for updates</a>`
 	if vm.Busy {
-		dis = " disabled"
-		on = func(string) string { return "" }
+		update = `<span class="aboutlink off">Check for updates</span>`
 	}
-	backupBtn := `<button class="sbtn"` + dis + ` ` + on("backup") + `>Back up all accounts</button>`
-	updateBtn := `<button class="sbtn"` + dis + ` ` + on("checkUpdates") + `>Check for updates…</button>`
 	body := `<div class="header">
   <button class="back" onclick="send('showList','')">‹</button>
   <div class="htext"><h1>Settings</h1><p>Preferences and maintenance</p></div>
@@ -735,40 +752,56 @@ func RenderSettings(vm SettingsVM) string {
     <div class="` + toggleClass(vm.AutoSync) + `" onclick="send('toggleAutoSync','')"></div></div>
   <div class="srow"><div class="slabel"><div class="t">Start at login</div><div class="s">Launch Multi-Claude Switcher when you log in</div></div>
     <div class="` + toggleClass(vm.StartLogin) + `" onclick="send('toggleLogin','')"></div></div>
-  <button class="sbtn" onclick="send('showSync','')">Sync sessions…</button>
-  ` + backupBtn + `
-  ` + updateBtn + `
-  <button class="sbtn" onclick="send('openLog','')">Open log folder</button>
-  <button class="sbtn" onclick="send('openBackups','')">Open backup folder</button>
-  <button class="sbtn" onclick="send('openArchive','')">Open archive folder</button>
-  <button class="sbtn" onclick="send('showDebug','')">Debug info…</button>
+  <button class="sbtn" onclick="send('showMore','')">More<span class="chev">›</span></button>
   <button class="sbtn danger" onclick="send('quit','')">Quit Multi-Claude Switcher</button>
 </div>
-<div class="about">v` + html.EscapeString(vm.Version) + `</div>`
+<div class="about">
+  <span>v` + html.EscapeString(vm.Version) + `</span>
+  <span class="sep">·</span>
+  ` + update + `
+  <span class="sep">·</span>
+  <a class="aboutlink" onclick="send('showDebug','')">Report a bug</a>
+</div>`
 	return shell(body)
 }
 
-// DebugVM is the Debug info view: what MCS knows about this machine, already
-// masked, and a box to say what went wrong.
+// RenderMore is everything that acts on conversation data, gathered off the
+// Settings screen so what remains there is what a person actually adjusts.
 //
-// There used to be a Gathering flag here, for the window between showDebug
-// clearing the report cache and the background gather filling it back in.
-// That window no longer reaches this view at all: showDebug now gathers
-// first, while Settings shows a busy banner, and only switches to this view
-// once the report is ready — so RenderDebug is never asked to draw a report
-// that has not finished gathering, and there is nothing left for a
-// placeholder to guard against.
+// Named More rather than Conversations, which was tried first: one of these
+// four opens the archive folder, which holds removed accounts rather than
+// conversations, so the more descriptive name was the less accurate one.
+func RenderMore(vm MoreVM) string {
+	status := ""
+	if vm.Status != "" {
+		status = `<div class="status">` + html.EscapeString(vm.Status) + `</div>`
+	}
+	// The backup is the one thing here that takes time, so it is the one thing
+	// disabled while a maintenance action runs. The folder shortcuts and the
+	// sync screen are safe to reach at any moment.
+	backup := `<button class="sbtn" onclick="send('backup','')">Back up all accounts</button>`
+	if vm.Busy {
+		backup = `<button class="sbtn" disabled>Back up all accounts</button>`
+	}
+	body := `<div class="header">
+  <button class="back" onclick="send('showSettings','')">‹</button>
+  <div class="htext"><h1>More</h1><p>Sync, backups, and where things are kept</p></div>
+</div>` + status + `
+<div class="slist">
+  <button class="sbtn" onclick="send('showSync','')">Sync between accounts<span class="chev">›</span></button>
+  ` + backup + `
+  <button class="sbtn" onclick="send('openBackups','')">Open backup folder</button>
+  <button class="sbtn" onclick="send('openArchive','')">Open archive folder</button>
+</div>`
+	return shell(body)
+}
+
 type DebugVM struct {
 	Report  string
 	Comment string
 	Status  string // transient feedback, e.g. after Copy
 }
 
-// RenderDebug shows the report before it goes anywhere.
-//
-// There is no unmask switch and no "include the log" checkbox, so what is on
-// screen is exactly what is copied — one version of the truth, and no way to
-// publish something the user was not shown.
 func RenderDebug(vm DebugVM) string {
 	esc := html.EscapeString
 	status := ""
@@ -778,7 +811,7 @@ func RenderDebug(vm DebugVM) string {
 	reportBox := `<div class="dbgbox">` + esc(vm.Report) + `</div>`
 	body := `<div class="header">
   <button class="back" onclick="send('showSettings', document.getElementById('dbgc').value)">‹</button>
-  <div class="htext"><h1>Debug info</h1><p>Exactly what a report contains</p></div>
+  <div class="htext"><h1>Report a bug</h1><p>Exactly what a report contains</p></div>
 </div>` + status + `
 <div class="dbgnote">Your email address, account IDs, user name and home folder are replaced with stand-ins like account-1 below. A name you gave a profile folder yourself can still show. ` + esc(diagnostics.UnregisteredMarker) + ` marks something that looked like an address or an ID and was blocked.</div>
 ` + reportBox + `

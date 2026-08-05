@@ -51,7 +51,7 @@ var (
 	// how those three interact. It lives in internal/panelui so this host and the
 	// macOS one cannot drift: every rule in it was learned from a defect in one
 	// of them. Views: "list" | "rescan" | "settings" | "sync" | "newprofile" |
-	// "merge" | "removed" | "debug".
+	// "merge" | "removed" | "debug" | "more".
 	//
 	// No sticky observer here. That hook exists for the macOS popover, which has
 	// to be told whether it may close itself; this host decides the equivalent by
@@ -371,6 +371,10 @@ func dispatchAction(action, arg string) {
 		panelState.SetView("settings")
 		panelSetStatus("")
 		reloadPanel()
+	case "showMore":
+		panelState.SetView("more")
+		panelSetStatus("")
+		reloadPanel()
 	case "showSync":
 		panelState.SetView("sync")
 		panelSetStatus("")
@@ -513,8 +517,6 @@ func dispatchAction(action, arg string) {
 			}
 			reloadPanel()
 		}()
-	case "openLog":
-		_ = exec.Command("explorer.exe", core.LogDir()).Start()
 	case "openBackups":
 		home, _ := os.UserHomeDir()
 		_ = exec.Command("explorer.exe", filepath.Join(home, ".multi-claude-switcher", "backups")).Start()
@@ -764,6 +766,8 @@ func reloadPanel() {
 	case "rescan":
 		accounts := core.ScanAccounts(panelMustFindProfiles(), core.LoadPending())
 		htmlStr = panelui.RenderRescan(accounts, panelui.ComputePreselect(accounts, core.LoadManaged()))
+	case "more":
+		htmlStr = panelui.RenderMore(panelui.MoreVM{Status: panelGetStatus(), Busy: panelGetBusy()})
 	case "sync":
 		htmlStr = panelui.RenderSync(panelBuildProfiles(), panelGetStatus(), panelGetBusy())
 	case "newprofile":

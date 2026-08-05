@@ -929,13 +929,119 @@ func TestRenderMergeBusyDisablesTheAction(t *testing.T) {
 	}
 }
 
-func TestRenderSettingsOffersTheArchiveFolder(t *testing.T) {
-	html := RenderSettings(SettingsVM{Version: "0.11.0"})
+// Merged-away profiles have to stay findable. The shortcut moved from Settings
+// to More when Settings was slimmed; what must not happen is it disappearing.
+func TestMoreOffersTheArchiveFolder(t *testing.T) {
+	html := RenderMore(MoreVM{})
 	if !strings.Contains(html, "Open archive folder") {
 		t.Fatalf("merged-away profiles have to be findable:\n%s", html)
 	}
 	if !strings.Contains(html, "send('openArchive'") {
 		t.Fatalf("want the openArchive action:\n%s", html)
+	}
+}
+
+// Settings holds what a person adjusts. Everything that acts on conversation
+// data moved to More, and the two rare actions became footer links.
+func TestSettingsHoldsOnlyWhatItShould(t *testing.T) {
+	html := RenderSettings(SettingsVM{Version: "0.13.2"})
+	for _, want := range []string{
+		"send('toggleAutoSync'", "send('toggleLogin'",
+		"send('showMore'", "send('quit'",
+		"send('checkUpdates'", "send('showDebug'",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("Settings no longer offers %s:\n%s", want, html)
+		}
+	}
+	for _, gone := range []string{
+		"send('showSync'", "send('backup'", "send('openBackups'", "send('openArchive'", "send('openLog'",
+	} {
+		if strings.Contains(html, gone) {
+			t.Errorf("Settings still offers %s, which moved to More or was removed", gone)
+		}
+	}
+}
+
+func TestMoreHoldsExactlyTheFourThatMoved(t *testing.T) {
+	html := RenderMore(MoreVM{})
+	for _, want := range []string{
+		"send('showSync'", "send('backup'", "send('openBackups'", "send('openArchive'",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("More does not offer %s:\n%s", want, html)
+		}
+	}
+	// And a way back, or the screen is a dead end. Matched on the back button
+	// itself, not on the action name: the shell's own Escape handler also sends
+	// showSettings, so a looser check passes even with the button gone.
+	if !strings.Contains(html, `<button class="back" onclick="send('showSettings','')">`) {
+		t.Errorf("More has no back button:\n%s", html)
+	}
+}
+
+// The log folder shortcut was removed outright: the last lines of every log
+// already travel inside the bug report, which is why anyone opened it.
+func TestNoScreenOffersTheLogFolder(t *testing.T) {
+	for name, html := range map[string]string{
+		"settings": RenderSettings(SettingsVM{Version: "0.13.2"}),
+		"more":     RenderMore(MoreVM{}),
+		"debug":    RenderDebug(DebugVM{Report: "x"}),
+	} {
+		if strings.Contains(html, "openLog") {
+			t.Errorf("the %s screen still offers the log folder", name)
+		}
+	}
+}
+
+// A chevron means the row opens another screen. Rows that act carry none, or
+// the mark stops meaning anything.
+func TestChevronsMarkNavigationOnly(t *testing.T) {
+	settings := RenderSettings(SettingsVM{Version: "0.13.2"})
+	if strings.Count(settings, `class="chev"`) != 1 {
+		t.Errorf("Settings should carry exactly one chevron, on More:\n%s", settings)
+	}
+	if !strings.Contains(settings, `send('showMore','')">More<span class="chev">`) {
+		t.Error("the chevron is not on the More row")
+	}
+	more := RenderMore(MoreVM{})
+	if strings.Count(more, `class="chev"`) != 1 {
+		t.Errorf("More should carry exactly one chevron, on the sync row:\n%s", more)
+	}
+	if !strings.Contains(more, `send('showSync','')">Sync between accounts<span class="chev">`) {
+		t.Error("the chevron is not on the sync row")
+	}
+}
+
+// Busy disables the two things that take time and nothing else. A user cannot
+// be locked out of quitting or of reading the bug report because a backup is
+// running.
+func TestBusyDisablesOnlyTheSlowActions(t *testing.T) {
+	settings := RenderSettings(SettingsVM{Version: "0.13.2", Busy: true})
+	if strings.Contains(settings, `send('checkUpdates'`) {
+		t.Error("the update check is still live while busy")
+	}
+	for _, live := range []string{"send('quit'", "send('showDebug'", "send('showMore'"} {
+		if !strings.Contains(settings, live) {
+			t.Errorf("%s was disabled by busy and should not have been", live)
+		}
+	}
+	more := RenderMore(MoreVM{Busy: true})
+	if strings.Contains(more, `send('backup'`) {
+		t.Error("the backup is still live while busy")
+	}
+	for _, live := range []string{"send('showSync'", "send('openBackups'", "send('openArchive'"} {
+		if !strings.Contains(more, live) {
+			t.Errorf("%s was disabled by busy and should not have been", live)
+		}
+	}
+}
+
+// The screen is named for what it is for, not for what it shows.
+func TestTheBugReportScreenIsNamedForReporting(t *testing.T) {
+	html := RenderDebug(DebugVM{Report: "x"})
+	if !strings.Contains(html, "<h1>Report a bug</h1>") {
+		t.Errorf("the heading still says something else:\n%s", html)
 	}
 }
 

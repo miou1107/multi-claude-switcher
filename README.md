@@ -123,8 +123,9 @@ back on the account list with a banner saying so; a removal that could not go
 through, or that went through but left something behind, still gets its own
 screen with the reason.
 
-**Settings** holds the two toggles, a manual backup, update check, shortcuts to
-the log, backup, and archive folders, and Quit.
+**Settings** holds the two toggles, a **More** screen (sync between accounts,
+back up, and the backup and archive folders), and Quit. The version line at the
+bottom also checks for updates and opens a bug report.
 
 Press **Esc** or click outside to close the panel. On Windows the tray icon
 toggles it, and right-clicking gives you **Quit**, which is your way out if the
