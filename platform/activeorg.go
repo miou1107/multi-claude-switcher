@@ -72,3 +72,41 @@ func GetProfileActiveOrgUUID(profilePath string) (string, error) {
 	}
 	return best, nil
 }
+
+// GetProfileSignedInOrgs returns every organization this profile has been
+// signed into, as recorded by its own allowlist stamps.
+//
+// It exists because the ACTIVE organization is a heuristic (the newest stamp)
+// while membership is not: a stamp is written when a profile is signed into an
+// organization, so an organization with no stamp is one this profile has never
+// opened and therefore cannot be the one Claude is reading right now.
+//
+// That distinction is what makes the misfiled-conversation cleanup safe. The
+// pre-0.11.2 sync defect copied conversations in under the SOURCE profile's
+// organization, which the target profile had typically never joined, so the
+// folders it created are exactly the ones with no stamp. Relying on the active
+// organization alone would mean trusting the heuristic to be right about which
+// folder is live, and being wrong there would move conversations out of the
+// folder the user is working in.
+//
+// Unlike GetProfileActiveOrgUUID this does not care when a stamp was written,
+// only that one exists, so a malformed timestamp still counts as membership.
+// Erring towards "this profile has been here" is the safe direction for every
+// caller.
+func GetProfileSignedInOrgs(profilePath string) (map[string]bool, error) {
+	data, err := os.ReadFile(GetProfileConfigPath(profilePath))
+	if err != nil {
+		return nil, fmt.Errorf("read config.json for %s: %w", profilePath, err)
+	}
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parse config.json for %s: %w", profilePath, err)
+	}
+	out := map[string]bool{}
+	for key := range cfg {
+		if org, ok := strings.CutPrefix(key, allowlistStampPrefix); ok && org != "" {
+			out[org] = true
+		}
+	}
+	return out, nil
+}

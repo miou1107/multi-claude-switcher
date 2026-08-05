@@ -48,6 +48,7 @@ func Gather(profiles []*platform.ProfileInfo, plat platform.Platform, osVersion,
 	usage := core.NewBackupManager("").Usage()
 	in.BackupCount, in.BackupBytes = usage.Snapshots, usage.Bytes
 	in.BackupStaged, in.BackupStagedBytes = usage.Staged, usage.StagedBytes
+	in.BackupOther, in.BackupOtherBytes = usage.Other, usage.OtherBytes
 	in.BackupReadErr = usage.Err
 
 	in.Home, _ = os.UserHomeDir()

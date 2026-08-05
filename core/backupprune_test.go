@@ -621,3 +621,34 @@ func TestAFreshlyStagedSnapshotSurvivesItsOwnPruneRun(t *testing.T) {
 		t.Errorf("staged %v, want all 4 to still be there", names)
 	}
 }
+
+// Directories MCS did not name as snapshots are counted, and so are their
+// bytes. The tidied-<date> folders the misfiled-conversation cleanup writes
+// live here, and without their bytes the Debug screen under-reports the folder
+// by exactly what that cleanup put in it.
+func TestUsageCountsFoldersItDidNotName(t *testing.T) {
+	root := t.TempDir()
+	write := func(dir, name string, size int) {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, dir, name), make([]byte, size), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("Claude_20260805_120000", "a.json", 100)
+	write("tidied-20260805", "b.json", 250)
+	write("org-cleanup-2026-08-04", "c.json", 50)
+	write(filepath.Join(".trash", "20260701-Claude_20260601_120000"), "d.json", 30)
+
+	u := (&BackupManager{BackupRootDir: root}).Usage()
+	if u.Snapshots != 1 || u.Bytes != 100 {
+		t.Errorf("snapshots=%d bytes=%d, want 1 and 100", u.Snapshots, u.Bytes)
+	}
+	if u.Staged != 1 || u.StagedBytes != 30 {
+		t.Errorf("staged=%d stagedBytes=%d, want 1 and 30", u.Staged, u.StagedBytes)
+	}
+	if u.Other != 2 || u.OtherBytes != 300 {
+		t.Errorf("other=%d otherBytes=%d, want 2 and 300 (the tidied folder and the hand-made one)", u.Other, u.OtherBytes)
+	}
+}

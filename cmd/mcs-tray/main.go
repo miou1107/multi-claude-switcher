@@ -50,6 +50,7 @@ func main() {
 	plat = platform.New()
 	bm = core.NewBackupManager("")
 	switcher = core.NewSwitcher(plat, bm)
+	core.StartTidyMisfiled(plat) // one-off cleanup of what the pre-0.11.2 sync misfiled
 
 	systray.Run(onReady, onExit)
 }
