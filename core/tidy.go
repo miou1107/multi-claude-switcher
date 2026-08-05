@@ -1,11 +1,14 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/miou1107/multi-claude-switcher/platform"
@@ -34,6 +37,7 @@ type bucket struct {
 type bucketFile struct {
 	Rel   string
 	MTime time.Time
+	Size  int64
 }
 
 // profileSessions is everything the decision needs to know about one profile.
@@ -55,7 +59,12 @@ type profileSessions struct {
 	Path      string
 	Read      bucket
 	ReadKnown bool
-	Buckets   map[bucket][]bucketFile
+	// SignedInOrgs is every organization this profile has an allowlist stamp
+	// for, i.e. every one it has been signed into. Membership is a fact read
+	// from config.json; which of them is ACTIVE is a heuristic. The difference
+	// is the whole safety argument, see tidyCandidates.
+	SignedInOrgs map[string]bool
+	Buckets      map[bucket][]bucketFile
 }
 
 // tidyMove is one file to relocate.
@@ -86,10 +95,53 @@ func newestIn(files []bucketFile) (time.Time, bool) {
 // readBucketLooksRight reports whether the bucket believed to be read behaves
 // like one at all: it must exist and hold something. A profile in use has
 // conversations in the folder Claude opens, and an empty one means the record
-// naming it is not describing this profile's reality.
+// naming it is not describing this profile.
 func readBucketLooksRight(ps profileSessions) bool {
 	_, ok := newestIn(ps.Buckets[ps.Read])
 	return ok
+}
+
+// safeToMoveFrom reports whether a bucket is one this profile cannot possibly
+// be reading right now.
+//
+// This is the guard against the worst outcome available here, and it is the
+// second attempt. The first compared how recently each folder had been written
+// and was wrong: in the very scenario it was written for, the folder the
+// heuristic wrongly names is the one the last launch wrote to, which is the
+// causal reason its stamp is newest. Shifting the reproduction by one second
+// brought the data loss straight back. A second heuristic drawn from the same
+// signal cannot correct the first.
+//
+// What works is that the two segments of a bucket are not equally certain:
+//
+//   - The ACCOUNT is read straight out of config.json's lastKnownAccountUuid.
+//     It is a recorded fact. A bucket for any other account cannot be the one
+//     Claude is reading, whatever else is true.
+//   - The ORGANIZATION is a guess: GetProfileActiveOrgUUID takes the newest
+//     allowlist stamp, and someone who switches organization in-app without
+//     relaunching leaves that stamp naming the previous one. But MEMBERSHIP is
+//     not a guess. A stamp exists because this profile was signed into that
+//     organization, so an organization with NO stamp is one it has never
+//     opened and cannot be reading.
+//
+// So: any bucket under another account is safe, and a bucket under this
+// profile's own account is safe only if this profile has never been signed into
+// that organization.
+//
+// That is not a compromise, it is a description of the defect. The pre-0.11.2
+// sync copied conversations in under the SOURCE profile's organization, which
+// the target had typically never joined, so the folders it created are exactly
+// the ones with no stamp.
+//
+// The cost is real and was weighed: an organization this profile HAS been in,
+// holding conversations it no longer reads, is left alone. On the machine
+// measured that is 122 of 564 files. The alternative is a rule that cannot tell
+// that folder from the one the user is working in.
+func safeToMoveFrom(ps profileSessions, b bucket) bool {
+	if b.Account != ps.Read.Account {
+		return true
+	}
+	return !ps.SignedInOrgs[b.Org]
 }
 
 // tidyCandidates returns the files that may be moved out of the buckets no
@@ -130,28 +182,8 @@ func tidyCandidates(profiles []profileSessions) []tidyMove {
 		if !p.ReadKnown {
 			continue
 		}
-		readNewest, _ := newestIn(p.Buckets[p.Read])
 		for b, files := range p.Buckets {
-			if b == p.Read {
-				continue
-			}
-			// The whole bucket must be older than the last thing written to the
-			// folder this profile reads. This is the guard against the worst
-			// thing here: GetProfileActiveOrgUUID is a heuristic over a private
-			// format, and someone who launches into one organization and
-			// switches to another in-app without relaunching leaves the stamp
-			// naming the wrong one. Being wrong there is supposed to cost
-			// visibility and never data (platform/activeorg.go says so), but the
-			// pre-0.11.2 defect put the same conversation names under both
-			// organizations of one account, and copyFile preserves modification
-			// times, so every file in the genuinely live folder has an
-			// equal-time counterpart in the believed-read one and would qualify.
-			// The live organization would empty.
-			//
-			// A folder that stopped receiving writes before v0.11.2 shipped is
-			// unambiguously older than one in use. A folder that is not is not
-			// safe to call abandoned, whichever the stamp names.
-			if newest, any := newestIn(files); !any || !newest.Before(readNewest) {
+			if b == p.Read || !safeToMoveFrom(p, b) {
 				continue
 			}
 			for _, f := range files {
@@ -195,7 +227,11 @@ func TidyMisfiled(profiles []*platform.ProfileInfo, backupRoot string) {
 	var done []tidyMove
 	for _, m := range moves {
 		src := filepath.Join(m.ProfilePath, "claude-code-sessions", m.Bucket.Account, m.Bucket.Org, m.Rel)
-		dst := filepath.Join(dest, m.Profile, m.Bucket.Account, m.Bucket.Org, m.Rel)
+		// Keyed by the path, not the display name. Two Windows Store entries
+		// can share a name, and both were fed by the same defective sync, so
+		// their strays collide on exactly the paths they have in common: one
+		// profile's copy would fail to move on every run, forever.
+		dst := filepath.Join(dest, destDirFor(m), m.Bucket.Account, m.Bucket.Org, m.Rel)
 		if err := moveFileInto(src, dst, m.Scanned); err != nil {
 			log.Printf("[Tidy] could not move %s: %v", m.Rel, err)
 			skipped++
@@ -216,6 +252,14 @@ func TidyMisfiled(profiles []*platform.ProfileInfo, backupRoot string) {
 	}
 	log.Printf("[Tidy] moved %d conversations no account could read into %s; %d could not be moved", moved, dest, skipped)
 	removeEmptiedBuckets(done)
+}
+
+// destDirFor names a profile's folder inside a tidied run. The display name is
+// what a person reads, with a short digest of the path behind it so two
+// profiles sharing a name cannot share a destination.
+func destDirFor(m tidyMove) string {
+	sum := sha256.Sum256([]byte(m.ProfilePath))
+	return m.Profile + "-" + hex.EncodeToString(sum[:])[:8]
 }
 
 // tidiedDirName is where a run puts what it moves. Not a name parseBackupName
@@ -275,10 +319,18 @@ func scanForTidy(profiles []*platform.ProfileInfo) []profileSessions {
 			out = append(out, ps)
 			continue
 		}
-		ps.Read, ps.ReadKnown = bucket{Account: account, Org: org}, true
+		orgs, orgsErr := platform.GetProfileSignedInOrgs(p.Path)
+		if orgsErr != nil {
+			// Without the membership set every organization looks unvisited,
+			// which is the permissive reading. Fails closed instead.
+			log.Printf("[Tidy] skipping %s, cannot tell which organizations it has been signed into: %v", p.Name, orgsErr)
+			out = append(out, ps)
+			continue
+		}
+		ps.Read, ps.ReadKnown, ps.SignedInOrgs = bucket{Account: account, Org: org}, true, orgs
 
 		if !readBucketLooksRight(ps) {
-			log.Printf("[Tidy] skipping %s: %s/%s is recorded as the folder it reads, but it is empty or another folder has been written more recently, so that record cannot be trusted",
+			log.Printf("[Tidy] skipping %s: %s/%s is recorded as the folder it reads but holds nothing, so that record cannot be trusted",
 				p.Name, account, org)
 			ps.ReadKnown = false
 		}
@@ -297,7 +349,7 @@ func readBucketFiles(dir string) []bucketFile {
 		if relErr != nil {
 			return nil
 		}
-		out = append(out, bucketFile{Rel: filepath.ToSlash(rel), MTime: info.ModTime()})
+		out = append(out, bucketFile{Rel: filepath.ToSlash(rel), MTime: info.ModTime(), Size: info.Size()})
 		return nil
 	})
 	return out
@@ -322,7 +374,11 @@ func moveFileInto(src, dst string, scanned bucketFile) error {
 	if !fi.Mode().IsRegular() {
 		return fmt.Errorf("%s is no longer a regular file", src)
 	}
-	if !fi.ModTime().Equal(scanned.MTime) {
+	if !fi.ModTime().Equal(scanned.MTime) || fi.Size() != scanned.Size {
+		// Size as well as time. copyFile deliberately restores the source's
+		// modification time so sync's newest-wins comparison works, so a
+		// concurrent sync can replace the contents while leaving a time this
+		// would accept.
 		return fmt.Errorf("%s changed since it was examined", src)
 	}
 	if _, err := os.Lstat(dst); err == nil {
@@ -346,10 +402,11 @@ func moveFileInto(src, dst string, scanned bucketFile) error {
 // version did, left every nested bucket behind entirely.
 func removeEmptiedBuckets(done []tidyMove) {
 	seen := map[string]bool{}
+	accounts := map[string]bool{}
 	for _, m := range done {
 		account := filepath.Join(m.ProfilePath, "claude-code-sessions", m.Bucket.Account)
 		dir := filepath.Dir(filepath.Join(account, m.Bucket.Org, m.Rel))
-		for dir != account && dir != filepath.Dir(dir) {
+		for dir != account && strings.HasPrefix(dir, account+string(filepath.Separator)) {
 			if seen[dir] {
 				break
 			}
@@ -359,10 +416,13 @@ func removeEmptiedBuckets(done []tidyMove) {
 			}
 			dir = filepath.Dir(dir)
 		}
-		if !seen[account] {
-			seen[account] = true
-			removeIfEmpty(account)
-		}
+		accounts[account] = true
+	}
+	// Swept after every climb rather than during: a profile with strays in two
+	// organizations of one account reached the account level while the second
+	// organization was still there, and left the emptied account behind.
+	for account := range accounts {
+		removeIfEmpty(account)
 	}
 }
 

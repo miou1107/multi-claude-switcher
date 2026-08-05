@@ -44,11 +44,17 @@ synced copy, every one of those files has an equal-time counterpart and qualifie
 back into A in that profile then shows nothing. Two profiles on one account is an ordinary
 setup, particularly on the Windows Store build.
 
-In both cases the conversations themselves survive: they are readable in the folder the
-profile reads today or in the other profile, and the moved copies sit in the backup folder.
-What is lost is the expectation that a folder you return to still has what you left in it.
-The alternative was leaving any bucket whose organization still has a stamp alone. The
-maintainer chose to move them.
+The maintainer chose to move both. Review then showed that the organization half of that
+choice cannot be implemented safely: there is no way to tell an organization the profile
+has left from the one it is in, when the only evidence is a stamp that can name the wrong
+one. So the organization half is reversed and organizations this profile has been signed
+into are left alone, which costs about 122 of the 564 files measured.
+
+The account half stands, and is safe: `lastKnownAccountUuid` is a recorded fact rather
+than a guess, so a bucket under another account is provably not the one being read. What
+is accepted there is unchanged: a profile signed out of account A and into B has A's
+history moved, and signing back into A shows nothing until it is fetched from the backup
+folder.
 
 ## What may be moved
 
@@ -63,25 +69,34 @@ stamp, has no known read bucket, and treating "unknown" as "reads nothing" would
 every one of its buckets a candidate. That is the single most dangerous mistake available
 here, so it fails closed.
 
-The bucket must also be **entirely older than the last thing written to the bucket the
-profile reads.** This is the guard against the worst outcome available here, and it was
-added after review reproduced the failure.
+**A bucket is a candidate only if this profile cannot possibly be reading it.** This is
+the guard against the worst outcome available here, and it is the second attempt. The first
+compared how recently each folder had been written, and review reproduced the data loss
+through it: in the very scenario it was written for, the folder the heuristic wrongly names
+is the folder the last launch wrote to, which is the causal reason its stamp is newest.
+Shifting the reproduction by one second brought the loss straight back. A second heuristic
+drawn from the same signal cannot correct the first.
 
-`GetProfileActiveOrgUUID` is a heuristic over a private format: Claude Desktop refreshes
-an allowlist stamp once per launch for the organization it launched into, and the newest
-stamp is taken as the active one. Someone who launches into one organization and switches
-to another in-app, without relaunching, leaves the stamp naming the wrong one.
-`platform/activeorg.go` says being wrong there "costs visibility, never data". This
-feature is what would have made that false: the pre-0.11.2 defect put the same
-conversation names under both organizations of one account, and `copyFile` preserves
-modification times, so every file in the genuinely live folder has an equal-time
-counterpart in the believed-read one. All of them qualified, all of them moved, and the
-directory was removed. The user's current conversations disappeared from the app.
+What works is that the two segments of a bucket are not equally certain.
 
-A folder that stopped receiving writes before v0.11.2 shipped is unambiguously older than
-one in use. A folder that is not is not safe to call abandoned, whichever organization the
-stamp names. The believed-read bucket must also exist and hold something, since an empty
-one means the record naming it is not describing this profile.
+The **account** is read straight out of `config.json`'s `lastKnownAccountUuid`. It is a
+recorded fact, so a bucket under any other account cannot be the one Claude is reading.
+
+The **organization** is a guess: `GetProfileActiveOrgUUID` takes the newest allowlist
+stamp, and someone who switches organization in-app without relaunching leaves that stamp
+naming the previous one. But MEMBERSHIP is not a guess. A stamp exists because this profile
+was signed into that organization, so an organization with no stamp is one it has never
+opened and cannot be reading. `platform.GetProfileSignedInOrgs` reads the whole set.
+
+So a bucket under another account is a candidate, and a bucket under this profile's own
+account is a candidate only if this profile has never been signed into that organization.
+
+That is not a compromise, it is a description of the defect: the pre-0.11.2 sync copied
+conversations in under the SOURCE profile's organization, which the target had typically
+never joined, so the folders it created are exactly the ones with no stamp.
+
+The believed-read bucket must also exist and hold something, since an empty one means the
+record naming it is not describing this profile.
 
 A file in an unread bucket is moved only when both hold:
 
@@ -140,7 +155,9 @@ a test rather than left to the reader.
   entries can carry the same name (the live slot and a container directory, after a swap
   whose state write failed). Resolving a name back to a path would plan against one and
   act on the other, and `platform/windows_msix.go` records that the inverse mapping does
-  not exist. Every move carries its own path.
+  not exist. Every move carries its own path, and the destination folder carries a short
+  digest of that path behind the display name, or two same-named profiles would collide
+  on exactly the paths they have in common and one of them would fail to move forever.
 - **A systemic failure stops the run.** Ten consecutive failures ends it. A redirected
   `AppData` making every rename a cross-device error would otherwise put one line per
   file, 564 of them, in the log at every launch forever.
@@ -165,11 +182,16 @@ without a filesystem:
 - a profile with an unreadable organization stamp is skipped
 - a profile whose believed-read bucket holds nothing is skipped, through the real scan as
   well as the pure function
-- a bucket as recently written as the one believed to be read is left alone, and the whole
-  wrong-organization scenario is reproduced end to end
+- an organization this profile has been signed into is left alone, a bucket under another
+  account is not, and the whole wrong-organization scenario is reproduced end to end,
+  including the extra file that defeated the first attempt at this guard
 - two profiles carrying the same display name do not have a move executed against the
   wrong one
-- a source that changed after the scan is not moved
+- a source whose modification time OR size changed after the scan is not moved: `copyFile`
+  restores the source's modification time on purpose, so a concurrent sync can replace the
+  contents while leaving a time a time-only check would accept
+- ten consecutive failures end a run without losing anything
+- the Debug screen's byte count includes the folders this feature writes
 - a bucket whose moves all failed is not removed
 - nested directories are cleaned all the way up to the account level
 - the same conversation misfiled in two profiles is handled once per profile

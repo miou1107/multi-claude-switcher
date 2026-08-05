@@ -2,6 +2,8 @@ package platform
 
 import (
 	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -99,5 +101,36 @@ func TestGetProfileActiveOrgUUIDIgnoresMalformedKeys(t *testing.T) {
 	}
 	if got != real {
 		t.Errorf("got %q, want the one real organization (%q)", got, real)
+	}
+}
+
+func TestGetProfileSignedInOrgs(t *testing.T) {
+	dir := t.TempDir()
+	cfg := `{
+		"lastKnownAccountUuid": "acct",
+		"dxt:allowlistLastUpdated:orgA": "2026-08-01T00:00:00Z",
+		"dxt:allowlistLastUpdated:orgB": "2026-08-05T00:00:00Z",
+		"dxt:allowlistLastUpdated:orgBROKEN": "not a timestamp",
+		"dxt:allowlistLastUpdated:": "2026-08-05T00:00:00Z",
+		"somethingElse": 1
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := GetProfileSignedInOrgs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A malformed timestamp still counts as membership: this answers "has this
+	// profile ever been here", and erring towards yes is the safe direction.
+	want := map[string]bool{"orgA": true, "orgB": true, "orgBROKEN": true}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("signed-in orgs = %v, want %v", got, want)
+	}
+}
+
+func TestGetProfileSignedInOrgsFailsRatherThanGuessing(t *testing.T) {
+	if _, err := GetProfileSignedInOrgs(t.TempDir()); err == nil {
+		t.Error("an unreadable config returned a membership set instead of an error")
 	}
 }

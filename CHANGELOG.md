@@ -9,8 +9,9 @@
   strays are duplicates as well as invisible: 564 files and 36 MB on the machines
   measured. They are now moved into a dated folder in your backup folder, once,
   in the background, with nothing to press and nothing to notice. Nothing is
-  deleted, and a conversation that exists nowhere else is left exactly where it
-  is.
+  deleted, a conversation that exists nowhere else is left exactly where it is,
+  and so is any organization you have ever signed this account into, since there
+  is no reliable way to tell one you have left from the one you are in.
 - **Old backups are cleared away on their own.** Every switch, sync and merge
   takes a snapshot of the accounts it is about to touch, and nothing had ever
   removed one: on the machine this was written on, the backup folder had reached
