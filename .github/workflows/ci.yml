@@ -1,0 +1,73 @@
+name: CI
+
+# The same suite the release workflow gates on, run continuously instead of
+# only when someone cuts a tag. Without this, a test that breaks on a Monday is
+# found on the Friday somebody tries to ship.
+#
+# Deliberately separate from release.yml rather than adding triggers there: the
+# publish jobs would come along and need an `if:` guard on every step that
+# uploads a release asset or bumps the Homebrew tap. Guards that must be
+# remembered on every future step are the thing that fails quietly. The cost is
+# that the matrix block below is duplicated.
+
+on:
+  push:
+    # Branches only, and no tags key of any kind. GitHub's rule is that "if you
+    # define only tags/tags-ignore or only branches/branches-ignore, the
+    # workflow won't run for events affecting the undefined Git ref" — so
+    # omitting tags here is what keeps tag pushes out, and adding a tags-ignore
+    # would opt every non-matching tag back IN. Tags are release.yml's job, and
+    # it runs this same suite before it publishes anything.
+    branches: ['**']
+  pull_request:
+
+# A branch pushed here and then opened as a pull request runs this twice. That
+# is on purpose: push alone misses forks (a fork's branch never lands here) and
+# pull_request alone misses branches pushed before anyone opens a PR, which is
+# how work actually arrives in this repository.
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      # Independent legs: a Windows failure should not hide a macOS one.
+      fail-fast: false
+      matrix:
+        include:
+          # CGO matches how each platform actually ships. The Windows tray is
+          # built with cgo off (systray is pure Go there); the macOS menu bar
+          # needs it for Cocoa. Linux ships nothing — it is here to catch
+          # platform-independent regressions, and cgo off keeps it from pulling
+          # in the GTK and WebKit headers systray and webview would want.
+          - os: windows-latest
+            cgo: '0'
+          - os: macos-latest
+            cgo: '1'
+          - os: ubuntu-latest
+            cgo: '0'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Must stay in step with release.yml. go.mod's version is a minimum,
+          # not a toolchain pin, and a cgo test binary linked by Go 1.22 on
+          # today's macos-latest image is rejected by dyld with "missing LC_UUID
+          # load command" before main runs.
+          go-version: '1.24'
+
+      - name: go vet
+        env:
+          CGO_ENABLED: ${{ matrix.cgo }}
+        run: go vet ./...
+
+      - name: go test
+        env:
+          CGO_ENABLED: ${{ matrix.cgo }}
+        # -count=1 so a cached result from an earlier run cannot stand in for
+        # this one. There is no gofmt check here on purpose: the repository
+        # checks out with CRLF on Windows, which makes gofmt -l flag every file.
+        run: go test ./... -count=1

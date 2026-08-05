@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Build / CI
+- **The tests run when work lands, not when someone tries to ship.** The suite
+  already gated releases, but nothing ran between tags, so a test broken on a
+  Monday would surface on the Friday somebody cut a release, with the cause
+  buried under a week of other commits. The same three-platform matrix now runs
+  on every branch push and pull request as well. It builds and publishes
+  nothing, so the release workflow keeps its publish steps to itself.
+
 ## [0.13.1] - 2026-08-05
 
 ### Added

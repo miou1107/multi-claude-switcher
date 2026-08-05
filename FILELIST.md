@@ -4,6 +4,7 @@
 - `.gitattributes` — Marks binary assets (`.syso`, `.ico`, `.icns`, `.png`, `.zip`) so Git never applies line-ending conversion that would corrupt them.
 - `go.mod` — Go module definition file.
 - `.github/workflows/release.yml` — GitHub Actions: on a `v*` tag, runs `go vet` and `go test ./... -count=1` on Windows, macOS and Linux (CGO per leg, matching how each platform ships) and gates both build jobs on it, so a tag cannot publish a build whose tests fail; then builds the universal macOS `.app` (version injected) and the Windows `setup.exe` installer, publishes them to a GitHub Release, and bumps the multi-claude-switcher cask in `miou1107/homebrew-tap` to the new version + macOS zip SHA256 (needs the `HOMEBREW_TAP_TOKEN` secret).
+- `.github/workflows/ci.yml` — GitHub Actions: runs the same three-platform `go vet` + `go test ./... -count=1` matrix as the release gate, but on every branch push and pull request instead of only on a tag, so a broken test surfaces when it lands rather than when someone tries to ship. Builds and publishes nothing.
 - `go.sum` — Go module checksum file.
 - `README.md` — User-facing overview: what it does, install, usage, troubleshooting (English). Reference and contributor material lives in `docs/`.
 - `README.zh-TW.md` — Traditional Chinese counterpart of the README (mirrors its structure).
