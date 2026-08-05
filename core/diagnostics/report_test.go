@@ -207,10 +207,7 @@ func TestBuildNamesAnUnreadableLogFile(t *testing.T) {
 	if err := os.WriteFile(badPath, []byte("secret line\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(badPath, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(badPath, 0o600) })
+	makeUnreadable(t, badPath)
 	got := Build(in)
 	if !strings.Contains(got, "mcs-locked.log (last 200 lines)") {
 		t.Errorf("an unreadable log must still be headed by its name:\n%s", got)
