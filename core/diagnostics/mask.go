@@ -175,7 +175,14 @@ func (m *Masker) RegisterHome(home, replacement string) {
 		return
 	}
 	pat := regexp.QuoteMeta(home)
-	pat = homeSepInQuoted.ReplaceAllString(pat, `[\\/]`)
+	// One or more separators, not exactly one: a path that has been through a
+	// Go %q or a JSON encoder on its way into a log line carries its
+	// separators doubled ("C:\\Users\\vin\\AppData"), and a rule built from
+	// the singly-spelled home would not match it. Those lines are then the
+	// only place in the report still showing a real home directory. Matching
+	// a run collapses both spellings onto the same rule; a redundant
+	// separator inside a path never means a different path.
+	pat = homeSepInQuoted.ReplaceAllString(pat, `[\\/]+`)
 	m.homes = append(m.homes, homeRule{
 		re:   regexp.MustCompile(`(?i)` + pat + homeTrailingBoundary),
 		with: replacement,

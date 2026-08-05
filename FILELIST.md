@@ -66,7 +66,7 @@
 - `core/loginitem_windows_test.go` — Unit tests for Windows login-item enable/disable via a throwaway registry key.
 - `core/update.go` — Update check against GitHub Releases (version compare, latest-release fetch, download).
 - `core/update_test.go` — Unit tests for version comparison and release JSON parsing.
-- `cmd/mcs-tray/update.go` — Update check plumbing shared by all OSes: find the platform's release asset, single-flight the check, periodic + manual triggers; delegates the actual install to the per-OS `installUpdate`.
+- `cmd/mcs-tray/update.go` — Update check plumbing shared by all OSes: find the platform's release asset, single-flight the check, periodic + manual triggers; delegates the actual install to the per-OS `installUpdate`. Counts consecutive unreachable-GitHub failures so a background check that keeps failing surfaces once instead of leaving the app silently stale.
 - `cmd/mcs-tray/update_test.go` — Unit tests for .app-bundle path detection and release-asset matching.
 - `cmd/mcs-tray/update_install_nonwindows.go` — macOS/Unix `installUpdate`: download the `.app` zip, atomically swap the tray binary, relaunch (bundle-aware).
 - `cmd/mcs-tray/update_install_windows.go` — Windows `installUpdate`: download the release's setup.exe, verify it is a real executable, run it with `/VERYSILENT`, and quit so it can replace the running exe (Windows locks a running image, so no in-place binary swap).
@@ -204,5 +204,5 @@
 - `internal/clip/clip_other.go` — Clipboard stub for unsupported platforms: reports failure rather than pretending to write.
 - `internal/clip/clip_windows_test.go` — Unit test for the UTF-16LE encoding step the Windows clipboard write depends on (ASCII, BMP, and surrogate-pair characters).
 - `cmd/mcs-menubar/diagnostics.go` — Gathers the macOS host's `diagnostics.Input`: versions, environment, and every profile's account, org, and running state.
-- `cmd/mcs-tray/paneldiagnostics_windows.go` — Gathers the Windows host's `diagnostics.Input`, the same shape as the macOS gatherer.
+- `cmd/mcs-tray/paneldiagnostics_windows.go` — Gathers the Windows host's `diagnostics.Input`, the same shape as the macOS gatherer. Reads the OS version from the registry rather than `cmd /c ver`, which answered in the console code page (invalid UTF-8 in the report on any non-English Windows) and needed a spawned process kept invisible by hand.
 - `scripts/probe/probe_runner.py` — Python helper script to inspect profiles and run probe validation tests.
