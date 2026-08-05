@@ -71,6 +71,88 @@ func TestBuildLeavesNothingUnregistered(t *testing.T) {
 	}
 }
 
+// TestBuildDoesNotCallALogLineIdentifierAnUnregisteredField is the reason the
+// two markers exist. Measured on a Store build with two profiles: the report
+// carried 27 session IDs across 9 log lines, each one a session filename in a
+// sync skip message. Every one raised UnregisteredMarker, which by its own doc
+// comment means a field reached the report without being registered. No
+// registration can ever cover a session ID, because it belongs to no field —
+// so the marker was reporting a defect that did not exist, on any machine
+// whose logs mention session filenames.
+func TestBuildDoesNotCallALogLineIdentifierAnUnregisteredField(t *testing.T) {
+	in := fullInput(t)
+	sessionID := "6c7b2c78-0d0a-4ab6-bffa-e9e6fe671d61"
+	line := "2026/08/05 09:12:03 [Safe Switch] skipped a session file: local_" + sessionID + ".json: rename\n"
+	if err := os.WriteFile(filepath.Join(in.LogDir, "mcs-panel.log"), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := Build(in)
+
+	if strings.Contains(got, sessionID) {
+		t.Errorf("the session id survived into the report:\n%s", got)
+	}
+	if !strings.Contains(got, RedactedMarker) {
+		t.Errorf("the log line should still be redacted:\n%s", got)
+	}
+	if strings.Contains(got, UnregisteredMarker) {
+		t.Errorf("an id inside a log line is not an unregistered field, so the report must not say one escaped:\n%s", got)
+	}
+}
+
+// TestBuildStillFlagsAFieldThatEscapedRegistration is the other half: the
+// split must not cost the alarm anything.
+//
+// Each case is a separate route into the report's field-built section, so the
+// alarm is not resting on one line that a later change could quietly reroute.
+// Both fields exist and are rendered today; neither value is registered by
+// NewMaskerFor, which is exactly the shape of "somebody added a field and
+// forgot to mask it".
+func TestBuildStillFlagsAFieldThatEscapedRegistration(t *testing.T) {
+	const stranger = "9f8e7d6c-5b4a-3210-9f8e-7d6c5b4a3210"
+
+	cases := map[string]func(*Input){
+		"an id inside a version error": func(in *Input) {
+			in.ClaudeVer = ""
+			in.ClaudeVerErr = "read profile " + stranger + ": permission denied"
+		},
+		"an id inside the active record": func(in *Input) {
+			in.ActiveRecord = "org " + stranger
+		},
+	}
+	for name, plant := range cases {
+		t.Run(name, func(t *testing.T) {
+			in := fullInput(t)
+			plant(&in)
+			got := Build(in)
+
+			if strings.Contains(got, stranger) {
+				t.Errorf("the value survived into the report:\n%s", got)
+			}
+			if !strings.Contains(got, UnregisteredMarker) {
+				t.Errorf("a field nobody registered must still name itself as one:\n%s", got)
+			}
+		})
+	}
+}
+
+// TestBuildMasksTheBackupsReadError: BackupReadErr is os.ReadDir's own error
+// string (core.BackupUsage returns err.Error()), and the backups root lives
+// under the user's home, so an unreadable folder put the raw home path into
+// the report. Nothing caught it: the field is a path, which Sweep has no shape
+// for, and the report's other leak tests never populate it.
+func TestBuildMasksTheBackupsReadError(t *testing.T) {
+	in := fullInput(t)
+	in.BackupReadErr = "open " + in.Home + "/Library/Application Support/MCS/backups: permission denied"
+	got := Build(in)
+
+	if strings.Contains(got, in.Home) {
+		t.Errorf("the home path reached the report through the backups error:\n%s", got)
+	}
+	if !strings.Contains(got, "permission denied") {
+		t.Errorf("masking must not cost the reason the folder could not be read:\n%s", got)
+	}
+}
+
 // TestBuildMasksEverySurface walks the leaks found in review, one assertion
 // each, because each was a place nobody had thought of rather than a rule
 // written wrongly.
@@ -276,8 +358,14 @@ func TestAppendCommentSweepsWhatRegistrationMissed(t *testing.T) {
 			t.Errorf("%q, an unregistered identifier, survived AppendComment:\n%s", leak, got)
 		}
 	}
-	if !strings.Contains(got, UnregisteredMarker) {
+	if !strings.Contains(got, RedactedMarker) {
 		t.Errorf("AppendComment must carry the sweep marker for what registration missed:\n%s", got)
+	}
+	// The comment is free text the user typed, so it is swept with the marker
+	// that states what happened rather than the one that names a defect in the
+	// report's own field registration.
+	if strings.Contains(got, UnregisteredMarker) {
+		t.Errorf("a value in the user's own comment must not be reported as an unregistered field:\n%s", got)
 	}
 	if !strings.Contains(got, "account-1") {
 		t.Errorf("the user's own account must still collapse to its pseudonym:\n%s", got)
@@ -416,7 +504,7 @@ func TestBackupsLine(t *testing.T) {
 		{"staged only", Input{BackupStaged: 2, BackupStagedBytes: 2048}, "Backups: 0 snapshots, 0 B · 2 awaiting deletion, 2.0 KB"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := backupsLine(tc.in); got != tc.want {
+			if got := backupsLine(tc.in, NewMasker()); got != tc.want {
 				t.Errorf("backupsLine = %q, want %q", got, tc.want)
 			}
 		})

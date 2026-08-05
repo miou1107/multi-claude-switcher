@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/core/diagnostics"
 )
 
 // dupPillMarkup is the rendered pill, not its class name. shell() puts every class
@@ -1095,14 +1096,29 @@ func TestRenderDebugEscapesTheReportAndTheComment(t *testing.T) {
 	}
 }
 
-// TestRenderDebugExplainsTheUnregisteredMarker: a user who sees
-// "[redacted: unregistered]" in their own report needs to know it means MCS
-// found something it did not recognise and blocked it, not that MCS is
-// hiding something else from them.
-func TestRenderDebugExplainsTheUnregisteredMarker(t *testing.T) {
-	h := RenderDebug(DebugVM{Report: "[redacted: unregistered]"})
-	if !strings.Contains(h, "[redacted: unregistered]") {
-		t.Fatalf("fixture broken: report marker missing:\n%s", h)
+// TestRenderDebugExplainsTheRedactionMarker: a user who sees "[redacted]" in
+// their own report needs to know it means MCS found something it did not
+// recognise and blocked it, not that MCS is hiding something else from them.
+//
+// It names the plain marker, not the "unregistered" one. The plain marker is
+// the one a user actually meets — every ID in a log line now carries it, and
+// on a real machine there were twenty-seven of those. The other marker means a
+// field escaped registration, which is a defect in this app and not something
+// the notice should be teaching people to expect.
+//
+// The fixture deliberately carries no marker of its own. With the marker in
+// the report text, the assertion below was satisfied by the report box and
+// passed no matter what the notice said: measured, replacing the notice's
+// reference with a single letter left this test green. The constant is named
+// rather than spelled out for the same reason, so changing its value cannot
+// leave a stale literal here that still passes.
+func TestRenderDebugExplainsTheRedactionMarker(t *testing.T) {
+	h := RenderDebug(DebugVM{Report: "nothing redacted in this one"})
+	if !strings.Contains(h, diagnostics.RedactedMarker) {
+		t.Errorf("the notice must name the marker a user will meet:\n%s", h)
+	}
+	if strings.Contains(h, diagnostics.UnregisteredMarker) {
+		t.Errorf("the notice should explain the marker users meet, not the one that means a defect:\n%s", h)
 	}
 	if !strings.Contains(h, "marks something that looked like an address or an ID and was blocked") {
 		t.Errorf("the notice must explain what the marker means:\n%s", h)

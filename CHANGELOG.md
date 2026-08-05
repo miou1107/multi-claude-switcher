@@ -8,6 +8,25 @@ have been found by building for Windows from a Mac, which is all the evidence
 any of this code had.
 
 ### Fixed
+- **The bug report claimed a defect every time a log line mentioned a session
+  file.** The report replaces anything that still looks like an address or an ID
+  after masking, and it labelled every one of them `[redacted: unregistered]` —
+  a marker whose stated job is to say a field reached the report without being
+  masked, i.e. a bug in this app. Measured on a Store build with two profiles:
+  27 of them across 9 lines, every one a session ID inside a log message, which
+  belongs to no field and could never be registered. So the check "the report
+  carries no unregistered marker" could never pass on that machine again, and a
+  check that is permanently red is a check nobody reads. Identifiers found in
+  free text — log lines, and whatever the user types in the comment box — now
+  read `[redacted]` and say only what happened. The louder marker still covers
+  the part of the report built out of fields, so it still turns the suite red
+  when somebody adds a field and forgets to mask it.
+- **An unreadable backups folder put the user's home path into the bug report.**
+  The "could not read" line carried the operating system's own error text, which
+  names the absolute path it failed on. Everything else in the report goes
+  through the masker; this one line did not, and nothing tested it because a
+  path has no shape the backstop sweep can recognise. Found while reviewing the
+  marker split above.
 - **The bug report's first line was not valid UTF-8 on any non-English Windows.**
   The OS version came from `cmd /c ver`, which answers in the console code page,
   so a Traditional Chinese machine put the CP950 bytes for 版本 straight into the
