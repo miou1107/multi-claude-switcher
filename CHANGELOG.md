@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Releases are gated on the test suite.** `go vet` and `go test` now run on
+  Windows, macOS and Linux before either build job starts, so a tag can no
+  longer publish a build whose tests fail. Nothing behind `//go:build windows`
+  had ever been executed anywhere before this: the suite was only ever run by
+  hand, on a Mac. The first thing it catches was already fixed alongside it, a
+  diagnostics test that made its file unreadable with `os.Chmod(0o000)`, which
+  does nothing of the sort on Windows.
+
 ## [0.13.1] - 2026-08-05
 
 ### Added
