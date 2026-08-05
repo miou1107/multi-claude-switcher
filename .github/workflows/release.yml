@@ -23,6 +23,11 @@ jobs:
   # the Windows-only files were verified by cross-compilation and by reading them.
   # A tag can no longer publish a build whose tests fail.
   #
+  # An identical copy of this job runs on every push and pull request, in
+  # .github/workflows/ci.yml. Change both, or they drift: a Go bump, an extra
+  # matrix leg or a new step added only here means the continuous run stops
+  # matching the gate, and the gate is the one nobody exercises until a tag.
+  #
   # go-version is 1.24, not the 1.22 in go.mod, and it is the same in all three
   # jobs here on purpose. go.mod's version is a minimum, not a toolchain pin.
   # Two reasons it had to move:
