@@ -216,6 +216,35 @@ func TestRunningProfilesInProcsWindows(t *testing.T) {
 			want: []string{personal, work},
 		},
 		{
+			// Verbatim shapes from a live standalone install (Claude Desktop
+			// 1.25927.0, Windows 10 19045), only the user name replaced. The
+			// cases above were written from what these were expected to look
+			// like; these are what they are. Two differences the idealized
+			// fixtures did not have, both harmless to the parser but neither
+			// previously covered:
+			//
+			//   - the crashpad handler's own exe path is NOT quoted, while
+			//     every other helper's is,
+			//   - the main process line ends in a trailing space.
+			//
+			// The main process here carries no --user-data-dir even though MCS
+			// launched that profile, because Claude Desktop's own updater had
+			// since relaunched it. That is the flagless case arriving from a
+			// cause other than the Start menu, and the only reason this profile
+			// is detected at all.
+			name: "verbatim command lines from a live standalone install",
+			procs: []string{
+				`"C:\Users\Example\AppData\Local\AnthropicClaude\app-1.25927.0\claude.exe" `,
+				`C:\Users\Example\AppData\Local\AnthropicClaude\app-1.25927.0\claude.exe --type=crashpad-handler --user-data-dir=` + work +
+					` /prefetch:4 --no-rate-limit --monitor-self-annotation=ptype=crashpad-handler --database=` + work + `\Crashpad`,
+				`"C:\Users\Example\AppData\Local\AnthropicClaude\app-1.25927.0\claude.exe" --type=gpu-process --user-data-dir="` + work +
+					`" --gpu-preferences=SAAAAAAAAADgAAAEAAAAAAAAAAAAAGAAAQAAAAAAAAAAAAAAAAAAAAIAAAAAAAAA`,
+				`"C:\Users\Example\AppData\Local\AnthropicClaude\app-1.25927.0\claude.exe" --type=renderer --user-data-dir="` + work +
+					`" --app-user-model-id=com.squirrel.AnthropicClaude.claude --lang=zh-TW /prefetch:1`,
+			},
+			want: []string{work},
+		},
+		{
 			name:  "nothing running",
 			procs: nil,
 			want:  nil,
