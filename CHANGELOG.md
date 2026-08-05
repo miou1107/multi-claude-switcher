@@ -18,11 +18,21 @@
   94 snapshots and 2.2 GB in two weeks. The five most recent snapshots of each
   account are now kept, and older ones are moved to a `.trash` folder beside
   them, where they wait 30 days before being deleted. There is a month to fetch
-  one back from Settings → Open backup folder, and anything you put in that
-  folder yourself is never touched. The Debug info screen now says how much
+  one back from Settings → More → Open backup folder, and anything you put in
+  that folder yourself is never touched. The bug report screen now says how much
   space the backups are using.
 
 ### Changed
+- **Settings is much shorter.** It had grown to ten rows, eight of them buttons
+  stacked one under another with nothing to say which would change a setting,
+  which would do something, and which would open another screen. It now holds
+  the two switches, a **More** screen and Quit. More is where syncing between
+  accounts, backing up, and the backup and archive folders live. Checking for
+  updates and reporting a bug moved to the line at the bottom, next to the
+  version number. The panel's shortcut to the log folder is gone: the end of
+  every log already travels inside a bug report, which is the only reason to
+  open it, and on Windows the tray's own menu still has one. A row that opens
+  another screen now says so with an arrow.
 - **The two platforms can no longer drift apart in the panel.** macOS and Windows
   show the same panel but each host kept its own copy of which screen is up,
   whether a row is being renamed and whether a progress card is over the top,

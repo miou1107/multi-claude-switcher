@@ -45,7 +45,7 @@ var (
 	// how those three interact. It lives in internal/panelui so this host and the
 	// Windows one cannot drift: every rule in it was learned from a defect in one
 	// of them. Views: "list" | "rescan" | "settings" | "sync" | "newprofile" |
-	// "merge" | "removed" | "debug".
+	// "merge" | "removed" | "debug" | "more".
 	//
 	// The sticky observer it is built with ties the popover's auto-close to
 	// whether a card is on screen, and panelui calls it while still holding its
@@ -322,6 +322,10 @@ func goPanelAction(caction, cfolder *C.char) {
 			setDebugComment(arg)
 		}
 		panelState.SetView("settings")
+		setStatus("")
+		reloadPanel()
+	case "showMore":
+		panelState.SetView("more")
 		setStatus("")
 		reloadPanel()
 	case "showSync":
@@ -616,8 +620,6 @@ func goPanelAction(caction, cfolder *C.char) {
 			}
 			reloadPanel()
 		}()
-	case "openLog":
-		_ = exec.Command("open", core.LogDir()).Start()
 	case "openBackups":
 		home, _ := os.UserHomeDir()
 		_ = exec.Command("open", filepath.Join(home, ".multi-claude-switcher", "backups")).Start()
@@ -780,6 +782,8 @@ func reloadPanel() {
 	case "rescan":
 		accounts := core.ScanAccounts(mustFindProfiles(), core.LoadPending())
 		htmlStr = panelui.RenderRescan(accounts, panelui.ComputePreselect(accounts, core.LoadManaged()))
+	case "more":
+		htmlStr = panelui.RenderMore(panelui.MoreVM{Busy: getBusy()})
 	case "sync":
 		htmlStr = panelui.RenderSync(buildProfiles(), getStatus(), getBusy())
 	case "newprofile":

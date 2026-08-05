@@ -94,8 +94,9 @@ xattr -dr com.apple.quarantine "/Applications/Multi-Claude Switcher.app"
 順利移除完會直接回到帳號清單，上面用一行字告訴你完成了；移除失敗，或是移除成功但留下了沒清乾淨
 的東西，才會另外看到一個說明原因的畫面。
 
-**Settings** 裡有自動同步對話紀錄及開機自行啟動兩個開關，並且有手動備份、檢查更新、查看 log、
-備份資料夾和封存資料夾等額外功能。
+**Settings** 裡有自動同步對話紀錄及開機自行啟動兩個開關，一個 **More** 子選單
+（帳號之間同步、手動備份、備份資料夾、封存資料夾），以及結束程式。
+最下面那行版號旁邊可以檢查更新和回報問題。
 
 按 **Esc** 或點面板外面就關掉。Windows 上再點一次系統匣圖示也會關，對圖示按右鍵有
 **Quit**，萬一面板本身開不起來，那是你的逃生門。
@@ -138,7 +139,7 @@ xattr -dr com.apple.quarantine "/Applications/Multi-Claude Switcher.app"
 
 ## 回報問題
 
-Settings → **Debug info** 會列出這個切換工具知道的機器資訊：版本號、每個帳號在硬碟上
+Settings 最下面的 **Report a bug** 會列出這個切換工具知道的機器資訊：版本號、每個帳號在硬碟上
 長什麼樣子、還有每個 log 檔案最後的內容。按 **Report a problem** 會把這份報告複製到
 剪貼簿，並開啟一個預先填好的 GitHub issue 頁面讓你貼上去。
 
@@ -172,7 +173,8 @@ Email、帳號 ID、你的使用者名稱和家目錄路徑，在報告顯示出
 所以有一個月的時間可以把東西拿回來。你自己放進那個資料夾的東西不會被動到。
 
 **Q：log 在哪裡？**
-Settings → **Open log folder**，或直接找 `~/.multi-claude-switcher/logs/`。
+在 `~/.multi-claude-switcher/logs/`。每個 log 的最後幾行也會一起放進 bug report，
+通常那樣就夠了。
 
 **Q：如何徹底移除？**
 

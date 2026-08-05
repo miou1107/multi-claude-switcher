@@ -123,8 +123,9 @@ back on the account list with a banner saying so; a removal that could not go
 through, or that went through but left something behind, still gets its own
 screen with the reason.
 
-**Settings** holds the two toggles, a manual backup, update check, shortcuts to
-the log, backup, and archive folders, and Quit.
+**Settings** holds the two toggles, a **More** screen (sync between accounts,
+back up, and the backup and archive folders), and Quit. The version line at the
+bottom also checks for updates and opens a bug report.
 
 Press **Esc** or click outside to close the panel. On Windows the tray icon
 toggles it, and right-clicking gives you **Quit**, which is your way out if the
@@ -177,7 +178,7 @@ handling, and the warnings that used to appear before syncing into one are gone.
 
 ## Reporting a problem
 
-Settings → **Debug info** shows what the switcher knows about your machine:
+Settings → **Report a bug** shows what the switcher knows about your machine:
 versions, what each account looks like on disk, and the tail of every log file.
 **Report a problem** copies that report to your clipboard and opens a new GitHub
 issue for you to paste it into.
@@ -223,7 +224,8 @@ so there is a month to fetch one back. Anything you put in that folder yourself
 is left alone.
 
 **Where are the logs?**
-Settings → **Open log folder**, or `~/.multi-claude-switcher/logs/`.
+In `~/.multi-claude-switcher/logs/`. The end of each one also travels inside a
+bug report, which is usually enough.
 
 **How do I remove it completely?**
 

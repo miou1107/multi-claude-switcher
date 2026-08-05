@@ -52,6 +52,7 @@ func TestEveryScreenCanCarryTheCard(t *testing.T) {
 		"list":       RenderList(progressAccounts(), false, ""),
 		"sync":       RenderSync(progressAccounts(), "", false),
 		"settings":   RenderSettings(SettingsVM{Version: "0.13.1"}),
+		"more":       RenderMore(MoreVM{}),
 		"rescan":     RenderRescan(nil, map[string]bool{}),
 		"newprofile": RenderNewProfile(NewProfileVM{SuggestedName: "Work"}),
 		"removed":    RenderRemoved(RemovedVM{Name: "Old one"}),

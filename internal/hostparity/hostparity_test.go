@@ -128,6 +128,7 @@ func everyScreen() []string {
 	return []string{
 		panelui.RenderList(profiles, true, ""),
 		panelui.RenderSettings(panelui.SettingsVM{Version: "0.0.0"}),
+		panelui.RenderMore(panelui.MoreVM{}),
 		panelui.RenderDebug(panelui.DebugVM{Report: "report"}),
 		panelui.RenderRescan(nil, nil),
 		panelui.RenderNewProfile(panelui.NewProfileVM{}),
