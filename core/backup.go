@@ -29,6 +29,18 @@ func NewBackupManager(rootDir string) *BackupManager {
 }
 
 func (bm *BackupManager) CreateBackup(profilePath string) (string, error) {
+	return bm.createBackup(profilePath, true)
+}
+
+// createBackup is CreateBackup with the tidy-up made explicit.
+//
+// tidy is false on exactly one path: the backup RestoreBackup takes of the
+// profile it is about to overwrite. Pruning there could set aside the very
+// snapshot being restored, out from under the copy that is about to read it,
+// and the restore would fail on a directory that was there when it started.
+// Passing the decision in rather than relying on the ordering happening to be
+// safe means a future caller has to answer the question too.
+func (bm *BackupManager) createBackup(profilePath string, tidy bool) (string, error) {
 	sessionsDir := platform.GetProfileSessionsDir(profilePath)
 	if fi, err := os.Stat(sessionsDir); err != nil || !fi.IsDir() {
 		return "", fmt.Errorf("sessions directory does not exist: %s", sessionsDir)
@@ -52,6 +64,12 @@ func (bm *BackupManager) CreateBackup(profilePath string) (string, error) {
 	// never reused.
 	if fp, fpErr := sessionsFingerprint(sessionsDir); fpErr == nil {
 		_ = os.WriteFile(filepath.Join(backupDir, backupFingerprintName), []byte(fp), 0644)
+	}
+
+	// After the snapshot is complete, so a failure to tidy can never cost the
+	// snapshot that was just taken.
+	if tidy {
+		bm.prune()
 	}
 
 	return backupDir, nil
@@ -254,14 +272,25 @@ func ProfileHasSessions(profilePath string) bool {
 // made. An explicit backup requested by the user still always copies
 // (see CreateBackup).
 func (bm *BackupManager) BackupIfHasData(profilePath string) (string, error) {
+	return bm.backupIfHasData(profilePath, true)
+}
+
+// backupIfHasData is BackupIfHasData with the tidy-up made explicit. See
+// createBackup for why RestoreBackup passes false.
+func (bm *BackupManager) backupIfHasData(profilePath string, tidy bool) (string, error) {
 	sessionsDir := platform.GetProfileSessionsDir(profilePath)
 	if fi, err := os.Stat(sessionsDir); err != nil || !fi.IsDir() {
 		return "", nil // nothing to lose
 	}
 	if existing := bm.reusableBackup(profilePath, sessionsDir); existing != "" {
+		// Reuse took no new snapshot, but earlier ones may still be over the
+		// limit: a profile left alone would otherwise never be tidied again.
+		if tidy {
+			bm.prune()
+		}
 		return existing, nil
 	}
-	return bm.CreateBackup(profilePath)
+	return bm.createBackup(profilePath, tidy)
 }
 
 // reusableBackup returns the newest snapshot of this profile when it still matches
@@ -305,7 +334,10 @@ func (bm *BackupManager) ListBackups() ([]string, error) {
 	}
 	var backups []string
 	for _, entry := range entries {
-		if entry.IsDir() {
+		// The trash is a directory in here but is not a backup, and offering it
+		// as one puts an entry in the CLI's list that RestoreBackup then
+		// refuses.
+		if entry.IsDir() && entry.Name() != trashDirName {
 			backups = append(backups, filepath.Join(bm.BackupRootDir, entry.Name()))
 		}
 	}
@@ -325,7 +357,9 @@ func (bm *BackupManager) RestoreBackup(backupPath, targetProfilePath string) err
 	// itself reversible — restoring the wrong backup must not be a one-way loss.
 	// Abort if the snapshot fails: never discard live data without a recoverable
 	// backup (same invariant as switch/sync).
-	if _, err := bm.BackupIfHasData(targetProfilePath); err != nil {
+	// Without tidying: pruning here could set aside backupPath itself, which
+	// the copy below is about to read. See createBackup.
+	if _, err := bm.backupIfHasData(targetProfilePath, false); err != nil {
 		return fmt.Errorf("refusing to restore: failed to back up the current target first: %w", err)
 	}
 

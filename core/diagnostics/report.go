@@ -57,6 +57,17 @@ type Input struct {
 	Profiles     []Profile
 	ActiveRecord string
 
+	// Backups describes what the backups folder is holding. It is here because
+	// this report is what somebody pastes into an issue, and "how much disk is
+	// this thing using" is the first question anyone asks about a tool that
+	// copies a session tree before every switch. Zero snapshots renders as
+	// "none", not as a missing line, so its absence is never ambiguous.
+	BackupCount       int
+	BackupBytes       int64
+	BackupStaged      int
+	BackupStagedBytes int64
+	BackupReadErr     string
+
 	Home            string
 	HomeReplacement string
 	UserName        string
@@ -155,6 +166,7 @@ func Build(in Input) string {
 		}
 	}
 	w("Active record: %s", orNone(m.Apply(in.ActiveRecord)))
+	w("%s", backupsLine(in))
 	w("")
 
 	b.WriteString(logSections(in.LogDir, m))
@@ -350,4 +362,48 @@ func tail(s string, n int) []string {
 		lines = lines[len(lines)-n:]
 	}
 	return lines
+}
+
+// backupsLine summarises the backups folder for the report.
+//
+// It never masks anything: the numbers carry no identity, and the folder is
+// MCS's own. An unreadable folder says so rather than reporting nothing, since
+// "0 snapshots" and "could not look" mean very different things to whoever is
+// reading the report.
+func backupsLine(in Input) string {
+	if in.BackupReadErr != "" {
+		return "Backups: could not read (" + in.BackupReadErr + ")"
+	}
+	if in.BackupCount == 0 && in.BackupStaged == 0 {
+		return "Backups: none"
+	}
+	// The two sizes are reported apart. Pooling them made a reader attribute
+	// bytes that are already on their way out to the snapshots being kept.
+	line := fmt.Sprintf("Backups: %s, %s", plural(in.BackupCount, "snapshot", "snapshots"), humanBytes(in.BackupBytes))
+	if in.BackupStaged > 0 {
+		line += fmt.Sprintf(" · %d awaiting deletion, %s", in.BackupStaged, humanBytes(in.BackupStagedBytes))
+	}
+	return line
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}
+
+// humanBytes renders a size the way somebody reading a bug report wants it,
+// not the way a machine wants it.
+func humanBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit && exp < 3; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGT"[exp])
 }

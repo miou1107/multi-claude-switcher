@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+- **Old backups are cleared away on their own.** Every switch, sync and merge
+  takes a snapshot of the accounts it is about to touch, and nothing had ever
+  removed one: on the machine this was written on, the backup folder had reached
+  94 snapshots and 2.2 GB in two weeks. The five most recent snapshots of each
+  account are now kept, and older ones are moved to a `.trash` folder beside
+  them, where they wait 30 days before being deleted. There is a month to fetch
+  one back from Settings → Open backup folder, and anything you put in that
+  folder yourself is never touched. The Debug info screen now says how much
+  space the backups are using.
+
 ### Changed
 - **The two platforms can no longer drift apart in the panel.** macOS and Windows
   show the same panel but each host kept its own copy of which screen is up,
