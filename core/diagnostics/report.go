@@ -171,9 +171,14 @@ func Build(in Input) string {
 	w("%s", backupsLine(in))
 	w("")
 
-	b.WriteString(logSections(in.LogDir, m))
-
-	return Sweep(b.String())
+	// The two halves are swept apart because a hit means different things in
+	// each. Everything above is assembled from registered fields, so an
+	// identifier surviving there is a field somebody forgot and the marker says
+	// so. A log line is whatever the app wrote, and the identifiers in it —
+	// session filenames, most of them — belong to no field at all, so the same
+	// marker there would be reporting a defect that does not exist. See
+	// RedactedMarker.
+	return Sweep(b.String()) + SweepFreeText(logSections(in.LogDir, m))
 }
 
 func orUnknown(value, reason string, m *Masker) string {

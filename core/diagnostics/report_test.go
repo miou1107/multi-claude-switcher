@@ -71,6 +71,60 @@ func TestBuildLeavesNothingUnregistered(t *testing.T) {
 	}
 }
 
+// TestBuildDoesNotCallALogLineIdentifierAnUnregisteredField is the reason the
+// two markers exist. Measured on a Store build with two profiles: the report
+// carried 27 session IDs across 9 log lines, each one a session filename in a
+// sync skip message. Every one raised UnregisteredMarker, which by its own doc
+// comment means a field reached the report without being registered. No
+// registration can ever cover a session ID, because it belongs to no field —
+// so the marker was reporting a defect that did not exist, on any machine
+// whose logs mention session filenames.
+func TestBuildDoesNotCallALogLineIdentifierAnUnregisteredField(t *testing.T) {
+	in := fullInput(t)
+	sessionID := "6c7b2c78-0d0a-4ab6-bffa-e9e6fe671d61"
+	line := "2026/08/05 09:12:03 [Safe Switch] skipped a session file: local_" + sessionID + ".json: rename\n"
+	if err := os.WriteFile(filepath.Join(in.LogDir, "mcs-panel.log"), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := Build(in)
+
+	if strings.Contains(got, sessionID) {
+		t.Errorf("the session id survived into the report:\n%s", got)
+	}
+	if !strings.Contains(got, RedactedMarker) {
+		t.Errorf("the log line should still be redacted:\n%s", got)
+	}
+	if strings.Contains(got, UnregisteredMarker) {
+		t.Errorf("an id inside a log line is not an unregistered field, so the report must not say one escaped:\n%s", got)
+	}
+}
+
+// TestBuildStillFlagsAFieldThatEscapedRegistration is the other half: the
+// split must not cost the alarm anything. A profile whose org was never
+// registered has to raise UnregisteredMarker in the profile list, which is
+// what turns the suite red when somebody adds a field to Input and forgets
+// NewMaskerFor.
+func TestBuildStillFlagsAFieldThatEscapedRegistration(t *testing.T) {
+	in := fullInput(t)
+	in.Profiles = in.Profiles[:1]
+	got := Build(unregisteredOrgIn(in))
+
+	if !strings.Contains(got, UnregisteredMarker) {
+		t.Errorf("a field nobody registered must still name itself as one:\n%s", got)
+	}
+}
+
+// unregisteredOrgIn returns in with the first profile's org changed after the
+// masker would have been built from it — the shape of "a value reached the
+// report that NewMaskerFor never saw", without needing a second Input type.
+func unregisteredOrgIn(in Input) Input {
+	profiles := append([]Profile(nil), in.Profiles...)
+	profiles[0].OrgUUID = "" // registered as nothing...
+	in.Profiles = profiles
+	in.ActiveRecord = "org 9f8e7d6c-5b4a-3210-9f8e-7d6c5b4a3210" // ...and an id arrives anyway
+	return in
+}
+
 // TestBuildMasksEverySurface walks the leaks found in review, one assertion
 // each, because each was a place nobody had thought of rather than a rule
 // written wrongly.
@@ -276,8 +330,14 @@ func TestAppendCommentSweepsWhatRegistrationMissed(t *testing.T) {
 			t.Errorf("%q, an unregistered identifier, survived AppendComment:\n%s", leak, got)
 		}
 	}
-	if !strings.Contains(got, UnregisteredMarker) {
+	if !strings.Contains(got, RedactedMarker) {
 		t.Errorf("AppendComment must carry the sweep marker for what registration missed:\n%s", got)
+	}
+	// The comment is free text the user typed, so it is swept with the marker
+	// that states what happened rather than the one that names a defect in the
+	// report's own field registration.
+	if strings.Contains(got, UnregisteredMarker) {
+		t.Errorf("a value in the user's own comment must not be reported as an unregistered field:\n%s", got)
 	}
 	if !strings.Contains(got, "account-1") {
 		t.Errorf("the user's own account must still collapse to its pseudonym:\n%s", got)
