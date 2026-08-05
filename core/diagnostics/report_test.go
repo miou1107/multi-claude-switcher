@@ -100,29 +100,57 @@ func TestBuildDoesNotCallALogLineIdentifierAnUnregisteredField(t *testing.T) {
 }
 
 // TestBuildStillFlagsAFieldThatEscapedRegistration is the other half: the
-// split must not cost the alarm anything. A profile whose org was never
-// registered has to raise UnregisteredMarker in the profile list, which is
-// what turns the suite red when somebody adds a field to Input and forgets
-// NewMaskerFor.
+// split must not cost the alarm anything.
+//
+// Each case is a separate route into the report's field-built section, so the
+// alarm is not resting on one line that a later change could quietly reroute.
+// Both fields exist and are rendered today; neither value is registered by
+// NewMaskerFor, which is exactly the shape of "somebody added a field and
+// forgot to mask it".
 func TestBuildStillFlagsAFieldThatEscapedRegistration(t *testing.T) {
-	in := fullInput(t)
-	in.Profiles = in.Profiles[:1]
-	got := Build(unregisteredOrgIn(in))
+	const stranger = "9f8e7d6c-5b4a-3210-9f8e-7d6c5b4a3210"
 
-	if !strings.Contains(got, UnregisteredMarker) {
-		t.Errorf("a field nobody registered must still name itself as one:\n%s", got)
+	cases := map[string]func(*Input){
+		"an id inside a version error": func(in *Input) {
+			in.ClaudeVer = ""
+			in.ClaudeVerErr = "read profile " + stranger + ": permission denied"
+		},
+		"an id inside the active record": func(in *Input) {
+			in.ActiveRecord = "org " + stranger
+		},
+	}
+	for name, plant := range cases {
+		t.Run(name, func(t *testing.T) {
+			in := fullInput(t)
+			plant(&in)
+			got := Build(in)
+
+			if strings.Contains(got, stranger) {
+				t.Errorf("the value survived into the report:\n%s", got)
+			}
+			if !strings.Contains(got, UnregisteredMarker) {
+				t.Errorf("a field nobody registered must still name itself as one:\n%s", got)
+			}
+		})
 	}
 }
 
-// unregisteredOrgIn returns in with the first profile's org changed after the
-// masker would have been built from it — the shape of "a value reached the
-// report that NewMaskerFor never saw", without needing a second Input type.
-func unregisteredOrgIn(in Input) Input {
-	profiles := append([]Profile(nil), in.Profiles...)
-	profiles[0].OrgUUID = "" // registered as nothing...
-	in.Profiles = profiles
-	in.ActiveRecord = "org 9f8e7d6c-5b4a-3210-9f8e-7d6c5b4a3210" // ...and an id arrives anyway
-	return in
+// TestBuildMasksTheBackupsReadError: BackupReadErr is os.ReadDir's own error
+// string (core.BackupUsage returns err.Error()), and the backups root lives
+// under the user's home, so an unreadable folder put the raw home path into
+// the report. Nothing caught it: the field is a path, which Sweep has no shape
+// for, and the report's other leak tests never populate it.
+func TestBuildMasksTheBackupsReadError(t *testing.T) {
+	in := fullInput(t)
+	in.BackupReadErr = "open " + in.Home + "/Library/Application Support/MCS/backups: permission denied"
+	got := Build(in)
+
+	if strings.Contains(got, in.Home) {
+		t.Errorf("the home path reached the report through the backups error:\n%s", got)
+	}
+	if !strings.Contains(got, "permission denied") {
+		t.Errorf("masking must not cost the reason the folder could not be read:\n%s", got)
+	}
 }
 
 // TestBuildMasksEverySurface walks the leaks found in review, one assertion
@@ -476,7 +504,7 @@ func TestBackupsLine(t *testing.T) {
 		{"staged only", Input{BackupStaged: 2, BackupStagedBytes: 2048}, "Backups: 0 snapshots, 0 B · 2 awaiting deletion, 2.0 KB"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := backupsLine(tc.in); got != tc.want {
+			if got := backupsLine(tc.in, NewMasker()); got != tc.want {
 				t.Errorf("backupsLine = %q, want %q", got, tc.want)
 			}
 		})

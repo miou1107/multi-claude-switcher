@@ -21,6 +21,12 @@ any of this code had.
   read `[redacted]` and say only what happened. The louder marker still covers
   the part of the report built out of fields, so it still turns the suite red
   when somebody adds a field and forgets to mask it.
+- **An unreadable backups folder put the user's home path into the bug report.**
+  The "could not read" line carried the operating system's own error text, which
+  names the absolute path it failed on. Everything else in the report goes
+  through the masker; this one line did not, and nothing tested it because a
+  path has no shape the backstop sweep can recognise. Found while reviewing the
+  marker split above.
 - **The bug report's first line was not valid UTF-8 on any non-English Windows.**
   The OS version came from `cmd /c ver`, which answers in the console code page,
   so a Traditional Chinese machine put the CP950 bytes for 版本 straight into the

@@ -168,7 +168,7 @@ func Build(in Input) string {
 		}
 	}
 	w("Active record: %s", orNone(m.Apply(in.ActiveRecord)))
-	w("%s", backupsLine(in))
+	w("%s", backupsLine(in, m))
 	w("")
 
 	// The two halves are swept apart because a hit means different things in
@@ -373,13 +373,15 @@ func tail(s string, n int) []string {
 
 // backupsLine summarises the backups folder for the report.
 //
-// It never masks anything: the numbers carry no identity, and the folder is
-// MCS's own. An unreadable folder says so rather than reporting nothing, since
-// "0 snapshots" and "could not look" mean very different things to whoever is
-// reading the report.
-func backupsLine(in Input) string {
+// The numbers carry no identity and the folder is MCS's own, so only one thing
+// here needs masking: the read error, which is os.ReadDir's own string and
+// therefore names the absolute path it failed on, under the user's home. An
+// unreadable folder says so rather than reporting nothing, since "0 snapshots"
+// and "could not look" mean very different things to whoever is reading the
+// report.
+func backupsLine(in Input, m *Masker) string {
 	if in.BackupReadErr != "" {
-		return "Backups: could not read (" + in.BackupReadErr + ")"
+		return "Backups: could not read (" + m.Apply(in.BackupReadErr) + ")"
 	}
 	if in.BackupCount == 0 && in.BackupStaged == 0 && in.BackupOther == 0 {
 		return "Backups: none"

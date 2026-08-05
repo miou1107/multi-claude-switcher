@@ -1105,10 +1105,17 @@ func TestRenderDebugEscapesTheReportAndTheComment(t *testing.T) {
 // on a real machine there were twenty-seven of those. The other marker means a
 // field escaped registration, which is a defect in this app and not something
 // the notice should be teaching people to expect.
+//
+// The fixture deliberately carries no marker of its own. With the marker in
+// the report text, the assertion below was satisfied by the report box and
+// passed no matter what the notice said: measured, replacing the notice's
+// reference with a single letter left this test green. The constant is named
+// rather than spelled out for the same reason, so changing its value cannot
+// leave a stale literal here that still passes.
 func TestRenderDebugExplainsTheRedactionMarker(t *testing.T) {
-	h := RenderDebug(DebugVM{Report: "[redacted]"})
-	if !strings.Contains(h, "[redacted]") {
-		t.Fatalf("fixture broken: report marker missing:\n%s", h)
+	h := RenderDebug(DebugVM{Report: "nothing redacted in this one"})
+	if !strings.Contains(h, diagnostics.RedactedMarker) {
+		t.Errorf("the notice must name the marker a user will meet:\n%s", h)
 	}
 	if strings.Contains(h, diagnostics.UnregisteredMarker) {
 		t.Errorf("the notice should explain the marker users meet, not the one that means a defect:\n%s", h)

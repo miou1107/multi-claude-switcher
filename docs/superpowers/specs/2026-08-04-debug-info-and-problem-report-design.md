@@ -158,6 +158,18 @@ to register its identifiers, and the suite goes red before anyone sees their
 address in a public issue. That is the point of the sweep: it converts "we
 thought of everything" into something a machine checks.
 
+**Amended 2026-08-05, after the first real Windows session (issue #13).** The
+marker above is now two. `[redacted: unregistered]` still means what this
+section says, but it is applied only to the part of the report assembled from
+registered fields. Free text — the log sections, and the comment the user types
+— redacts with `[redacted]`, which states what happened and claims nothing
+about registration. The reason is that free text contains identifiers no
+registration can ever cover: measured on a Store build with two profiles, nine
+log lines carried twenty-seven session IDs, so "a fully populated input
+produces a report with no unregistered marker" was a check that machine could
+never pass. Everything below about the sweep's shapes, its boundaries and its
+place as a backstop is unchanged.
+
 The sweep runs last, over the final string, including the log sections and the
 user's comment. It does not replace registration — a swept value loses its
 identity, so `account-1` appearing twice can no longer be recognised as the same
