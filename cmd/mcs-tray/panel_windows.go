@@ -46,8 +46,19 @@ var (
 	panelPlat     platform.Platform
 	panelSwitcher *core.Switcher
 
-	panelMu   sync.Mutex
-	panelView = "list" // "list" | "rescan" | "settings" | "sync" | "newprofile" | "merge" | "removed" | "debug"
+	// panelState holds which screen is up, whether a row's rename editor is
+	// open, and whether a progress card is over the top, along with the rules for
+	// how those three interact. It lives in internal/panelui so this host and the
+	// macOS one cannot drift: every rule in it was learned from a defect in one
+	// of them. Views: "list" | "rescan" | "settings" | "sync" | "newprofile" |
+	// "merge" | "removed" | "debug".
+	//
+	// No sticky observer here. That hook exists for the macOS popover, which has
+	// to be told whether it may close itself; this host decides the equivalent by
+	// reading the card directly when the window is deactivated.
+	panelState = panelui.NewPanelState("list", nil)
+
+	panelMu sync.Mutex
 
 	// panelDebugComment survives the reload that every action triggers. Without
 	// it, pressing Copy wipes what the user just typed.
@@ -83,18 +94,6 @@ var (
 	// panelRemovedVM holds the outcome of the last removal, drawn by the
 	// "removed" view.
 	panelRemovedVM panelui.RemovedVM
-	// panelRenameOpen is true while a row's inline rename editor is on screen. A
-	// reload replaces the whole document, so a background action finishing
-	// mid-edit used to wipe what the user had typed with no warning: the list
-	// holds still while this is set. It is client-side state mirrored here
-	// because only Go knows when a reload is about to happen.
-	panelRenameOpen bool
-	// panelProgress is the card drawn over whatever screen the user is on while
-	// a long operation runs, and for a moment after it ends. Held here rather
-	// than only in the page so a panel parked and shown again mid operation
-	// comes back showing it, not an idle screen while Claude is shut. Nil means
-	// no card.
-	panelProgress *panelui.ProgressVM
 
 	panelPlanMu sync.Mutex
 	panelPlan   = map[string]string{}
@@ -264,7 +263,7 @@ func parkPanel(hwnd uintptr) {
 		uintptr(swpNoSize|swpNoZOrder|swpNoActivate))
 	notifyTray("MCS_HIDDEN")
 
-	panelSetViewKeepingProgress("list")
+	panelState.SetViewKeeping("list")
 	panelSetStatus("")
 	go reloadPanel()
 }
@@ -336,7 +335,7 @@ func dispatchAction(action, arg string) {
 		// two copies of "switching" on one screen, one of them in the colour
 		// this panel uses for "done", is worse than one.
 		panelSetBusy(true, "")
-		panelSetProgress(panelui.SwitchStarting())
+		panelState.SetProgress(panelui.SwitchStarting())
 		reloadPanel()
 		go func() {
 			err := doSwitchPanel(arg)
@@ -347,15 +346,15 @@ func dispatchAction(action, arg string) {
 			// The card goes up before busy comes down, so there is no instant in
 			// which the panel accepts a second switch while still showing the
 			// first one running.
-			panelSetProgress(vm)
+			panelState.SetProgress(vm)
 			panelSetBusy(false, "")
 			reloadPanel()
 		}()
 	case "showRescan":
-		panelSetView("rescan")
+		panelState.SetView("rescan")
 		go reloadPanel()
 	case "showList":
-		panelSetView("list")
+		panelState.SetView("list")
 		panelSetStatus("") // a deliberate return to the list starts clean; the paths
 		// that want a message set it and render the list themselves without this action
 		go reloadPanel()
@@ -369,11 +368,11 @@ func dispatchAction(action, arg string) {
 		if arg != "" {
 			panelSetDebugComment(arg)
 		}
-		panelSetView("settings")
+		panelState.SetView("settings")
 		panelSetStatus("")
 		reloadPanel()
 	case "showSync":
-		panelSetView("sync")
+		panelState.SetView("sync")
 		panelSetStatus("")
 		go reloadPanel()
 	case "sync":
@@ -385,10 +384,10 @@ func dispatchAction(action, arg string) {
 			return
 		}
 		panelSetBusy(true, "")
-		panelSetProgress(panelui.SyncStarting())
+		panelState.SetProgress(panelui.SyncStarting())
 		reloadPanel()
 		go func() {
-			panelSetProgress(doSyncPanel(parts[0], parts[1]))
+			panelState.SetProgress(doSyncPanel(parts[0], parts[1]))
 			panelSetBusy(false, "")
 			reloadPanel()
 		}()
@@ -398,7 +397,7 @@ func dispatchAction(action, arg string) {
 		if len(folders) > 0 {
 			_ = core.SetManaged(folders)
 		}
-		panelSetView("list")
+		panelState.SetView("list")
 		go reloadPanel()
 	case "toggleAutoSync":
 		_ = core.SetAutoSyncOnSwitch(!core.AutoSyncOnSwitch())
@@ -415,23 +414,19 @@ func dispatchAction(action, arg string) {
 			return
 		}
 		panelSetBusy(true, "")
-		panelSetProgress(panelui.BackupStarting())
+		panelState.SetProgress(panelui.BackupStarting())
 		reloadPanel()
 		go func() {
-			panelSetProgress(panelui.BackupOutcome(doPanelBackupAll()))
+			panelState.SetProgress(panelui.BackupOutcome(doPanelBackupAll()))
 			panelSetBusy(false, "")
 			reloadPanel()
 		}()
 	case "renameOpen":
-		panelMu.Lock()
-		panelRenameOpen = arg == "1"
-		panelMu.Unlock()
+		panelState.SetRenameOpen(arg == "1")
 	case "renameSave":
 		// The editor is gone either way; clear the hold before anything can
 		// return early, or the list would stay frozen.
-		panelMu.Lock()
-		panelRenameOpen = false
-		panelMu.Unlock()
+		panelState.SetRenameOpen(false)
 		// Guarded like every other action that writes: renaming during a removal
 		// would write names.json after RemoveProfile had just cleared it, putting
 		// back the one piece of residue the design calls out as felt by the user,
@@ -445,7 +440,7 @@ func dispatchAction(action, arg string) {
 		if json.Unmarshal([]byte(arg), &pair) == nil && len(pair) == 2 {
 			_ = core.SetProfileName(pair[0], pair[1])
 		}
-		panelSetView("list")
+		panelState.SetView("list")
 		go reloadPanel()
 	case "showDebug":
 		// Guarded like backup, sync and merge: the gather below is heavy (a
@@ -469,7 +464,7 @@ func dispatchAction(action, arg string) {
 			report, m := panelDebugReport()
 			setPanelDebugReportCache(report, m)
 			panelSetBusy(false, "")
-			panelSetView("debug")
+			panelState.SetView("debug")
 			reloadPanel()
 		}()
 	case "reportProblem":
@@ -560,7 +555,7 @@ func dispatchAction(action, arg string) {
 		panelMu.Lock()
 		panelNewProfileVM = panelui.NewProfileVM{}
 		panelMu.Unlock()
-		panelSetView("newprofile")
+		panelState.SetView("newprofile")
 		go reloadPanel()
 	case "showRecover":
 		// arg is the account UUID. The source profiles are looked up from a fresh
@@ -571,8 +566,8 @@ func dispatchAction(action, arg string) {
 		}
 		row, ok := ghostRow(arg)
 		if !ok || !row.Recoverable {
-			panelSetStatus("That account is no longer recoverable — run Rescan")
-			panelSetView("list")
+			panelSetStatus("That account is no longer recoverable. Run Rescan")
+			panelState.SetView("list")
 			go reloadPanel()
 			return
 		}
@@ -583,7 +578,7 @@ func dispatchAction(action, arg string) {
 			Convos:        row.Convos,
 		}
 		panelMu.Unlock()
-		panelSetView("newprofile")
+		panelState.SetView("newprofile")
 		go reloadPanel()
 	case "createProfile":
 		var a []string
@@ -602,8 +597,8 @@ func dispatchAction(action, arg string) {
 				// sources' paths must come from the scan current at the moment of copy.
 				row, ok := ghostRow(req.RecoverUUID)
 				if !ok || !row.Recoverable {
-					panelSetBusy(false, "That account is no longer recoverable — run Rescan")
-					panelSetView("list")
+					panelSetBusy(false, "That account is no longer recoverable. Run Rescan")
+					panelState.SetView("list")
 					reloadPanel()
 					return
 				}
@@ -618,7 +613,7 @@ func dispatchAction(action, arg string) {
 				panelNewProfileVM.SuggestedName = a[0]
 				panelNewProfileVM.Err = err.Error()
 				panelMu.Unlock()
-				panelSetView("newprofile")
+				panelState.SetView("newprofile")
 				reloadPanel()
 				return
 			}
@@ -626,7 +621,7 @@ func dispatchAction(action, arg string) {
 			// starts if a migration was already queued at boot. A create from the
 			// panel queues one afterwards, so ask the tray to pick it up.
 			notifyTrayMigrationQueued()
-			panelSetView("list")
+			panelState.SetView("list")
 			reloadPanel()
 		}()
 	case "showMerge":
@@ -638,7 +633,7 @@ func dispatchAction(action, arg string) {
 		panelMergeFolders = [2]string{parts[0], parts[1]}
 		panelMu.Unlock()
 		panelSetStatus("")
-		panelSetView("merge")
+		panelState.SetView("merge")
 		go reloadPanel()
 	case "mergeConfirm":
 		// arg is "<keepIdentity>|<archiveIdentity>". Identities, not paths: the merge
@@ -649,7 +644,7 @@ func dispatchAction(action, arg string) {
 		}
 		keep, archive := parts[0], parts[1]
 		panelSetBusy(true, "")
-		panelSetProgress(panelui.MergeStarting())
+		panelState.SetProgress(panelui.MergeStarting())
 		reloadPanel()
 		go func() {
 			err := panelPlat.TerminateApp()
@@ -663,8 +658,8 @@ func dispatchAction(action, arg string) {
 			// confirmation, and on failure the list is where the user tries
 			// again from. Keeping the merge screen would leave a keeper/archive
 			// choice on screen for accounts that are already one.
-			panelSetViewKeepingProgress("list")
-			panelSetProgress(panelui.MergeOutcome(err))
+			panelState.SetViewKeeping("list")
+			panelState.SetProgress(panelui.MergeOutcome(err))
 			panelSetBusy(false, "")
 			reloadPanel()
 		}()
@@ -690,13 +685,22 @@ func dispatchAction(action, arg string) {
 			outcome := panelui.DecideRemovalOutcome(folder, beforeName, beforeConvos, dest, err)
 			if outcome.ShowList {
 				panelSetBusy(false, outcome.ListStatus)
-				panelSetView("list")
+				panelState.SetView("list")
 			} else {
 				panelSetBusy(false, "")
 				panelMu.Lock()
 				panelRemovedVM = outcome.Removed
-				panelView = "removed"
 				panelMu.Unlock()
+				// The view moves after the model it draws is in place. SetView
+				// rather than a bare assignment: this is the user arriving at an
+				// outcome screen, so it ends an inline rename the same way every
+				// other navigation does, and takes down any card still up.
+				// Removal raises none of its own, but a switch or sync card
+				// outlives the busy flag that guarded it: it stays until the user
+				// dismisses it, and by then busy is false, so nothing stops a
+				// removal starting underneath it. Leaving it would draw a stale
+				// "Switched successfully" over the removal outcome.
+				panelState.SetView("removed")
 			}
 			reloadPanel()
 		}()
@@ -737,29 +741,26 @@ func reopenClaudeIfWeOweIt() {
 // reloadPanel builds the HTML for the current view and pushes it into the
 // webview via the main-thread dispatch queue.
 func reloadPanel() {
-	panelMu.Lock()
-	view := panelView
-	editing := panelRenameOpen
-	switching := panelProgress != nil
-	panelMu.Unlock()
+	// One read for the whole render: the view drawn and the card drawn over it
+	// come from the same instant, rather than from two reads a change can fall
+	// between.
+	snap := panelState.Snapshot()
 
-	// Hold the list still while a row's rename editor is open. A reload replaces
-	// the document, so a backup or sync finishing at that moment took away what
-	// the user was halfway through typing, silently. The list is a few seconds
-	// stale instead, and the next reload after the edit ends catches it up.
-	//
-	// A switch overrides that. Renaming one row does not stop the user clicking
-	// another and switching to it, and holding the reload then swallowed the
-	// whole card: no sign of the switch while it ran, and a stale "Switched
-	// successfully" appearing out of nowhere whenever the edit happened to end.
-	// The half-typed name is the smaller loss, and the card covers the editor
-	// anyway.
-	if view == "list" && editing && !switching {
+	// See Snapshot.HoldReload: a reload replaces the document, so one landing
+	// mid-rename used to take away what the user had typed. A card overrides
+	// that, or holding the reload swallows the card entirely.
+	if snap.HoldReload() {
 		return
 	}
 
+	// rendered is the screen this pass actually produced, which is not always
+	// snap.View: the merge branch below can fall back to the list and move the
+	// view itself. The push at the end compares against this, not against the
+	// view we started from.
+	rendered := snap.View
+
 	var htmlStr string
-	switch view {
+	switch snap.View {
 	case "rescan":
 		accounts := core.ScanAccounts(panelMustFindProfiles(), core.LoadPending())
 		htmlStr = panelui.RenderRescan(accounts, panelui.ComputePreselect(accounts, core.LoadManaged()))
@@ -790,7 +791,8 @@ func reloadPanel() {
 			// halfway through archiving, so the plan failing here is expected and
 			// must not take down the card reporting on that very merge.
 			panelSetStatus(planErr.Error())
-			panelSetViewKeepingProgress("list")
+			panelState.SetViewKeeping("list")
+			rendered = "list"
 			htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus())
 			break
 		}
@@ -828,46 +830,22 @@ func reloadPanel() {
 	// renderer: the card is an overlay that does not care what is underneath it,
 	// and passing it per-renderer is how one host ends up drawing it on a screen
 	// the other forgot.
-	page := panelui.WithProgress(htmlStr, panelGetProgress())
+	//
+	// Re-read before pushing. The render above can take seconds (leveldb per
+	// profile), reloadPanel is not serialized, and a faster reload started
+	// later can already have pushed the current screen. Publishing this one on
+	// top would put a stale page up with nothing scheduled to correct it.
+	//
+	// The card comes from the fresh read for the same reason: pinning it at the
+	// top of the render meant a merge whose outcome landed mid-render was drawn
+	// with the "Merging" spinner still on it, and that spinner was then the last
+	// thing on screen.
+	cur := panelState.Snapshot()
+	if cur.View != rendered {
+		return
+	}
+	page := panelui.WithProgress(htmlStr, cur.Progress)
 	panelWV.Dispatch(func() { panelWV.SetHtml(page) })
-}
-
-func panelSetView(v string) {
-	panelMu.Lock()
-	panelView = v
-	// Any navigation ends an inline rename: the editor lived in the list's
-	// markup, which is gone. Clearing it here rather than in each caller is what
-	// stops a stuck flag freezing the list for good.
-	panelRenameOpen = false
-	panelProgress = nil
-	panelMu.Unlock()
-}
-
-// panelSetViewKeepingProgress moves the view without taking down a card that is
-// still on screen. Three callers, none of them the user navigating: parking the
-// panel when it loses focus; the merge goroutine, which moves to the list on its
-// way to putting its own outcome card up; and reloadPanel's merge branch when
-// the plan cannot be computed. Clearing in those is what used to make an
-// operation in flight vanish the moment the user clicked away, and made a
-// failure that landed while the panel was parked get reported nowhere at all.
-func panelSetViewKeepingProgress(v string) {
-	panelMu.Lock()
-	panelView = v
-	panelRenameOpen = false
-	panelMu.Unlock()
-}
-
-// panelSetProgress puts up, updates or takes down the card.
-func panelSetProgress(vm *panelui.ProgressVM) {
-	panelMu.Lock()
-	panelProgress = vm
-	panelMu.Unlock()
-}
-
-func panelGetProgress() *panelui.ProgressVM {
-	panelMu.Lock()
-	defer panelMu.Unlock()
-	return panelProgress
 }
 
 func panelSetStatus(s string) {
@@ -1081,7 +1059,7 @@ func mergeCandidate(identity string) panelui.MergeCandidateVM {
 func mergePlanFor(keepIdentity, archiveIdentity string) (core.MergePlan, error) {
 	keepPath, archivePath := profilePathFor(keepIdentity), profilePathFor(archiveIdentity)
 	if keepPath == "" || archivePath == "" {
-		return core.MergePlan{}, fmt.Errorf("one of those profiles is no longer there — run Rescan")
+		return core.MergePlan{}, fmt.Errorf("one of those profiles is no longer there. Run Rescan")
 	}
 	uuid, err := platform.GetProfileAccountUUID(keepPath)
 	if err != nil {
@@ -1682,7 +1660,10 @@ func panelWndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 			// click the shell is still settling the foreground, and acting on
 			// that first deactivation would close the panel before the user
 			// ever sees it.
-			if panelGetProgress() != nil {
+			// Sticky() rather than a bare nil check, so this asks the same
+			// question the macOS popover asks through goProgressSticky. One
+			// definition of "a card is on screen", read by both hosts.
+			if panelState.Snapshot().Sticky() {
 				// A switch ENDS by launching Claude Desktop, and Claude taking
 				// the foreground arrives here as an outside click. Parking on it
 				// means the card reporting the outcome is dismissed by the very
@@ -1717,7 +1698,7 @@ func showRuntimeMissingDialog(cause error) {
 		"download page in your browser. Rerun Multi-Claude Switcher after " +
 		"installing.\n\n(" + cause.Error() + ")"
 	msgw, _ := syscall.UTF16PtrFromString(msg)
-	titlew, _ := syscall.UTF16PtrFromString("Multi-Claude Switcher — WebView2 Runtime missing")
+	titlew, _ := syscall.UTF16PtrFromString("Multi-Claude Switcher: WebView2 Runtime missing")
 	const mbOK = 0x00000000
 	const mbIconInfo = 0x00000040
 	messageBox := user32.NewProc("MessageBoxW")

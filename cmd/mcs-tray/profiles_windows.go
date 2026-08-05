@@ -32,13 +32,13 @@ func newProfileMenuLabel() string { return "New account profile…" }
 // background watcher (startMigrationWatcher) brings that account's saved sessions
 // across automatically.
 func runNewProfileFlow() {
-	name := askText("Name the account you want to switch to (e.g. Work). Your current account is saved, then a fresh Claude opens for you to sign into the other account — its saved conversations are brought over automatically.", "")
+	name := askText("Name the account you want to switch to (e.g. Work). Your current account is saved, then a fresh Claude opens for you to sign into the other account, and its saved conversations are brought over automatically.", "")
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return
 	}
 	current := platform.MSIXCurrentName()
-	msg := fmt.Sprintf("Set up \"%s\"?\n\nClaude will close and reopen signed out so you can log into that account once. Your current account (\"%s\") is saved — you can switch back from the tray anytime, and nothing is deleted.", name, current)
+	msg := fmt.Sprintf("Set up \"%s\"?\n\nClaude will close and reopen signed out so you can log into that account once. Your current account (\"%s\") is saved, so you can switch back from the tray anytime, and nothing is deleted.", name, current)
 	if !confirmDialog(msg, "Set up") {
 		return
 	}

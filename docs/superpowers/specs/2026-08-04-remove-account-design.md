@@ -150,9 +150,11 @@ which is the kind of thing that is wrong the first time someone changes it.
 
 ## Screens
 
-This section was rewritten after the first version was built and used. What it
-originally specified is kept below the current design, because the reasons it was
-wrong are the useful part.
+This section was rewritten after the first version was built and used.
+What it originally specified is in the appendix at the end of this file,
+because the reasons it was wrong are the useful part. Superseded designs go
+there and nowhere else: kept inline, a second revision would nest under the
+first and the file would stop being readable as a current design at all.
 
 **Entry point.** A bordered wrench on each account row opens a small menu
 anchored to that row, holding **Change name** and **Remove from list** (red).
@@ -192,29 +194,12 @@ locked directory or a cross-volume archive root, and stating plainly that
 nothing was moved), and one that moved the folder but could not clear something
 afterward.
 
-### What the first version specified, and why it was wrong
-
-The pencil on each row opened an **Account settings** screen carrying a
-full-width red "Remove this account" at the bottom, disabled with a reason for
-the account in use; the confirmation was a title, a body about folders and the
-archive, and a warning line; and every removal ended on its own result screen.
-
-- **The pencil hid it.** A pencil means rename, so removal behind one was
-  unfindable. A three-dot glyph replaced it and was still missed, because the
-  button was unboxed and half-faded: the edges are what say a thing can be
-  pressed, not the glyph inside them.
-- **The disabled button explained nothing.** A greyed control with a line of
-  text under it reads as breakage. Live, with the reason given on press, is what
-  this project's own guidance already said.
-- **The confirmation said one thing three times**, in vocabulary borrowed from
-  the implementation: folder, archive, switcher. None of those are words this
-  audience has.
-- **The result screen was ceremony** on the path that needed none.
-
 ## Copy
 
-No em dash anywhere in user-facing text; `emdash_test.go` already enforces it
-across the rendered HTML.
+No em dash anywhere in user-facing text. Two guards enforce it:
+`internal/panelui/emdash_test.go` reads the rendered HTML, and
+`internal/emdash/emdash_test.go` reads every package's source, so copy no
+fixture happens to render is covered too.
 
 ## Tests
 
@@ -264,3 +249,22 @@ makes a mis-signed-in slot cheap to undo, which was the underlying concern.
 
 A new feature, so 0.13.0. The minor bump is confirmed with the maintainer before
 release.
+
+## Appendix: what the first version specified, and why it was wrong
+
+The pencil on each row opened an **Account settings** screen carrying a
+full-width red "Remove this account" at the bottom, disabled with a reason for
+the account in use; the confirmation was a title, a body about folders and the
+archive, and a warning line; and every removal ended on its own result screen.
+
+- **The pencil hid it.** A pencil means rename, so removal behind one was
+  unfindable. A three-dot glyph replaced it and was still missed, because the
+  button was unboxed and half-faded: the edges are what say a thing can be
+  pressed, not the glyph inside them.
+- **The disabled button explained nothing.** A greyed control with a line of
+  text under it reads as breakage. Live, with the reason given on press, is what
+  this project's own guidance already said.
+- **The confirmation said one thing three times**, in vocabulary borrowed from
+  the implementation: folder, archive, switcher. None of those are words this
+  audience has.
+- **The result screen was ceremony** on the path that needed none.

@@ -43,7 +43,7 @@ func main() {
 	// instance is still quitting when the new one starts.
 	if !hasSkipInstanceFlag(os.Args) && anotherInstanceRunning() {
 		log.Printf("Another Multi-Claude Switcher tray is already running; exiting.")
-		notify("Multi-Claude Switcher is already running", "It's already in your menu bar — this extra copy will close.")
+		notify("Multi-Claude Switcher is already running", "It's already in your menu bar, so this extra copy will close.")
 		return
 	}
 

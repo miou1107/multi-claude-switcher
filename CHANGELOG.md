@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Changed
+- **The two platforms can no longer drift apart in the panel.** macOS and Windows
+  show the same panel but each host kept its own copy of which screen is up,
+  whether a row is being renamed and whether a progress card is over the top,
+  along with the rules for how those interact. The only thing keeping the copies
+  in step was someone reading the two files side by side, and every rule in them
+  was learned from a defect one of the platforms shipped. There is now one
+  implementation, held by both hosts and tested on its own, and a test that fails
+  if the two platforms stop offering the same set of panel buttons or if a button
+  is wired to something neither answers. No visible change, except that arriving
+  at the "account removed" screen now ends an inline rename, and takes down a
+  card left over from an earlier switch or sync, the way every other navigation
+  already did.
+
+### Fixed
+- **The panel could be left showing a screen that had already moved on.** Drawing
+  a screen can take seconds, and a second refresh starting later could finish
+  first, so the slower one published its now-stale page on top with nothing
+  scheduled to correct it. Most visible after a merge, which could end with the
+  spinner still spinning over a merge that had already finished. A refresh whose
+  screen is no longer the current one is now dropped.
+- **Sixteen messages had a dash style the rest of the app does not use.** They
+  sat in the Windows-only code and in both hosts, where the check that enforces
+  the house style could not see them: it only ever read one package, plus the
+  finished panel HTML. Wording is unchanged apart from the punctuation. The
+  check now reads every package's source, and the one that reads the panel can
+  see three kinds of text it used to miss, including anything containing an
+  apostrophe.
+
 ### Build / CI
 - **The tests run when work lands, not when someone tries to ship.** The suite
   already gated releases, but nothing ran between tags, so a test broken on a
