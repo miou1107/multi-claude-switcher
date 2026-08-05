@@ -22,6 +22,17 @@ jobs:
   # been executed anywhere: go test ./... was only ever run by hand, on a Mac, so
   # the Windows-only files were verified by cross-compilation and by reading them.
   # A tag can no longer publish a build whose tests fail.
+  #
+  # go-version is 1.24, not the 1.22 in go.mod, and it is the same in all three
+  # jobs here on purpose. go.mod's version is a minimum, not a toolchain pin.
+  # Two reasons it had to move:
+  #   - A cgo test binary linked by Go 1.22 on today's macos-latest image is
+  #     rejected by dyld with "missing LC_UUID load command" and aborts before
+  #     main. It only shows up when something RUNS the binary, so the build jobs
+  #     never saw it and every release before this one was built at 1.22 fine.
+  #   - Everything verified by hand during development is built with whatever Go
+  #     the developer has, which is well ahead of 1.22. Testing on one toolchain
+  #     and shipping another means the gate is not checking the artifact.
   test:
     strategy:
       # Independent legs: a Windows failure should not hide a macOS one.
@@ -45,7 +56,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
 
       - name: go vet
         env:
@@ -72,7 +83,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
 
       - name: Derive version from tag
         id: ver
@@ -129,7 +140,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
 
       - name: Derive version from tag
         id: ver
