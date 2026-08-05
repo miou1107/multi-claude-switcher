@@ -3,7 +3,7 @@
 - `.gitignore` — Git ignore rules.
 - `.gitattributes` — Marks binary assets (`.syso`, `.ico`, `.icns`, `.png`, `.zip`) so Git never applies line-ending conversion that would corrupt them.
 - `go.mod` — Go module definition file.
-- `.github/workflows/release.yml` — GitHub Actions: on a `v*` tag, builds the universal macOS `.app` (version injected) and the Windows `setup.exe` installer, publishes them to a GitHub Release, and bumps the multi-claude-switcher cask in `miou1107/homebrew-tap` to the new version + macOS zip SHA256 (needs the `HOMEBREW_TAP_TOKEN` secret).
+- `.github/workflows/release.yml` — GitHub Actions: on a `v*` tag, runs `go vet` and `go test ./...` on Windows, macOS and Linux, and only then builds the universal macOS `.app` (version injected) and the Windows `setup.exe` installer, publishes them to a GitHub Release, and bumps the multi-claude-switcher cask in `miou1107/homebrew-tap` to the new version + macOS zip SHA256 (needs the `HOMEBREW_TAP_TOKEN` secret). The build jobs depend on the test job, so a tag cannot publish a build whose tests fail — before that gate existed, everything behind `//go:build windows` had never been executed anywhere.
 - `go.sum` — Go module checksum file.
 - `README.md` — User-facing overview: what it does, install, usage, troubleshooting (English). Reference and contributor material lives in `docs/`.
 - `README.zh-TW.md` — Traditional Chinese counterpart of the README (mirrors its structure).
@@ -186,6 +186,8 @@
 - `platform/claudeversion_test.go` — Unit tests for both version reads and the numeric (not lexical) version comparison that picks the newest `claude-code` directory.
 - `core/diagnostics/report.go` — Builds the debug report: environment, profiles, path shape without path values, and the tail of every log file, then runs the whole thing through the sweep once at the end.
 - `core/diagnostics/report_test.go` — Unit tests for the report: masking end to end, path shape reporting, log tail bounds, and the missing/unreadable-log cases.
+- `core/diagnostics/unreadable_windows_test.go` — Test helper that makes a file genuinely unopenable on Windows, by holding it with no sharing. `os.Chmod` cannot: Windows has no permission bits and Chmod drives only the read-only attribute, so a `0o000` file stays readable and the unreadable-log test asserts against the readable path.
+- `core/diagnostics/unreadable_other_test.go` — The same helper where permission bits are real, via `os.Chmod`.
 - `core/diagnostics/issue.go` — Builds the prefilled GitHub new-issue URL (masked, swept, single-line, length-capped, escaped title) and appends the user's own comment to the clipboard body, masked and swept the same way.
 - `core/diagnostics/issue_test.go` — Unit tests for the issue URL and the appended comment, including both guarded against a nil masker.
 - `internal/clip/clip_darwin.go` — macOS clipboard write (`pbcopy`, forced to a UTF-8 locale), awaited before the browser opens.
