@@ -1,6 +1,7 @@
 package panelui
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -288,6 +289,39 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 			"The switcher's own account list still mentions it. Nothing needs doing: the panel only shows accounts whose folder is still there. (write managed.json: permission denied)\n" +
 			"Its name is still recorded as \"Old one\". If you sign in to this account again later it will come back under that name, which you can change with Rename. (write names.json: permission denied)"})
 
+	// The card's four shapes are mutually exclusive in one call, so each gets
+	// its own entry, and they are built through the outcome helpers the hosts
+	// really use rather than by hand: a fixture that sets the fields directly
+	// would still pass if those helpers started wording things differently.
+	// The failed one carries a real SafeSwitch message rather than a paraphrase,
+	// for the same reason removedFailed above does: this card prints the error
+	// verbatim, so a trimmed stand-in trims the part worth checking.
+	cardOver := func(vm *ProgressVM) string { return WithProgress(listEmpty, vm) }
+	switchWorking := cardOver(SwitchStarting())
+	switchDone := cardOver(SwitchOutcome("Work", nil))
+	switchWarned := cardOver(SwitchOutcome("Work", &core.SwitchedWithWarning{
+		Err: errors.New("skipped auto sync: failed to back up source profile " +
+			"(refusing to write without a backup): permission denied")}))
+	switchFailed := cardOver(SwitchOutcome("Work",
+		errors.New("can't switch to Claude_Old: no profile folder there")))
+	// Failure with nothing to report takes the other branch: the card falls back
+	// to its own sentence, which no other fixture here can reach.
+	progressFailedBare := cardOver(&ProgressVM{Phase: ProgressFailed, Title: "Merge failed"})
+	// The other three operations' copy, which the switch fixtures never render.
+	syncWorking := cardOver(SyncStarting())
+	syncDone := cardOver(SyncOutcome("Work", &core.SyncReport{CopiedCount: 3, ConflictCount: 1,
+		SkipErrors: []string{"a.json: unreadable"}}, nil))
+	syncFailed := cardOver(SyncOutcome("Work", nil, core.ErrRunningProfileUnknown))
+	mergeWorking := cardOver(MergeStarting())
+	mergeDone := cardOver(MergeOutcome(nil))
+	backupWorking := cardOver(BackupStarting())
+	backupDone := cardOver(BackupOutcome(3, 0))
+	// Zero accounts takes its own branch, with its own sentence, and a run in
+	// which every backup failed takes a third that neither of the others reaches.
+	backupNothing := cardOver(BackupOutcome(0, 0))
+	backupFailed := cardOver(BackupOutcome(0, 2))
+	backupPartial := cardOver(BackupOutcome(2, 1))
+
 	views := map[string]string{
 		"debug":                 RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "typed", Status: "Copied"}),
 		"settings":              RenderSettings(SettingsVM{Version: "0.11.2", Status: "Backed up", AutoSync: true, StartLogin: true}),
@@ -302,6 +336,21 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 		"sync_empty":            syncEmpty,
 		"removed_failed":        removedFailed,
 		"removed_registry_note": removedWithRegistryNote,
+		"switch_working":        switchWorking,
+		"switch_done":           switchDone,
+		"switch_warned":         switchWarned,
+		"switch_failed":         switchFailed,
+		"progress_failed_bare":  progressFailedBare,
+		"sync_working":          syncWorking,
+		"sync_done":             syncDone,
+		"sync_failed":           syncFailed,
+		"merge_working":         mergeWorking,
+		"merge_done":            mergeDone,
+		"backup_working":        backupWorking,
+		"backup_done":           backupDone,
+		"backup_nothing":        backupNothing,
+		"backup_failed":         backupFailed,
+		"backup_partial":        backupPartial,
 	}
 	for name, h := range views {
 		for _, v := range emDashViolations(h) {

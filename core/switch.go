@@ -80,6 +80,31 @@ func (s *Switcher) ClaimPendingRelaunch() []string {
 	return p
 }
 
+// SwitchedWithWarning wraps something that went wrong AFTER the user was
+// already moved: the target is open, the account was recorded, and only the
+// optional session sync failed.
+//
+// It exists because callers cannot tell those apart from an ordinary error, and
+// one of them now draws a screen. The panel used to say "Switch failed" over an
+// account list already showing the target as current, which is the panel
+// contradicting itself with the wrong half winning.
+//
+// Callers that only report a message can keep treating it as an error; callers
+// that say what happened should test for it with errors.As.
+type SwitchedWithWarning struct{ Err error }
+
+func (e *SwitchedWithWarning) Error() string { return e.Err.Error() }
+func (e *SwitchedWithWarning) Unwrap() error { return e.Err }
+
+// switchedWithWarning wraps err unless it is nil, so the return sites below read
+// as one line each.
+func switchedWithWarning(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &SwitchedWithWarning{Err: err}
+}
+
 // SafeSwitch closes the running app, optionally aligns sessions, then launches
 // the target. Data is moved ONLY when auto sync is ON and both profiles are
 // logged in: then it backs up BOTH profiles (bidirectional align writes both)
@@ -144,7 +169,9 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath, dstIdentity string
 	owed := s.ClaimPendingRelaunch()
 	if len(owed) == 0 && running {
 		log.Printf("[Safe Switch] Claude was already reopened elsewhere; not launching again.")
-		return alignErr
+		// Reopened by the quit handler, on the profiles this switch owed, so the
+		// user did land on the target. Anything left is the sync, not the switch.
+		return switchedWithWarning(alignErr)
 	}
 	if len(owed) == 0 {
 		// Nothing was running, so nothing was owed, but the switch still has to
@@ -178,8 +205,11 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath, dstIdentity string
 		log.Printf("[Safe Switch] Switched, but an account that was open could not be reopened: %v", othersErr)
 	}
 	if alignErr != nil {
-		// Claude is back up, so the user is not stranded; the sync is what failed.
-		return alignErr
+		// Claude is back up on the target and the account has been recorded, so
+		// the switch itself worked; the sync is what failed. Wrapped, because a
+		// caller that reports this as a failed switch is telling the user the
+		// opposite of what their screen shows.
+		return switchedWithWarning(alignErr)
 	}
 
 	log.Printf("[Safe Switch] Switch completed successfully!")

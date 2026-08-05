@@ -202,6 +202,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .modal .warn{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.45;padding:8px 11px;border-radius:10px;margin-bottom:14px}
 .modal .row{display:flex;gap:9px}
 .modal .btn{flex:1}
+/* The switch progress card. Above .modal-bg so the confirmation it replaces
+   cannot show through, and centred in the same place so pressing Switch turns
+   the question into the progress without the user's eyes moving. */
+.prog-bg{position:fixed;inset:0;background:rgba(30,20,50,.32);display:flex;align-items:center;justify-content:center;z-index:11;padding:20px}
+.prog{background:#fff;border-radius:16px;padding:26px 20px 22px;width:100%;max-width:340px;box-shadow:0 12px 40px rgba(30,20,50,.28);text-align:center}
+.prog h2{font-size:15px;font-weight:800;margin:0 0 6px;letter-spacing:-.01em}
+.prog p{font-size:12.5px;color:#6b6580;line-height:1.5;margin:0}
+.prog .btn{width:100%;margin-top:15px}
+.prog-err{color:#a32d2d;font-weight:600;word-break:break-word}
+.prog-warn{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.45;text-align:left;padding:9px 11px;border-radius:10px;margin-top:12px;word-break:break-word}
+.prog-spin{width:34px;height:34px;border:3px solid #e6e3f0;border-top-color:#7c6cf0;border-radius:50%;margin:0 auto 15px;animation:progspin .8s linear infinite}
+@keyframes progspin{to{transform:rotate(360deg)}}
+.prog-mark{width:38px;height:38px;border-radius:50%;color:#fff;font-size:19px;font-weight:800;line-height:38px;margin:0 auto 13px}
+.prog-mark.ok{background:#1a7a3d}
+.prog-mark.bad{background:#c23b3b}
 </style></head><body>` + body + `
 <div class="modal-bg" id="mcsModal" onclick="if(event.target===this) closeConfirm()">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mcsModalTitle" aria-describedby="mcsModalBody">

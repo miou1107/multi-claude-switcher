@@ -6,6 +6,7 @@
 extern void goPanelWillOpen(void);
 extern void goPanelAction(const char *action, const char *folder);
 extern void goPanelReady(void);
+extern int goProgressSticky(void);
 
 @interface MCSDelegate : NSObject <WKScriptMessageHandler>
 @property (strong) NSStatusItem *item;
@@ -27,6 +28,14 @@ extern void goPanelReady(void);
 - (void)toggle:(id)sender {
   if (self.popover.isShown) { [self.popover performClose:sender]; return; }
   goPanelWillOpen(); // Go renders fresh content and calls LoadPanelHTML
+  // Read the flag here rather than letting Go dispatch it: SetPopoverSticky
+  // dispatches to this queue, so its block cannot run until this method has
+  // already returned, i.e. after the popover is shown. AppKit installs the
+  // transient popover's event monitor at show time, so a panel reopened while
+  // an operation is running would come back Transient and be closed again by
+  // Claude taking the foreground, which is the bug the flag exists to fix.
+  self.popover.behavior = goProgressSticky() ? NSPopoverBehaviorApplicationDefined
+                                             : NSPopoverBehaviorTransient;
   NSButton *btn = self.item.button;
   [self.popover showRelativeToRect:btn.bounds ofView:btn preferredEdge:NSRectEdgeMaxY];
   [self.popover.contentViewController.view.window makeKeyWindow];
@@ -78,6 +87,27 @@ void LoadPanelHTML(const char *html) {
 
 void ClosePopover(void) {
   dispatch_async(dispatch_get_main_queue(), ^{ [gD.popover performClose:nil]; });
+}
+
+// SetPopoverSticky keeps the panel on screen while an operation the user needs
+// to see through is running.
+//
+// The panel is Transient by default, which means it closes the moment anything
+// outside it takes focus. That is right for browsing: click elsewhere and it
+// gets out of the way. It is wrong for a switch, because a switch ENDS by
+// launching Claude Desktop, and Claude taking the foreground is exactly the
+// event that closes the panel. So the card reporting the outcome was dismissed
+// by the very thing it was reporting, and a switch that failed said so to an
+// empty screen.
+//
+// ApplicationDefined means only we close it. ClosePopover above still works, so
+// Escape and the menu bar icon remain a way out; nothing here can trap the user
+// behind a panel that will not go away.
+void SetPopoverSticky(int sticky) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    gD.popover.behavior = sticky ? NSPopoverBehaviorApplicationDefined
+                                 : NSPopoverBehaviorTransient;
+  });
 }
 
 void TerminateApp(void) {
