@@ -55,7 +55,12 @@ func IssueURL(comment string, m *Masker) string {
 		// in this masker ever knew about. Without this the title carried
 		// exactly the class of leak the sweep exists for, worse than the
 		// clipboard body because a title is indexed and mailed to watchers.
-		title = strings.TrimSpace(Sweep(m.Apply(comment)))
+		// SweepFreeText, not Sweep: a comment is typed, not assembled from
+		// registered fields, so an identifier in it says nothing about this
+		// report's own registration — and this string becomes the title of a
+		// public issue, where "unregistered" would read as a claim about the
+		// app the issue is being filed against.
+		title = strings.TrimSpace(SweepFreeText(m.Apply(comment)))
 	}
 	if i := strings.IndexAny(title, "\r\n"); i >= 0 {
 		title = strings.TrimSpace(title[:i])
@@ -73,16 +78,18 @@ func IssueURL(comment string, m *Masker) string {
 }
 
 // AppendComment adds the user's comment to the report clipboard body, masked
-// with the same masker that produced report and then swept.
+// with the same masker that produced report and then swept as free text.
 //
 // Exported so both hosts go through one implementation rather than each
 // remembering the two steps separately. Build already sweeps, but it sweeps
 // internally and returns; a caller appending the comment to that returned
 // string afterwards puts the comment outside Build's sweep entirely — the gap
 // this closes. m.Apply alone only masks what was registered (this machine's
-// own accounts, home, user and host name); Sweep is what catches an address or
-// a UUID belonging to someone else that a user's own pasted comment can carry,
-// and which no registration here could ever have known about.
+// own accounts, home, user and host name); SweepFreeText is what catches an
+// address or a UUID belonging to someone else that a user's own pasted comment
+// can carry, and which no registration here could ever have known about. Free
+// text rather than Sweep: what a user types is not assembled from this
+// report's fields, so a hit there says nothing about whether one was missed.
 //
 // A nil m is guarded the same way IssueURL guards it, and for the same
 // reason: the debug report cache makes nil reachable here (see the doc
@@ -94,5 +101,5 @@ func AppendComment(report, comment string, m *Masker) string {
 	if comment == "" || m == nil {
 		return report
 	}
-	return report + "\n---\n" + Sweep(m.Apply(comment)) + "\n"
+	return report + "\n---\n" + SweepFreeText(m.Apply(comment)) + "\n"
 }

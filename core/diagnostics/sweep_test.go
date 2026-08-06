@@ -38,6 +38,28 @@ func TestSweepCatchesWhatRegistrationMissed(t *testing.T) {
 	}
 }
 
+// TestSweepFreeTextRedactsWithoutClaimingADefect is the split the first real
+// Windows session forced. Sweep's marker names a defect: a field the gatherer
+// forgot to register. On a machine whose logs mention session filenames the
+// same marker fired 27 times over 9 lines for session IDs, which belong to no
+// field and never will — so the check "the report must not contain the marker"
+// could never pass there again, and a check that is permanently red stops
+// being read. Free text gets a marker that says only what happened.
+func TestSweepFreeTextRedactsWithoutClaimingADefect(t *testing.T) {
+	in := "[Safe Switch] skipped local_6c7b2c78-0d0a-4ab6-bffa-e9e6fe671d61.json: rename"
+	got := SweepFreeText(in)
+
+	if strings.Contains(strings.ToLower(got), "6c7b2c78") {
+		t.Errorf("the identifier survived: %q", got)
+	}
+	if !strings.Contains(got, RedactedMarker) {
+		t.Errorf("SweepFreeText(%q) = %q, want it to carry %q", in, got, RedactedMarker)
+	}
+	if strings.Contains(got, UnregisteredMarker) {
+		t.Errorf("an identifier in free text is not an unregistered field, so it must not claim to be one: %q", got)
+	}
+}
+
 // TestSweepDoesNotOverreachOnBareHex guards the false-positive side of the
 // unhyphenated-uuid rule: a 32-hex-digit run with hex-character neighbours on
 // either side is a longer, unrelated hex string, not a standalone identifier,

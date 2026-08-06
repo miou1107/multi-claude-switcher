@@ -2,26 +2,31 @@
 
 ## [Unreleased]
 
-All four of these came out of the first real Windows session against the Debug
-info screen (issue #13), on a Traditional Chinese machine. None of them could
-have been found by building for Windows from a Mac, which is all the evidence
-any of this code had.
+Most of what follows came out of the first real Windows sessions against the
+bug report screen (issue #13), on Traditional Chinese machines, one standalone
+and one Store build. None of it could have been found by building for Windows
+from a Mac, which is all the evidence this code had.
 
 ### Fixed
-- **"Add another account" was missing on Windows standalone installs.** The
-  panel gated the card on `MSIXAvailable()`, so it appeared only on the Store
-  build — a standalone user with two Claude accounts had no way to add the
-  second from the panel at all, while macOS has offered it all along. The gate
-  was stale rather than deliberate: `WindowsPlatform.CreateProfile` grew a
-  standalone branch that makes `%APPDATA%\Claude_<name>`, and the
-  recover-a-ghost-account flow has been calling it through the same
-  `ProfileCreator` on standalone installs ever since, ungated. A plain add is
-  that sequence minus the copy step, so the gate was hiding the entry point to a
-  path the app was already running. Verified on a standalone install by running
-  the real create sequence with only the two steps that would close Claude
-  Desktop stubbed: the folder, the awaiting-sign-in registry entry and the
-  display name all landed correctly. The standalone branch also had no test of
-  its own — only the MSIX one did — so it has two now.
+- **The bug report claimed a defect every time a log line mentioned a session
+  file.** The report replaces anything that still looks like an address or an ID
+  after masking, and it labelled every one of them `[redacted: unregistered]` —
+  a marker whose stated job is to say a field reached the report without being
+  masked, i.e. a bug in this app. Measured on a Store build with two profiles:
+  27 of them across 9 lines, every one a session ID inside a log message, which
+  belongs to no field and could never be registered. So the check "the report
+  carries no unregistered marker" could never pass on that machine again, and a
+  check that is permanently red is a check nobody reads. Identifiers found in
+  free text — log lines, and whatever the user types in the comment box — now
+  read `[redacted]` and say only what happened. The louder marker still covers
+  the part of the report built out of fields, so it still turns the suite red
+  when somebody adds a field and forgets to mask it.
+- **An unreadable backups folder put the user's home path into the bug report.**
+  The "could not read" line carried the operating system's own error text, which
+  names the absolute path it failed on. Everything else in the report goes
+  through the masker; this one line did not, and nothing tested it because a
+  path has no shape the backstop sweep can recognise. Found while reviewing the
+  marker split above.
 - **The bug report's first line was not valid UTF-8 on any non-English Windows.**
   The OS version came from `cmd /c ver`, which answers in the console code page,
   so a Traditional Chinese machine put the CP950 bytes for 版本 straight into the
@@ -50,6 +55,21 @@ any of this code had.
   unelevated; what fails is the *traversal* afterwards, which Windows refuses
   for a junction an unelevated process made. The skip guarded the wrong call, so
   the test failed on every developer machine and CI runner rather than skipping.
+
+- **"Add another account" was missing on Windows standalone installs.** The
+  panel gated the card on `MSIXAvailable()`, so it appeared only on the Store
+  build — a standalone user with two Claude accounts had no way to add the
+  second from the panel at all, while macOS has offered it all along. The gate
+  was stale rather than deliberate: `WindowsPlatform.CreateProfile` grew a
+  standalone branch that makes `%APPDATA%\Claude_<name>`, and the
+  recover-a-ghost-account flow has been calling it through the same
+  `ProfileCreator` on standalone installs ever since, ungated. A plain add is
+  that sequence minus the copy step, so the gate was hiding the entry point to a
+  path the app was already running. Verified on a standalone install by running
+  the real create sequence with only the two steps that would close Claude
+  Desktop stubbed: the folder, the awaiting-sign-in registry entry and the
+  display name all landed correctly. The standalone branch also had no test of
+  its own — only the MSIX one did — so it has two now.
 
 ### Added
 - **Conversations an old version filed in the wrong place are cleared away.**

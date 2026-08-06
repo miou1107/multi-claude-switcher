@@ -8,7 +8,23 @@ import "regexp"
 // the user safe and let the missing rule live forever; this one is asserted
 // against in the tests, so forgetting to register a new field turns the suite
 // red instead of turning up in a public issue.
+// It names the failure rather than hiding it, so it is only ever used on the
+// part of the report that is built out of registered fields. Free text gets
+// RedactedMarker instead: see the two functions below.
 const UnregisteredMarker = "[redacted: unregistered]"
+
+// RedactedMarker replaces an identifier found in free text — a log line, or a
+// comment the user typed.
+//
+// Free text is not built out of fields, so an identifier in it is not evidence
+// that anyone forgot anything. A session ID in a log line belongs to no field
+// and no registration can ever cover it; measured on a Store build with two
+// profiles, nine such lines carried twenty-seven of them. Marking those as
+// unregistered made "the report must contain no unregistered marker" a check
+// that could never pass on that machine, and a check that is permanently red
+// is a check nobody reads. This marker states what happened and claims nothing
+// about why.
+const RedactedMarker = "[redacted]"
 
 var (
 	// Deliberately loose. A false positive costs one line of a bug report; a
@@ -52,10 +68,20 @@ var (
 // A swept value loses its identity — two occurrences can no longer be recognised
 // as the same thing — which is exactly why it is a last resort and not a
 // substitute for registering properly.
-func Sweep(s string) string {
-	s = emailShape.ReplaceAllString(s, UnregisteredMarker)
-	s = sweepUUID(uuidHyphenated, s)
-	s = sweepUUID(uuidBare, s)
+//
+// Use it on text assembled from registered fields. For a log line or a user's
+// own comment, use SweepFreeText.
+func Sweep(s string) string { return sweepWith(s, UnregisteredMarker) }
+
+// SweepFreeText redacts the same shapes as Sweep, but says only that something
+// was redacted. See RedactedMarker for why the distinction is worth a second
+// function rather than a second argument at every call site.
+func SweepFreeText(s string) string { return sweepWith(s, RedactedMarker) }
+
+func sweepWith(s, marker string) string {
+	s = emailShape.ReplaceAllString(s, marker)
+	s = sweepUUID(uuidHyphenated, s, marker)
+	s = sweepUUID(uuidBare, s, marker)
 	return s
 }
 
@@ -65,10 +91,10 @@ func Sweep(s string) string {
 // itself. Run twice for the reason mask.go's bounded and home passes are: two
 // adjacent matches share the one boundary character between them, and a
 // single left-to-right scan only ever awards it to the first.
-func sweepUUID(re *regexp.Regexp, s string) string {
+func sweepUUID(re *regexp.Regexp, s, marker string) string {
 	replace := func(match string) string {
 		groups := re.FindStringSubmatch(match)
-		return groups[1] + UnregisteredMarker + groups[3]
+		return groups[1] + marker + groups[3]
 	}
 	s = re.ReplaceAllStringFunc(s, replace)
 	s = re.ReplaceAllStringFunc(s, replace)

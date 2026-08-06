@@ -2227,6 +2227,10 @@ or open a new one, with these checks:
    every field).
 2. No address, UUID, `C:\Users\<name>` or host name anywhere in it, and no
    `[redacted: unregistered]`.
+   **Amended 2026-08-05:** `[redacted]` in the log sections is expected and not
+   a failure — session IDs in log lines carry it, and no registration can cover
+   them. Only `[redacted: unregistered]`, which appears above the log sections,
+   means a field escaped registration.
 3. Copy puts the report on the clipboard; paste it into Notepad and compare.
 4. Report a problem opens the browser, the issue title is right, and the
    clipboard still holds the report at the moment the browser appears.

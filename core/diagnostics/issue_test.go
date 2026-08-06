@@ -60,7 +60,7 @@ func TestIssueURL(t *testing.T) {
 		}
 	})
 
-	t.Run("an unregistered address and uuid are swept from the title", func(t *testing.T) {
+	t.Run("an address and uuid the masker never knew are swept from the title", func(t *testing.T) {
 		// Round-2 finding 1: IssueURL only ran the comment through m.Apply, which
 		// masks registered values, never through Sweep, which catches what
 		// registration missed. A foreign email or a bare UUID in the comment
@@ -71,8 +71,15 @@ func TestIssueURL(t *testing.T) {
 		if strings.Contains(got, "someone@example.com") || strings.Contains(got, "11112222-3333-4444-5555-666677778888") {
 			t.Errorf("an unregistered identifier reached the title: %q", got)
 		}
-		if !strings.Contains(got, UnregisteredMarker) {
+		if !strings.Contains(got, RedactedMarker) {
 			t.Errorf("the title should carry the sweep marker: %q", got)
+		}
+		// A comment is typed by the user, not assembled from fields, so an
+		// identifier in it is no evidence that anyone forgot to register
+		// anything — and this one is the title of a public issue, where a word
+		// like "unregistered" reads as a defect in the app the issue is about.
+		if strings.Contains(got, UnregisteredMarker) {
+			t.Errorf("the title must not accuse the app of a defect over the user's own paste: %q", got)
 		}
 	})
 
