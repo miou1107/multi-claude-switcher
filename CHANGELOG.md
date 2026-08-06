@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Build / CI
+- **Two jobs raced to create the same release, and on 0.13.3 the race was
+  lost.** The macOS and Windows builds each published with an action that
+  creates the release when the tag has none, and they run at the same time.
+  Both made one: the Windows job's became the release everyone sees, the macOS
+  job's was left an unpublished draft holding the only copy of the mac download,
+  and its attempt to finalize failed outright. The published release had the
+  Windows installer and no mac zip, and the Homebrew update never ran, because
+  the job it waits for had failed. Four earlier tags raced the same way and
+  happened to win. One job now creates the release before either build starts,
+  and the builds only upload into it. A test reads the workflow and fails if a
+  second release-creating step ever comes back, because neither job looked wrong
+  on its own.
+
 ## [0.13.3] - 2026-08-06
 
 Most of what follows came out of the first real Windows sessions against the
