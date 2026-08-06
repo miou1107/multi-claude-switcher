@@ -2,10 +2,10 @@
 
 ## [Unreleased]
 
-All four of these came out of the first real Windows session against the Debug
-info screen (issue #13), on a Traditional Chinese machine. None of them could
-have been found by building for Windows from a Mac, which is all the evidence
-any of this code had.
+Most of what follows came out of the first real Windows sessions against the
+bug report screen (issue #13), on Traditional Chinese machines, one standalone
+and one Store build. None of it could have been found by building for Windows
+from a Mac, which is all the evidence this code had.
 
 ### Fixed
 - **The bug report claimed a defect every time a log line mentioned a session
@@ -55,6 +55,21 @@ any of this code had.
   unelevated; what fails is the *traversal* afterwards, which Windows refuses
   for a junction an unelevated process made. The skip guarded the wrong call, so
   the test failed on every developer machine and CI runner rather than skipping.
+
+- **"Add another account" was missing on Windows standalone installs.** The
+  panel gated the card on `MSIXAvailable()`, so it appeared only on the Store
+  build — a standalone user with two Claude accounts had no way to add the
+  second from the panel at all, while macOS has offered it all along. The gate
+  was stale rather than deliberate: `WindowsPlatform.CreateProfile` grew a
+  standalone branch that makes `%APPDATA%\Claude_<name>`, and the
+  recover-a-ghost-account flow has been calling it through the same
+  `ProfileCreator` on standalone installs ever since, ungated. A plain add is
+  that sequence minus the copy step, so the gate was hiding the entry point to a
+  path the app was already running. Verified on a standalone install by running
+  the real create sequence with only the two steps that would close Claude
+  Desktop stubbed: the folder, the awaiting-sign-in registry entry and the
+  display name all landed correctly. The standalone branch also had no test of
+  its own — only the MSIX one did — so it has two now.
 
 ### Added
 - **Conversations an old version filed in the wrong place are cleared away.**

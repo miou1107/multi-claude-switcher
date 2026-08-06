@@ -2,7 +2,11 @@
 
 package platform
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestExtractUserDataDir(t *testing.T) {
 	cases := []struct {
@@ -262,5 +266,55 @@ func TestRunningProfilesInProcsWindows(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The standalone half of WindowsPlatform.CreateProfile had no test at all: the
+// MSIX branch is covered in windows_msix_test.go, this one was not. It matters
+// more than it looks, because it is what the panel's "Add another account"
+// calls on a standalone install, and what the recover-a-ghost-account flow has
+// been calling there all along.
+func TestCreateProfileStandalone(t *testing.T) {
+	w := &WindowsPlatform{}
+	if w.isMSIX() {
+		t.Skip("this machine resolves to the Store build, so the standalone branch is unreachable here")
+	}
+	root := t.TempDir()
+	t.Setenv("APPDATA", root)
+
+	identity, dataDir, err := w.CreateProfile("Personal")
+	if err != nil {
+		t.Fatalf("CreateProfile() error = %v", err)
+	}
+	// The identity is the folder name, prefixed. Elsewhere in MCS these two
+	// differ (on the Store build the directory is the shared slot), so the
+	// contract is worth pinning on the build where they happen to agree.
+	if want := profileFolderPrefix + "Personal"; identity != want {
+		t.Errorf("identity = %q, want %q", identity, want)
+	}
+	if want := filepath.Join(root, profileFolderPrefix+"Personal"); dataDir != want {
+		t.Errorf("dataDir = %q, want %q", dataDir, want)
+	}
+	if fi, err := os.Stat(dataDir); err != nil || !fi.IsDir() {
+		t.Errorf("the profile directory was not created: err=%v", err)
+	}
+}
+
+// Creating over an existing folder would hand back a directory holding someone
+// else's account, which the caller then registers as a fresh profile awaiting
+// sign-in.
+func TestCreateProfileStandaloneRefusesAnExistingFolder(t *testing.T) {
+	w := &WindowsPlatform{}
+	if w.isMSIX() {
+		t.Skip("this machine resolves to the Store build, so the standalone branch is unreachable here")
+	}
+	root := t.TempDir()
+	t.Setenv("APPDATA", root)
+	if err := os.MkdirAll(filepath.Join(root, profileFolderPrefix+"Personal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := w.CreateProfile("Personal"); err == nil {
+		t.Error("CreateProfile() overwrote an existing profile folder, want an error")
 	}
 }
