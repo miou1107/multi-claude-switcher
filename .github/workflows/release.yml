@@ -76,8 +76,40 @@ jobs:
         # checks out with CRLF on Windows, which makes gofmt -l flag every file.
         run: go test ./... -count=1
 
-  build-macos:
+  # One job creates the release; the two build jobs only upload into it.
+  #
+  # Both build jobs used to publish with an action that creates the release when
+  # it is missing. They run at the same time, so on v0.13.3 both created one: the
+  # Windows job's won, the macOS job's was left an unpublished draft holding the
+  # only copy of the mac download, and its finalize failed with "already_exists".
+  # The published release had the installer and no mac zip, and update-homebrew-tap
+  # never ran because the job it needs had failed. Four earlier tags raced the
+  # same way and happened to win.
+  #
+  # Creating it here, once, before either build starts, is what removes the race.
+  # internal/releaseflow's test fails if a second release-creating step ever
+  # comes back.
+  create-release:
     needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Idempotent on purpose: re-running a failed workflow must not fail here
+      # because the release it made the first time still exists.
+      - name: Create the release if it does not exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; leaving it alone."
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+
+  build-macos:
+    needs: create-release
     runs-on: macos-latest
     outputs:
       # Expose the mac zip's SHA256 so the update-homebrew-tap job can pin it in
@@ -128,17 +160,16 @@ jobs:
           echo "sha256=$sha" >> "$GITHUB_OUTPUT"
           echo "macOS zip SHA256: $sha"
 
-      - name: Publish GitHub Release
+      - name: Upload the macOS zip
         # Only the packaged .app is published. It is the sole download and the
         # self-updater's source (it extracts the tray binary from this zip).
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/Multi-Claude-Switcher_*_macos.zip
-          generate_release_notes: true
+        # --clobber so a re-run replaces the asset instead of failing on it.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/Multi-Claude-Switcher_*_macos.zip --clobber
 
   build-windows:
-    needs: test
+    needs: create-release
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -180,12 +211,13 @@ jobs:
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Qp "/DMyAppVersion=$($env:VERSION)" packaging\windows-setup.iss
           Get-ChildItem dist
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/Multi-Claude-Switcher_*_windows_setup.exe
-          generate_release_notes: true
+      # bash, not pwsh: the glob and $GITHUB_REF_NAME are expanded by the shell,
+      # and PowerShell does neither. Git Bash ships on windows-latest.
+      - name: Upload the Windows installer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/Multi-Claude-Switcher_*_windows_setup.exe --clobber
 
   # Bump the multi-claude-switcher cask in miou1107/homebrew-tap so
   # `brew install --cask miou1107/tap/multi-claude-switcher` picks up the new
