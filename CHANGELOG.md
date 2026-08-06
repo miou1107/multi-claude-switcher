@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.13.3] - 2026-08-06
 
 Most of what follows came out of the first real Windows sessions against the
 bug report screen (issue #13), on Traditional Chinese machines, one standalone
