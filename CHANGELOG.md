@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.13.4] - 2026-09-21
 
 ### Changed
 - **The panel now puts itself away two seconds after a switch.** A switch ends
