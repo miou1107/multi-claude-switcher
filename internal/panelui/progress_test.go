@@ -369,3 +369,52 @@ func TestProgressScrimStacksAboveEveryOtherLayer(t *testing.T) {
 		t.Error("the progress scrim is not at z-index 11, above the dialog (10) and the row menu (5)")
 	}
 }
+
+// A switch that worked puts the panel away instead of leaving it open over the
+// account list. The panel is a menu bar popover: the user clicked it to change
+// account, the account has changed, and what they want to look at next is
+// Claude Desktop, not MCS. Two seconds is the pause asked for, long enough to
+// read the tick before the panel goes.
+func TestACleanSwitchPutsThePanelAway(t *testing.T) {
+	vm := SwitchOutcome("Home", nil)
+	if vm.Dismiss != "dismissAndHide" {
+		t.Errorf("a clean switch dismissed to %q, want dismissAndHide", vm.Dismiss)
+	}
+	// The whole call, not just the action name: a timer that fires a misspelled
+	// action leaves the panel open with the card stuck on it.
+	if want := `setTimeout(function(){send('dismissAndHide','')},2000)`; !strings.Contains(listWith(vm), want) {
+		t.Errorf("the switch card is missing %q", want)
+	}
+}
+
+// A switch whose session sync failed keeps the panel up. The card waits to be
+// closed so the warning is read, and hiding the panel under it would throw away
+// the one message this card exists to deliver.
+//
+// The card alone, not the page: the screen behind it has buttons and scripts of
+// its own, and a page-wide scan for "setTimeout" would go red the day the shell
+// grows an unrelated timer, reporting it as a warning card that dismissed
+// itself.
+func TestASwitchWithAWarningKeepsThePanelUp(t *testing.T) {
+	card := WithProgress("", SwitchOutcome("Home", fmt.Errorf("switching: %w",
+		&core.SwitchedWithWarning{Err: errors.New("failed to auto sync sessions")})))
+	if strings.Contains(card, "dismissAndHide") {
+		t.Error("a switch with a warning put the panel away")
+	}
+	if strings.Contains(card, "setTimeout") {
+		t.Error("the warning card scheduled its own dismissal")
+	}
+}
+
+// Every other finished card stays at the delay it had and returns to a screen,
+// so adding the hide did not change what a sync or a backup does.
+//
+// Built by the real constructor rather than by hand: what is pinned is what a
+// finished backup does, and a hand-made VM would pin the renderer's default
+// branch while missing that this card returns to Settings, not to the list.
+func TestOtherDoneCardsStillOnlyReturnToAScreen(t *testing.T) {
+	card := WithProgress("", BackupOutcome(2, 0))
+	if want := `setTimeout(function(){send('showSettings','')},2200)`; !strings.Contains(card, want) {
+		t.Errorf("a finished backup card is missing %q, got:\n%s", want, card)
+	}
+}

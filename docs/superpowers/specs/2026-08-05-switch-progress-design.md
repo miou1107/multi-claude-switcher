@@ -142,8 +142,13 @@ The sequence for a switch becomes:
 2. Host sets phase working and reloads. The card appears over the list.
 3. `SafeSwitch` runs. On macOS its error is now returned rather than discarded.
 4. Host sets phase done or failed and reloads.
-5. Done auto dismisses from the page via `showList`. Failed waits for Close,
-   which sends the same `showList`.
+5. Done auto dismisses from the page. A clean switch sends `dismissAndHide`,
+   which clears the card and puts the panel away, because a switch ends with
+   Claude Desktop coming up and the panel would be sitting in front of it;
+   every other done card sends `showList`. Failed waits for Close, which sends
+   the same `showList`. So does a switch that moved the user but could not sync
+   their sessions: that card carries a warning, and hiding the panel would take
+   the warning away before it was read.
 
 If the panel is closed and reopened mid switch, the host still holds the working
 phase, so the card is rendered again rather than the panel looking idle while

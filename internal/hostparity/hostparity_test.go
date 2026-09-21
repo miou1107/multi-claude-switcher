@@ -22,6 +22,7 @@
 package hostparity
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -139,6 +140,144 @@ func everyScreen() []string {
 		panelui.RenderSync(profiles, "", false),
 		panelui.RenderRemoved(panelui.RemovedVM{Name: "Work"}),
 	}
+}
+
+// TestEveryActionACardSendsIsHandled covers what everyScreen cannot: the
+// progress card is an overlay, drawn over whatever screen the user was on, so
+// no renderer produces it and the scan above never sees the actions its Close
+// button and its auto dismissal send.
+//
+// Those actions are the ones with the worst failure mode in the whole panel. A
+// screen's dead button can be clicked again; a card's dismissal fires once, on
+// a timer, and if no host answers it the card stays on screen over a panel the
+// user can no longer use, with nothing to explain why.
+//
+// WithProgress on an empty page returns the card alone, so what this scans is
+// the card's own markup rather than the screen underneath it.
+func TestEveryActionACardSendsIsHandled(t *testing.T) {
+	mac := actionsIn(t, macOSHost, macOSFunc)
+	if len(mac) == 0 {
+		t.Fatalf("no action arms found in %s (%s): the test is not reading what it thinks it is", macOSHost, macOSFunc)
+	}
+	names := map[string]bool{}
+	for _, cards := range everyCard() {
+		for _, card := range cards {
+			for _, m := range sendCall.FindAllStringSubmatch(panelui.WithProgress("", card), -1) {
+				names[m[1]] = true
+			}
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("no action names found in any card: the scan is not reading what it thinks it is")
+	}
+	for _, a := range sortedKeys(names) {
+		if !mac[a] {
+			t.Errorf("a card sends %q but no host handles it: the card can never be dismissed", a)
+		}
+	}
+}
+
+// everyCard builds one of each card the panel can raise, keyed by the
+// constructor that built it, in both the outcomes that carry a dismissal: the
+// plain one, and the one with a warning, which is where a card grows a Close
+// button and can therefore send something different.
+//
+// Keyed rather than a flat list so that TestEveryCardIsBuilt below can compare
+// these keys against panelui's real constructors. A card missing here is a
+// dismissal going unchecked.
+func everyCard() map[string][]*panelui.ProgressVM {
+	empty := &core.SyncReport{}
+	warn := &core.SwitchedWithWarning{Err: errors.New("failed to auto sync sessions")}
+	failed := errors.New("it did not finish")
+	return map[string][]*panelui.ProgressVM{
+		"SwitchStarting": {panelui.SwitchStarting()},
+		"SwitchOutcome": {
+			panelui.SwitchOutcome("Work", nil),
+			panelui.SwitchOutcome("Work", warn),
+			panelui.SwitchOutcome("Work", failed),
+		},
+		"SyncStarting": {panelui.SyncStarting()},
+		"SyncOutcome": {
+			panelui.SyncOutcome("Work", empty, nil),
+			panelui.SyncOutcome("Work", empty, failed),
+		},
+		"BackupStarting": {panelui.BackupStarting()},
+		"BackupOutcome": {
+			panelui.BackupOutcome(2, 0),
+			panelui.BackupOutcome(2, 1),
+			panelui.BackupOutcome(0, 1),
+		},
+		"MergeStarting": {panelui.MergeStarting()},
+		"MergeOutcome": {
+			panelui.MergeOutcome(nil),
+			panelui.MergeOutcome(failed),
+		},
+	}
+}
+
+// TestEveryCardIsBuilt fails when a card constructor is added to panelui
+// without being added to everyCard, which would leave its dismissal unchecked
+// by the test above while everything stayed green.
+//
+// It compares panelui's constructor NAMES against everyCard's keys, rather than
+// counting either. A count can be satisfied by editing the count's own input,
+// which is the obvious and wrong response to seeing it go red; a name can only
+// be satisfied by naming the constructor, and a name with no card behind it is
+// caught here too.
+//
+// Constructors are found by what they RETURN, not by what they are called: a
+// card named outside the Starting/Outcome pattern is still a card whose
+// dismissal has to reach a host.
+func TestEveryCardIsBuilt(t *testing.T) {
+	fset := token.NewFileSet()
+	files, err := filepath.Glob("../panelui/*.go")
+	if err != nil {
+		t.Fatalf("listing internal/panelui: %v", err)
+	}
+	constructors := map[string]bool{}
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if ok && fd.Recv == nil && fd.Name.IsExported() && returnsProgressVM(fd) {
+				constructors[fd.Name.Name] = true
+			}
+		}
+	}
+	if len(constructors) == 0 {
+		t.Fatal("no card constructors found in internal/panelui: the test is not reading what it thinks it is")
+	}
+
+	built := everyCard()
+	for name := range constructors {
+		if len(built[name]) == 0 {
+			t.Errorf("panelui exports %s but everyCard builds no card with it: that card's dismissal is going unchecked", name)
+		}
+	}
+	for name := range built {
+		if !constructors[name] {
+			t.Errorf("everyCard has a %q entry but panelui exports no such card constructor", name)
+		}
+	}
+}
+
+// returnsProgressVM reports whether fd's only result is a *ProgressVM.
+func returnsProgressVM(fd *ast.FuncDecl) bool {
+	if fd.Type.Results == nil || len(fd.Type.Results.List) != 1 {
+		return false
+	}
+	star, ok := fd.Type.Results.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	id, ok := star.X.(*ast.Ident)
+	return ok && id.Name == "ProgressVM"
 }
 
 // TestEveryScreenIsRendered fails when a renderer is added to panelui without

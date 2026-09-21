@@ -638,6 +638,20 @@ func goPanelAction(caction, cfolder *C.char) {
 		go manualCheckAndInstall()
 	case "hidePanel":
 		C.ClosePopover()
+	case "dismissAndHide":
+		// A finished switch asking to go away. The card comes down first so the
+		// popover is not animating shut with an outcome still drawn on it, and
+		// so the next open starts on the account list.
+		//
+		// The re-render is deferred, like every other path that leaves the panel
+		// on the list: rendering it reads a leveldb copy per profile, and this
+		// runs on the main thread (see goPanelWillOpen). Doing it inline would
+		// hold the menu bar for the length of that scan and postpone the very
+		// close it is part of, to produce a page the popover is about to hide.
+		panelState.SetView("list")
+		setStatus("")
+		go reloadPanel()
+		C.ClosePopover()
 	case "quit":
 		if deferQuitUntilIdle() {
 			go reloadPanel()

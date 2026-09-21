@@ -550,6 +550,15 @@ func dispatchAction(action, arg string) {
 		if hwnd := panelHWND.Load(); hwnd != 0 {
 			panelWV.Dispatch(func() { parkPanel(hwnd) })
 		}
+	case "dismissAndHide":
+		// A finished switch asking to go away. The card comes down FIRST:
+		// parkPanel keeps whatever is on screen (SetViewKeeping), so parking
+		// without this would hide the panel with the outcome still on it and
+		// show it again on the next open.
+		panelState.SetView("list")
+		if hwnd := panelHWND.Load(); hwnd != 0 {
+			panelWV.Dispatch(func() { parkPanel(hwnd) })
+		}
 	case "newProfile":
 		// The add card: open the in-panel name screen on the plain add path (no
 		// account to recover), the same flow the macOS host uses. This replaces the
@@ -1673,8 +1682,9 @@ func panelWndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 				// means the card reporting the outcome is dismissed by the very
 				// thing it was reporting, and a switch that failed says so to a
 				// window nobody can see. The card's own Close and auto dismiss
-				// both go through showList, which clears this, and Escape still
-				// parks the panel, so nothing here can strand the user.
+				// clear it, through showList or through dismissAndHide, which
+				// also parks the panel, and Escape still parks it, so nothing
+				// here can strand the user.
 				log.Println("panel deactivated while a switch is on screen; staying up")
 			} else if panelActivated.Load() {
 				// Defer to keep the message pump healthy; park right after.

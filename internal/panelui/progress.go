@@ -77,6 +77,25 @@ var dismissActions = map[string]bool{
 	"showList":     true,
 	"showSync":     true,
 	"showSettings": true,
+	// Not a screen: it takes the card down AND puts the whole panel away. Only
+	// a finished switch asks for it — see SwitchOutcome.
+	"dismissAndHide": true,
+}
+
+// autoDismissMS is how long a finished card stays up before it takes itself
+// down. It takes the RESOLVED action, the same one written into the timer's
+// body, so a card can never wait one length and then fire the other.
+//
+// A card that also puts the panel away gets the shorter pause: the user asked
+// for the panel to go after a switch, and every tenth of a second past reading
+// the tick is the panel sitting in front of the app they switched to. A card
+// that only returns to a screen can afford the longer one, because nothing is
+// in anyone's way while it waits.
+func autoDismissMS(action string) int {
+	if action == "dismissAndHide" {
+		return 2000
+	}
+	return 2200
 }
 
 // dismissAction resolves Dismiss to an action name that is safe to write into
@@ -125,7 +144,8 @@ func renderProgress(vm *ProgressVM) string {
 		return ""
 	}
 	esc := html.EscapeString
-	dismiss := `send('` + dismissAction(vm.Dismiss) + `','')`
+	action := dismissAction(vm.Dismiss)
+	dismiss := `send('` + action + `','')`
 	detail := ""
 	if vm.Detail != "" {
 		detail = `<p>` + esc(vm.Detail) + `</p>`
@@ -148,7 +168,7 @@ func renderProgress(vm *ProgressVM) string {
 		// failed card below does the opposite, and for the opposite reason.
 		inner = `<div class="prog-mark ok">&#10003;</div>
     <h2>` + esc(vm.Title) + `</h2>` + detail + `
-    <script>setTimeout(function(){` + dismiss + `},2200);</script>`
+    <script>setTimeout(function(){` + dismiss + `},` + strconv.Itoa(autoDismissMS(action)) + `);</script>`
 	case ProgressFailed:
 		// Never a claim about what was or was not changed: these operations can
 		// fail after Claude has already been closed, and "nothing was changed"
@@ -201,8 +221,16 @@ func SwitchOutcome(target string, err error) *ProgressVM {
 		vm.Detail = "You are now on " + target + "."
 	}
 	if err != nil {
+		// The card waits to be closed, so the panel waits with it: hiding it
+		// would take the warning away before it was read.
 		vm.Warn = err.Error()
+		return vm
 	}
+	// Nothing left to say, so the panel goes too. This is the one card that
+	// puts it away: a switch ends with Claude Desktop coming up, and the panel
+	// left open over it is MCS standing in front of the thing the user just
+	// asked for.
+	vm.Dismiss = "dismissAndHide"
 	return vm
 }
 

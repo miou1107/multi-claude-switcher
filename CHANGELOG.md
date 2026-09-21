@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+- **The panel now puts itself away two seconds after a switch.** A switch ends
+  with Claude Desktop coming up, so what the user wants in front of them is
+  Claude, not MCS; until now the success card cleared itself and left the panel
+  open over the app they had just switched to, waiting to be clicked away. The
+  card still stays up long enough to read the tick, then takes the panel with
+  it. A switch whose session sync failed is unchanged: that card keeps its Close
+  button and the panel waits with it, because hiding it would take the warning
+  away before it was read. Every other card — sync, backup, merge — returns to
+  its screen as before.
+
 ### Build / CI
 - **Two jobs raced to create the same release, and on 0.13.3 the race was
   lost.** The macOS and Windows builds each published with an action that
