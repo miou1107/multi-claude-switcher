@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.13.5] - 2026-09-23
 
 ### Fixed
 - **On Windows, signing in again to a work profile landed in the default
