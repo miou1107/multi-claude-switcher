@@ -28,10 +28,19 @@ package platform
 // after Claude has registered, and has to be re-asserted if Claude clobbers it
 // again.
 //
-// So the rewrite is held only for the window where it is actually needed:
-// after switching to a profile that has **no account yet**, until that profile
-// gains one (the sign-in landed) or the window expires. A profile that is
-// already signed in needs no callback at all and is never touched.
+// So the rewrite is held for as long as Claude is running on a profile other
+// than the default one, and released once that Claude has closed. The default
+// profile needs no rewrite: the pristine handler already opens it.
+//
+// An earlier version held only for a profile with **no account yet**, on the
+// theory that a signed-in profile never needs a callback. That theory is wrong.
+// `lastKnownAccountUuid` in config.json survives a sign-out and an expired
+// session, so a profile that has to sign in again still "has an account", was
+// never held, and its Google sign-in opened the default profile. Seen on a real
+// machine: MCS launched ClaudeWork correctly, the user was asked to sign in,
+// and the callback started a second claude.exe on %APPDATA%\Claude. Nothing on
+// disk says in advance whether a sign-in is coming, so the hold cannot wait to
+// find out.
 //
 // The rest is kept deliberately narrow. It is a per-user key (no admin), it
 // belongs to Claude Desktop's own protocol, the exe path is always re-read from
@@ -169,37 +178,55 @@ func RestoreProtocolHandler() error {
 }
 
 const (
-	// signInHoldWindow bounds how long the handler is held for a sign-in. Long
-	// enough for a browser sign-in including two-factor, short enough that a
-	// user who wandered off does not leave the handler pointed for a whole
-	// session. The hold also ends as soon as the account appears.
-	signInHoldWindow = 10 * time.Minute
-	// signInPollInterval is how often the profile is checked for its new
-	// account, and the handler re-asserted if Claude has clobbered it.
-	signInPollInterval = time.Second
+	// holdPollInterval is how often the handler is re-asserted in case Claude
+	// has clobbered it. A registry read, so it can afford to be frequent.
+	holdPollInterval = time.Second
+	// holdRunningCheckEvery is how many polls pass between checks that Claude
+	// is still running on the profile. That check starts PowerShell, which is
+	// far too heavy to run every second for a whole session.
+	holdRunningCheckEvery = 15
+	// holdStartupWindow is how long a launched Claude gets to show up before the
+	// hold gives up on it. Generous, because Claude Desktop can install an
+	// update before its window appears.
+	holdStartupWindow = 3 * time.Minute
 )
 
-// signInHoldTarget names the profile currently being held for, so a second
-// switch supersedes the first rather than the two fighting each other.
-var signInHoldTarget atomic.Value // string
+// holdTarget names the profile currently being held for, so a second switch
+// supersedes the first rather than the two fighting each other.
+var holdTarget atomic.Value // string
 
-// HoldProtocolHandlerForSignIn keeps `claude://` pointed at profilePath until
-// that profile has an account or the window expires, then restores the handler.
+// holdContinues decides, at one running-check, whether the hold goes on.
+// seen is whether Claude has been seen on the profile at any earlier check.
+// It reports the updated seen alongside the verdict.
 //
-// It is only meaningful for a profile that is not signed in yet: that is the
-// only case where a callback has to be steered, and confining it there is what
-// keeps the registry write to the seconds it is genuinely needed.
+// A Claude that has come up and then gone away is the end of the hold: the
+// user quit it, or switched, and the next Claude may well be the default
+// profile started from the Start menu, whose own sign-in must not be steered.
+// A Claude that has not come up yet gets holdStartupWindow to do so.
+func holdContinues(seen, running bool, sinceStart time.Duration) (nowSeen, keep bool) {
+	if running {
+		return true, true
+	}
+	if seen {
+		return true, false
+	}
+	return false, sinceStart < holdStartupWindow
+}
+
+// HoldProtocolHandler keeps `claude://` pointed at profilePath for as long as
+// Claude runs on it, then restores the handler. isRunning reports whether
+// Claude Desktop is currently running on that profile.
 //
 // The re-assertion is not belt-and-braces. Claude Desktop rewrites this key
 // shortly after every start, so the first write has to land after that and be
 // repeated if it happens again.
-func HoldProtocolHandlerForSignIn(profilePath string) {
-	signInHoldTarget.Store(profilePath)
+func HoldProtocolHandler(profilePath string, isRunning func() (bool, error)) {
+	holdTarget.Store(profilePath)
 	go func() {
 		defer func() {
 			// Only the newest hold restores, or an old one would undo the
 			// handler a newer switch just set up.
-			if cur, _ := signInHoldTarget.Load().(string); cur != profilePath {
+			if cur, _ := holdTarget.Load().(string); cur != profilePath {
 				return
 			}
 			if err := RestoreProtocolHandler(); err != nil {
@@ -207,16 +234,13 @@ func HoldProtocolHandlerForSignIn(profilePath string) {
 			}
 		}()
 
-		deadline := time.Now().Add(signInHoldWindow)
-		for time.Now().Before(deadline) {
-			time.Sleep(signInPollInterval)
+		start := time.Now()
+		seen := false
+		for poll := 1; ; poll++ {
+			time.Sleep(holdPollInterval)
 
-			if cur, _ := signInHoldTarget.Load().(string); cur != profilePath {
+			if cur, _ := holdTarget.Load().(string); cur != profilePath {
 				return // superseded by another switch
-			}
-			if _, err := GetProfileAccountUUID(profilePath); err == nil {
-				log.Printf("sign-in to %s completed; releasing the claude:// handler", profilePath)
-				return
 			}
 			// A no-op unless Claude has clobbered it, so this logs once in the
 			// normal case rather than every second.
@@ -224,9 +248,32 @@ func HoldProtocolHandlerForSignIn(profilePath string) {
 				log.Printf("claude:// handler could not be held for %s: %v", profilePath, err)
 				return
 			}
+			if poll%holdRunningCheckEvery != 0 {
+				continue
+			}
+			running, err := isRunning()
+			if err != nil {
+				// Not knowing is not the same as closed. Keep holding; the
+				// next check may do better.
+				log.Printf("could not tell whether Claude is still on %s: %v", profilePath, err)
+				continue
+			}
+			var keep bool
+			if seen, keep = holdContinues(seen, running, time.Since(start)); !keep {
+				log.Printf("Claude is no longer running on %s; releasing the claude:// handler", profilePath)
+				return
+			}
 		}
-		log.Printf("no sign-in to %s within %s; releasing the claude:// handler", profilePath, signInHoldWindow)
 	}()
+}
+
+// restoreProtocolHandlerUnlessHeld restores the handler only when no hold is
+// running in this process, so a cleanup cannot undo a switch that just began.
+func restoreProtocolHandlerUnlessHeld() error {
+	if cur, _ := holdTarget.Load().(string); cur != "" {
+		return nil
+	}
+	return RestoreProtocolHandler()
 }
 
 // ReleaseProtocolHandlerHold cancels any hold in progress and restores the
@@ -235,6 +282,6 @@ func HoldProtocolHandlerForSignIn(profilePath string) {
 // poll, which leaves the handler pointed at a profile after the switcher
 // believed it had cleaned up.
 func ReleaseProtocolHandlerHold() error {
-	signInHoldTarget.Store("")
+	holdTarget.Store("")
 	return RestoreProtocolHandler()
 }

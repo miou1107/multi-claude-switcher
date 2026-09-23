@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Fixed
+- **On Windows, signing in again to a work profile landed in the default
+  profile.** Switching worked: MCS started Claude on the right profile. But
+  when that profile's session had lapsed and Claude asked for a Google
+  sign-in, the browser handed the result back through a `claude://` link, and
+  Windows opened that link with the default profile. The user saw the other
+  account every time, whichever one they switched to. MCS already steers that
+  link to the active profile, but only did so for a profile that had never
+  signed in, and it judged that from `config.json`, which keeps the old account
+  after a sign-out. It now steers the link for as long as Claude runs on any
+  profile other than the default one, and puts it back once that Claude
+  closes. If the panel crashes and the tray restarts it, the new panel picks
+  the job up again, or undoes the change if Claude is no longer running there.
+
 ## [0.13.4] - 2026-09-21
 
 ### Changed

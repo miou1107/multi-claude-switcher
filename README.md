@@ -209,6 +209,12 @@ To avoid this, add accounts with **＋ Add another account** in the panel rather
 than signing out inside Claude Desktop. Each account then gets its own profile
 from the start.
 
+**(Windows) I switched, signed in, and ended up in the other account.**
+Update to the latest version. Signing in with Google comes back to Claude
+through a link, and Windows opens that link with your default account unless
+the switcher points it elsewhere. Older versions only did that for an account
+that had never signed in, so an account asked to sign in again was missed.
+
 **(Windows) The panel will not open.**
 Usually WebView2 is missing. Right-click the eyes icon in the tray, choose
 **Quit**, install WebView2, and start the app again.
