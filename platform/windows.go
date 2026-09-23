@@ -477,17 +477,43 @@ func (w *WindowsPlatform) LaunchProfile(profilePath string) error {
 	if err != nil {
 		return err
 	}
-	// A profile with no account is about to be signed in to, and that sign-in
-	// comes back through claude://, which the shell resolves without our
-	// --user-data-dir. Hold the handler on this profile until the account
-	// appears, or the new login lands in the default profile instead. Profiles
-	// that already have an account need no callback and are left alone.
-	if _, err := GetProfileAccountUUID(profilePath); err != nil {
-		log.Printf("%s has no account yet; holding the claude:// handler for its sign-in", profilePath)
-		HoldProtocolHandlerForSignIn(profilePath)
+	// Any sign-in on this profile comes back through claude://, which the shell
+	// resolves without our --user-data-dir, so it would land in the default
+	// profile. Hold the handler on this profile while Claude runs on it. Whether
+	// a sign-in is coming cannot be told in advance: see protocolhandler_windows.go.
+	if holdsProtocolHandler(profilePath, w.defaultProfilePath()) {
+		HoldProtocolHandler(profilePath, func() (bool, error) {
+			return w.isRunningOn(profilePath)
+		})
+	} else if err := ReleaseProtocolHandlerHold(); err != nil {
+		log.Printf("could not restore the claude:// handler: %v", err)
 	}
 	// Start (not Run) so we return immediately, like macOS `open -n`.
 	return exec.Command(exe, "--user-data-dir="+profilePath).Start()
+}
+
+// holdsProtocolHandler reports whether launching profilePath needs the
+// claude:// handler held on it: every profile except the default one, which the
+// handler Claude registers already opens. Deliberately not a question about the
+// profile's account; a signed-in profile can still be asked to sign in again.
+func holdsProtocolHandler(profilePath, defaultPath string) bool {
+	return defaultPath == "" || !sameWindowsPath(profilePath, defaultPath)
+}
+
+// isRunningOn reports whether a Claude Desktop process carries profilePath as
+// its --user-data-dir. It reads the processes directly rather than going
+// through DetectRunningProfiles, which also scans every profile's sessions.
+func (w *WindowsPlatform) isRunningOn(profilePath string) (bool, error) {
+	_, cmdLines, err := w.IsAppRunning()
+	if err != nil {
+		return false, err
+	}
+	for _, line := range cmdLines {
+		if sameWindowsPath(extractUserDataDir(line), profilePath) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // msixLaunchProfile switches the Store build to the profile at profilePath by
