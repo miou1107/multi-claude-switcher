@@ -13,7 +13,8 @@
   signed in, and it judged that from `config.json`, which keeps the old account
   after a sign-out. It now steers the link for as long as Claude runs on any
   profile other than the default one, and puts it back once that Claude
-  closes.
+  closes. If the panel crashes and the tray restarts it, the new panel picks
+  the job up again, or undoes the change if Claude is no longer running there.
 
 ## [0.13.4] - 2026-09-21
 

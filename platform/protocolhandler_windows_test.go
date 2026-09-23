@@ -147,6 +147,30 @@ func TestHoldsProtocolHandler(t *testing.T) {
 	}
 }
 
+func TestHeldProfileInCmdLines(t *testing.T) {
+	const def = `C:\Users\Example\AppData\Roaming\Claude`
+	const work = `C:\Users\Example\AppData\Roaming\ClaudeWork`
+	const exe = `"C:\Users\Example\AppData\Local\AnthropicClaude\app-2.7032.0\claude.exe"`
+	tests := []struct {
+		name  string
+		lines []string
+		want  string
+	}{
+		{"nothing running", nil, ""},
+		{"default only", []string{exe + ` --user-data-dir=` + def}, ""},
+		{"started from the Start menu, no flag", []string{exe}, ""},
+		{"work profile", []string{exe + ` --user-data-dir=` + work}, work},
+		{"work beside default", []string{exe + ` --user-data-dir=` + def, exe + ` --type=renderer --user-data-dir="` + work + `"`}, work},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := heldProfileInCmdLines(tt.lines, def); got != tt.want {
+				t.Errorf("heldProfileInCmdLines(%q) = %q; want %q", tt.lines, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHoldContinues(t *testing.T) {
 	tests := []struct {
 		name          string

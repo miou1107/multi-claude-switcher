@@ -267,6 +267,15 @@ func HoldProtocolHandler(profilePath string, isRunning func() (bool, error)) {
 	}()
 }
 
+// restoreProtocolHandlerUnlessHeld restores the handler only when no hold is
+// running in this process, so a cleanup cannot undo a switch that just began.
+func restoreProtocolHandlerUnlessHeld() error {
+	if cur, _ := holdTarget.Load().(string); cur != "" {
+		return nil
+	}
+	return RestoreProtocolHandler()
+}
+
 // ReleaseProtocolHandlerHold cancels any hold in progress and restores the
 // handler. Use this rather than RestoreProtocolHandler from outside this file:
 // restoring while a hold is still running is undone by the hold's very next

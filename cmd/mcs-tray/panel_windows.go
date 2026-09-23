@@ -143,6 +143,12 @@ func runPanel() {
 	panelPlat = platform.New()
 	panelSwitcher = core.NewSwitcher(panelPlat, core.NewBackupManager(""))
 
+	// A panel that crashed took its claude:// hold with it. Take it up again,
+	// or put the handler back, before anything else can switch.
+	if w, ok := panelPlat.(*platform.WindowsPlatform); ok {
+		go w.ResumeProtocolHandlerHold()
+	}
+
 	// Must start before the WebView exists: the window it flashes on screen is
 	// created and shown inside newPanelWebView.
 	stopFlashGuard := suppressWebviewWindowFlash()

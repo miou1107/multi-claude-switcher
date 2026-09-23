@@ -54,20 +54,32 @@ Claude does it again.
 
 ## Approach
 
-After switching to a profile that has **no account yet**, hold the handler on
-that profile:
+While Claude runs on any profile other than the default one, hold the handler
+on that profile:
 
 ```
 "…\claude.exe" --user-data-dir="…\ClaudeWork" "%1"
 ```
 
-A poll every second re-asserts it (a no-op unless Claude has clobbered it) and
-watches the profile for its new account. The hold ends the moment the account
-appears, or after 10 minutes, and restores the handler either way.
+A poll every second re-asserts it (a no-op unless Claude has clobbered it).
+Every fifteenth poll checks that Claude is still running on the profile, by its
+`--user-data-dir`; that check starts PowerShell, so it is not run every second.
+The hold ends once that Claude has closed, or if it never comes up within three
+minutes, and restores the handler either way. Launching the default profile
+releases any hold, because Claude's own registration already opens it.
 
-A profile that already has an account is never touched: no callback is needed,
-so there is nothing to steer. That confines the registry write to the seconds
-around a sign-in rather than the whole session.
+**Revised 2026-09-23.** The first version held only for a profile with no
+account yet, and left a signed-in profile alone on the grounds that it needs no
+callback. That was wrong in practice. `lastKnownAccountUuid` stays in
+`config.json` after a sign-out or an expired session, so a profile asked to sign
+in again still read as signed in, was never held, and its Google sign-in opened
+the default profile. It was seen on a real machine with ClaudeWork. Nothing on
+disk says in advance that a sign-in is coming, so the hold now covers the whole
+time Claude runs on the profile.
+
+The hold lives in the panel process. When the tray restarts a panel that died,
+the new panel checks which profile Claude is running on and takes the hold up
+again, or restores a handler the dead panel left pointed.
 
 The alternative considered was giving the standalone build the same
 folder-swapping mechanism the Store build uses, which removes the problem
@@ -90,8 +102,8 @@ documented away:
   switches cannot accumulate arguments.
 - **Non-fatal.** A failure to rewrite is logged and the switch proceeds. The
   cost is a misdirected sign-in, not a failed switch.
-- **Self-limiting.** The hold ends on success or after 10 minutes, and a second
-  switch supersedes the first rather than the two fighting.
+- **Self-limiting.** The hold ends when Claude closes on that profile, and a
+  second switch supersedes the first rather than the two fighting.
 - **Restored on exit**, so the switcher leaves nothing behind while it is not
   running to maintain it.
 - **Releasing cancels the hold first.** Restoring while a hold is still polling
@@ -102,12 +114,13 @@ documented away:
 
 Residual risks, accepted:
 
-- If the panel process is killed mid-hold, the handler stays pointed until the
-  next switch or a clean tray exit restores it. It points at the profile the
-  user was last on, so `claude://` links still open something sensible.
-- A profile whose token expires and needs a fresh sign-in is not covered: it
-  already has an account, so no hold is taken, and its callback would land in
-  the default profile. Re-running the switch onto it is the workaround.
+- While a non-default profile is held, every `claude://` link opens it,
+  including one meant for a default-profile Claude the user started alongside it
+  from the Start menu. Running two profiles at once is not what the switcher is
+  for, and the hold ends as soon as the non-default Claude closes.
+- A switch made with the `mcs` command line holds only while that command runs,
+  because the hold lives in the process that made the switch. The panel picks
+  it up the next time it starts.
 
 ## Testing
 

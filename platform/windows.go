@@ -516,6 +516,41 @@ func (w *WindowsPlatform) isRunningOn(profilePath string) (bool, error) {
 	return false, nil
 }
 
+// ResumeProtocolHandlerHold re-establishes the claude:// hold when the process
+// that owned it has gone: the hold lives in the panel process, and the tray
+// restarts a panel that crashed without letting it restore anything. If Claude
+// is running on a non-default profile the hold is taken up again for it;
+// otherwise a handler left pointed by the dead process is put back.
+func (w *WindowsPlatform) ResumeProtocolHandlerHold() {
+	if w.isMSIX() {
+		return // the Store build swaps folders and never rewrites the handler
+	}
+	_, cmdLines, err := w.IsAppRunning()
+	if err != nil {
+		log.Printf("could not check which profile Claude is on: %v", err)
+		return
+	}
+	if p := heldProfileInCmdLines(cmdLines, w.defaultProfilePath()); p != "" {
+		log.Printf("Claude is already running on %s; holding the claude:// handler for it", p)
+		HoldProtocolHandler(p, func() (bool, error) { return w.isRunningOn(p) })
+		return
+	}
+	if err := restoreProtocolHandlerUnlessHeld(); err != nil {
+		log.Printf("could not restore the claude:// handler: %v", err)
+	}
+}
+
+// heldProfileInCmdLines returns the first profile in Claude's command lines
+// that needs the handler held, or "" when Claude runs on none of them.
+func heldProfileInCmdLines(cmdLines []string, defaultPath string) string {
+	for _, line := range cmdLines {
+		if p := extractUserDataDir(line); p != "" && holdsProtocolHandler(p, defaultPath) {
+			return p
+		}
+	}
+	return ""
+}
+
 // msixLaunchProfile switches the Store build to the profile at profilePath by
 // swapping it into the live slot, then relaunching the packaged app. If the path
 // already is the slot (the current profile), it just reopens the app. Caller
