@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.13.6] - 2026-09-28
 
 ### Added
 - **The version number opens the changelog.** Click it at the foot of the
