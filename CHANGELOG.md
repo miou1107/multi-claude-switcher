@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Changed
+- **The account in use stands out.** Its card now has a solid green edge, a
+  green wash and "In use now" in green, where the other accounts are plain
+  white. The "Switch to this account" line under every other account is gone:
+  the whole card is the switch button, so it only repeated that.
+- **The panel is only as tall as what is on it.** It used to be a fixed 540px,
+  which left a band of empty space under short screens such as a two-account
+  list. It now fits the screen it shows, with a floor that keeps the confirm
+  dialog and progress card whole, and long screens scroll as before.
+
+### Added
+- **The version number opens the changelog.** Click it at the foot of the
+  account list or Settings to see what changed, on GitHub.
+
 ## [0.13.5] - 2026-09-23
 
 ### Fixed

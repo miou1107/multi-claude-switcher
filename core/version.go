@@ -11,3 +11,7 @@ package core
 // The GitHub release workflow injects the git tag here; local builds use the
 // default below.
 var Version = "0.13.5"
+
+// ChangelogURL is where the panel's version number links to: the list of what
+// changed in each release.
+const ChangelogURL = "https://github.com/miou1107/multi-claude-switcher/blob/main/CHANGELOG.md"
