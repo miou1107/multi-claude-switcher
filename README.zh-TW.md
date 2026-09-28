@@ -71,7 +71,7 @@ xattr -dr com.apple.quarantine "/Applications/Multi-Claude Switcher.app"
 ## 怎麼用
 
 安裝完成後，請在 macOS 選單列或 Windows 系統匣上找尋眼睛圖示，
-點擊後功能面板就會跳出來。
+點擊後功能面板就會跳出來。每個畫面的右上角都有一個 ×，按下去就能關掉面板，按 Esc 也可以。
 
 面板上會顯示你的帳號清單，並標出你現在在用哪個。可隨時切換到不同帳號，切換後 Claude Desktop
 會自動重開至你指定的帳號。切換進行中，面板會在原本確認匡的位置顯示一張進度卡，讓你知道系統正在跑，
