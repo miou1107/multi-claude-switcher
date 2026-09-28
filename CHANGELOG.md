@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Fixed
+- **On Windows, no notification from the switcher ever appeared.** Toasts were
+  sent under PowerShell's identity, and Windows lets users switch that off; on
+  a machine where it was off, every one was dropped without a trace, including
+  the answer to "Check for updates", so pressing the button looked like it did
+  nothing. Toasts now go out as Multi-Claude Switcher, which registers itself
+  for them.
+
+### Changed
+- **"Check for updates" always answers, in a dialog.** Up to date says so, with
+  the version. A newer version asks before installing ("Update now?") and then
+  shows the installer's progress bar while it works. A failed check or install
+  says what went wrong.
+- **Background updates are announced.** They still install on their own, with
+  no window, but a notification says a new version is downloading, and the new
+  version says it is running once it starts.
+
 ## [0.13.5] - 2026-09-23
 
 ### Fixed

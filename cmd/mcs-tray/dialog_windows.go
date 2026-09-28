@@ -50,21 +50,35 @@ $owner.Size = New-Object System.Drawing.Size(1, 1)
 [void]$owner.Show()
 `
 
+// toastAppID is the identity toasts are shown under. It is registered per user
+// under HKCU\Software\Classes\AppUserModelId, which is all Windows needs to
+// show a toast from an unpackaged app, titled with the DisplayName.
+//
+// Toasts used to borrow PowerShell's app id instead. That id has its own
+// on/off switch in Settings > Notifications, and on a real machine it was off
+// (the notifier reported DisabledForApplication): every toast, including the
+// answer to "Check for updates", was dropped without a trace.
+const toastAppID = "miou1107.MultiClaudeSwitcher"
+
 // notify shows a best-effort Windows toast notification. Fired detached so it
 // never blocks the caller. A toast (rather than a NotifyIcon balloon) avoids
-// adding a second tray icon and displays reliably on modern Windows; if the user
-// has notifications disabled it simply does nothing. The toast is attributed to
-// the built-in PowerShell app id so it has a valid, always-present source.
+// adding a second tray icon. The script registers toastAppID first; that is
+// idempotent and cheap, and doing it here rather than once at startup or in the
+// installer means a toast can never go out under an id that is not registered.
+// If the user turns notifications off for the app, it simply does nothing.
 func notify(title, text string) {
 	script := fmt.Sprintf(`$ErrorActionPreference = "SilentlyContinue"
+$appId = %s
+$key = "HKCU:\Software\Classes\AppUserModelId\$appId"
+New-Item -Path $key -Force > $null
+Set-ItemProperty -Path $key -Name DisplayName -Value "Multi-Claude Switcher"
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null
 $t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
 $n = $t.GetElementsByTagName("text")
 $n.Item(0).AppendChild($t.CreateTextNode(%s)) > $null
 $n.Item(1).AppendChild($t.CreateTextNode(%s)) > $null
 $toast = [Windows.UI.Notifications.ToastNotification]::new($t)
-$appId = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)`, psQuote(title), psQuote(text))
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)`, psQuote(toastAppID), psQuote(title), psQuote(text))
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", psEnc(script))
 	hideConsole(cmd)
 	_ = cmd.Start()

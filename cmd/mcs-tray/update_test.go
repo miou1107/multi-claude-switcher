@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestFindAppZip(t *testing.T) {
 	// The packaged-app asset is matched by prefix + the OS-specific suffix, so
@@ -78,5 +81,29 @@ func TestShouldWarnAboutFailedChecks(t *testing.T) {
 				t.Errorf("shouldWarnAboutFailedChecks(%d) = %v, want %v", tc.consecutive, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestNoteVersionStarted pins when the "Updated to vX" notice appears: only on
+// the first start of a version newer than the one that ran before. A fresh
+// install has nothing to announce, and a restart on the same version must not
+// repeat it.
+func TestNoteVersionStarted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "last-version")
+
+	if prev, up := noteVersionStarted(path, "0.13.5"); up || prev != "" {
+		t.Fatalf("fresh install: got (%q, %v), want (\"\", false)", prev, up)
+	}
+	if _, up := noteVersionStarted(path, "0.13.5"); up {
+		t.Fatal("restart on the same version announced an update")
+	}
+	if prev, up := noteVersionStarted(path, "0.13.6"); !up || prev != "0.13.5" {
+		t.Fatalf("after updating: got (%q, %v), want (\"0.13.5\", true)", prev, up)
+	}
+	if _, up := noteVersionStarted(path, "0.13.6"); up {
+		t.Fatal("second start after the update announced it again")
+	}
+	if _, up := noteVersionStarted(path, "0.13.4"); up {
+		t.Fatal("going back to an older build was announced as an update")
 	}
 }

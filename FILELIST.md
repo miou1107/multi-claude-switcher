@@ -66,11 +66,11 @@
 - `core/loginitem_windows_test.go` — Unit tests for Windows login-item enable/disable via a throwaway registry key.
 - `core/update.go` — Update check against GitHub Releases (version compare, latest-release fetch, download).
 - `core/update_test.go` — Unit tests for version comparison and release JSON parsing.
-- `cmd/mcs-tray/update.go` — Update check plumbing shared by all OSes: find the platform's release asset, single-flight the check, periodic + manual triggers; delegates the actual install to the per-OS `installUpdate`. Counts consecutive unreachable-GitHub failures so a background check that keeps failing surfaces once instead of leaving the app silently stale.
-- `cmd/mcs-tray/update_test.go` — Unit tests for .app-bundle path detection and release-asset matching.
+- `cmd/mcs-tray/update.go` — Update check plumbing shared by all OSes: find the platform's release asset, single-flight the check, periodic + manual triggers; delegates the actual install to the per-OS `installUpdate`. A manual check answers every outcome with a dialog and asks before installing; the first start on a newer version toasts that the update landed (`last-version` beside the logs). Counts consecutive unreachable-GitHub failures so a background check that keeps failing surfaces once instead of leaving the app silently stale.
+- `cmd/mcs-tray/update_test.go` — Unit tests for .app-bundle path detection, release-asset matching, and when the "updated" notice fires.
 - `cmd/mcs-tray/update_install_nonwindows.go` — macOS/Unix `installUpdate`: download the `.app` zip, atomically swap the tray binary, relaunch (bundle-aware).
-- `cmd/mcs-tray/update_install_windows.go` — Windows `installUpdate`: download the release's setup.exe, verify it is a real executable, run it with `/VERYSILENT`, and quit so it can replace the running exe (Windows locks a running image, so no in-place binary swap).
-- `cmd/mcs-tray/update_install_windows_test.go` — Unit tests for the Windows updater: the executable-signature check, the unattended installer flags, and the download scratch dir (clear-first, rejects a non-executable).
+- `cmd/mcs-tray/update_install_windows.go` — Windows `installUpdate`: download the release's setup.exe, verify it is a real executable, run it with `/SILENT` (progress bar, manual check) or `/VERYSILENT` (background), and quit so it can replace the running exe (Windows locks a running image, so no in-place binary swap).
+- `cmd/mcs-tray/update_install_windows_test.go` — Unit tests for the Windows updater: the executable-signature check, the installer flags for manual vs. background updates, and the download scratch dir (clear-first, rejects a non-executable).
 - `cmd/mcs-tray/update_platform_darwin.go` — macOS self-update helpers: `_macos.zip` suffix, ditto extraction, quarantine strip, .app binary lookup.
 - `cmd/mcs-tray/update_platform_windows.go` — Windows release-asset suffix (`_windows_setup.exe`); the installer is the update signal.
 - `cmd/mcs-tray/update_platform_other.go` — Self-update stubs for unsupported OSes.
@@ -139,7 +139,7 @@
 - `cmd/mcs-tray/autosync.go` — Tray Auto Sync toggle: enable-time warning dialog and choice parsing.
 - `cmd/mcs-tray/autosync_test.go` — Unit tests for the auto-sync warning-gating helper.
 - `cmd/mcs-tray/dialog_darwin.go` — macOS tray dialogs / notifications (osascript).
-- `cmd/mcs-tray/dialog_windows.go` — Windows tray dialogs / notifications (PowerShell + WinForms).
+- `cmd/mcs-tray/dialog_windows.go` — Windows tray dialogs / notifications (PowerShell + WinForms). Toasts go out under the app's own registered app id, not PowerShell's, whose notifications users may have switched off.
 - `cmd/mcs-tray/dialog_other.go` — Dialog stubs for non-macOS/Windows builds (no-ops).
 - `cmd/mcs-tray/dialog_darwin_test.go` — Unit tests for the macOS auto-sync dialog result parser.
 - `cmd/mcs-tray/accounttype.go` — Tray-side account-type cache, "🏢 Team" title tag, and background detection.

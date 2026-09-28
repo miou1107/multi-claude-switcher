@@ -52,21 +52,26 @@ func TestLooksLikeExecutable(t *testing.T) {
 	}
 }
 
-// TestInstallerFlagsAreUnattended guards the contract with
-// packaging/windows-setup.iss: the updater runs the installer with nobody
-// watching, so anything that could put a window or a prompt on screen — or
-// merely /SILENT, which still shows a progress window — breaks the "no
-// questions asked" upgrade.
-func TestInstallerFlagsAreUnattended(t *testing.T) {
-	flags := installerFlags()
-
-	for _, required := range []string{"/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"} {
-		if !slices.Contains(flags, required) {
-			t.Errorf("installerFlags() = %v, missing %s", flags, required)
+// TestInstallerFlags guards the contract with packaging/windows-setup.iss: the
+// updater never shows the wizard or a prompt, a manual update shows the
+// progress bar (/SILENT), and a background one shows nothing (/VERYSILENT).
+func TestInstallerFlags(t *testing.T) {
+	for _, tc := range []struct {
+		showProgress bool
+		want, avoid  string
+	}{
+		{showProgress: true, want: "/SILENT", avoid: "/VERYSILENT"},
+		{showProgress: false, want: "/VERYSILENT", avoid: "/SILENT"},
+	} {
+		flags := installerFlags(tc.showProgress)
+		for _, required := range []string{tc.want, "/SUPPRESSMSGBOXES", "/NOCANCEL", "/NORESTART"} {
+			if !slices.Contains(flags, required) {
+				t.Errorf("installerFlags(%v) = %v, missing %s", tc.showProgress, flags, required)
+			}
 		}
-	}
-	if slices.Contains(flags, "/SILENT") {
-		t.Errorf("installerFlags() = %v, /SILENT still shows a progress window; use /VERYSILENT", flags)
+		if slices.Contains(flags, tc.avoid) {
+			t.Errorf("installerFlags(%v) = %v, must not contain %s", tc.showProgress, flags, tc.avoid)
+		}
 	}
 }
 
