@@ -10,7 +10,7 @@
 ; by running a newer installer, which replaces the exe in place (same AppId).
 ;
 ; This script is also the second half of the Windows auto-updater: the app
-; downloads a newer setup.exe and runs it with /VERYSILENT (see
+; downloads a newer setup.exe and runs it with /SILENT or /VERYSILENT (see
 ; cmd/mcs-tray/update_install_windows.go). Two settings below exist for that
 ; unattended path — CloseApplications and the [Run] entry's flags — and are
 ; commented where they appear.

@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+- **Every screen of the panel has a × in the top-right corner that closes
+  it.** Until now the only ways out were Esc or clicking elsewhere, and
+  neither is visible. The button sits in the same place on every screen,
+  including over a confirmation or a progress card, and does exactly what Esc
+  does.
+
+### Changed
+- **"Check for updates" always answers.** Up to date says so in a dialog, with
+  the version. A newer version installs straight away, with the installer's
+  progress bar on screen. A failed check or install says what went wrong.
+- **Updates are announced once they land.** Nothing asks before installing, and
+  a background update still shows no window, but the new version shows one
+  notification saying it is running.
+
 ### Fixed
 - **Adding or recovering an account showed nothing while it ran.** The name
   screen was meant to say "Setting up…" but had nowhere to draw it, so for the
@@ -16,6 +31,12 @@
   logged. A click now restarts the panel straight away and opens it, with a
   notification saying so; if the panel cannot start, a notification says that
   too.
+- **On Windows, no notification from the switcher ever appeared.** Toasts were
+  sent under PowerShell's identity, and Windows lets users switch that off; on
+  a machine where it was off, every one was dropped without a trace, including
+  the answer to "Check for updates", so pressing the button looked like it did
+  nothing. Toasts now go out as Multi-Claude Switcher, which registers itself
+  for them.
 
 ## [0.13.5] - 2026-09-23
 

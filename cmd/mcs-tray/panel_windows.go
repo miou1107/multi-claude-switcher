@@ -552,10 +552,10 @@ func dispatchAction(action, arg string) {
 		// anything, and the browser opened whether or not an update existed.
 		//
 		// The protocol is one-way, so the outcome cannot come back here.
-		// checkForUpdate(false) reports every case — up to date, failed, unavailable
-		// — through a toast, and that is where the answer appears.
+		// checkForUpdate(false) answers every case — up to date, failed,
+		// unavailable, or "update now?" — in a dialog in front of other windows.
 		notifyTray("MCS_CHECK_UPDATES")
-		panelSetStatus("Checking for updates… the result appears in a notification.")
+		panelSetStatus("Checking for updates… the answer will pop up in a moment.")
 		reloadPanel()
 	case "hidePanel":
 		// Esc. Park rather than exit: the process is reused for the next show.

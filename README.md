@@ -83,12 +83,15 @@ is not supported: it keeps its data somewhere virtualized that cannot be swapped
 out, which is the mechanism the whole tool depends on.
 
 Updates install themselves in the background, on both platforms. You install
-once.
+once. Nothing asks first; once a new version is running, one notification says
+so. "Check for updates" at the bottom of the panel always answers: it says you
+are up to date, or installs the new version right away.
 
 ## Using it
 
 There is no window and no Dock icon. The app is a pair-of-eyes icon in the macOS
-menu bar or the Windows system tray. Click it and the panel appears.
+menu bar or the Windows system tray. Click it and the panel appears. The × in
+the top-right corner of every screen closes it, as does Esc.
 
 The panel lists your accounts with their plan and marks the one you are on.
 Click a different one, confirm, and Claude Desktop restarts on it. That restart
