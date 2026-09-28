@@ -16,7 +16,8 @@ import (
 
 // Windows updates the same way macOS does: the check finds a newer release, the
 // new version is fetched and applied, and the app comes back on it — no prompt,
-// no browser, no download page. The mechanism differs because the artifacts do.
+// no browser, no download page. The new version says it arrived
+// (announceUpdateIfNew). The mechanism differs because the artifacts do.
 // macOS ships a zip holding a bare binary, so the update is an atomic rename of
 // the executable. Windows ships an Inno Setup installer, and Windows will not
 // let anything overwrite a running .exe, so the update runs that installer
@@ -35,10 +36,18 @@ const releasesPageURL = "https://github.com/miou1107/multi-claude-switcher/relea
 // and a fixed name lets the next run clear the previous one deterministically.
 const updateDirName = "mcs-update"
 
-// installerFlags run Inno Setup completely unattended: no wizard, no progress
-// window, no message boxes, no cancel button, and no machine restart.
-func installerFlags() []string {
-	return []string{"/VERYSILENT", "/SUPPRESSMSGBOXES", "/NOCANCEL", "/NORESTART"}
+// installerFlags run Inno Setup with no wizard, no message boxes, no cancel
+// button (a half-cancelled upgrade leaves no app running) and no machine
+// restart. showProgress picks /SILENT, which shows the progress bar, over
+// /VERYSILENT, which shows nothing: an update the user asked for should be seen
+// happening, while a background one should stay out of the way and is
+// announced afterwards by the new version instead.
+func installerFlags(showProgress bool) []string {
+	mode := "/VERYSILENT"
+	if showProgress {
+		mode = "/SILENT"
+	}
+	return []string{mode, "/SUPPRESSMSGBOXES", "/NOCANCEL", "/NORESTART"}
 }
 
 // looksLikeExecutable reports whether a downloaded file starts with the "MZ"
@@ -49,13 +58,12 @@ func looksLikeExecutable(header []byte) bool {
 }
 
 // installUpdate downloads the release's setup.exe, starts it silently, and
-// quits so it can replace the running executable. auto only decides what
-// happens when that fails: a background check stays quiet apart from the
-// failure toast, while a check the user asked for also opens the download page
-// so there is somewhere to go.
+// quits so it can replace the running executable. auto decides two things: a
+// check the user asked for shows the installer's progress bar, and when the
+// update fails it also opens the download page so there is somewhere to go; a
+// background check shows no installer window at all.
 func installUpdate(url, tag string, auto bool) error {
 	log.Printf("Updating v%s -> %s", core.Version, tag)
-	notify("Updating…", fmt.Sprintf("Downloading %s", tag))
 
 	setup, err := downloadInstaller(url)
 	if err != nil {
@@ -67,14 +75,13 @@ func installUpdate(url, tag string, auto bool) error {
 	// systray.Quit() unwinds us through onExit in milliseconds, so mcs-tray.exe
 	// is free long before the file copy begins. CloseApplications=yes in the
 	// .iss is the backstop if that ever stops holding.
-	cmd := exec.Command(setup, installerFlags()...)
+	cmd := exec.Command(setup, installerFlags(!auto)...)
 	detachRelaunch(cmd) // outlive us: we are about to exit
 	if err := cmd.Start(); err != nil {
 		return failedUpdate(auto, fmt.Errorf("running %s: %w", filepath.Base(setup), err))
 	}
 	log.Printf("Installer %s started; quitting so it can replace the running exe", setup)
 
-	notify("Updating…", fmt.Sprintf("Installing %s and restarting.", tag))
 	systray.Quit()
 	return nil
 }

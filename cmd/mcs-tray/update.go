@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +72,7 @@ func shouldWarnAboutFailedChecks(consecutive int) bool {
 // startUpdateChecker checks for a newer release at startup (after a short delay)
 // and then periodically. `auto` runs are quiet on "already up to date".
 func startUpdateChecker() {
+	announceUpdateIfNew()
 	go func() {
 		time.Sleep(8 * time.Second) // let the menu settle first
 		checkForUpdate(true)
@@ -96,7 +99,7 @@ func checkForUpdate(auto bool) {
 	if err != nil {
 		log.Printf("Update check failed: %v", err)
 		if !auto {
-			notify("Update check failed", err.Error())
+			go infoDialog("Multi-Claude Switcher", "Could not check for updates:\n"+err.Error())
 			return
 		}
 		// A background check stays quiet about a single failure: the network
@@ -118,7 +121,7 @@ func checkForUpdate(auto bool) {
 	if !core.IsNewer(tag, core.Version) {
 		log.Printf("Up to date (current v%s, latest %s)", core.Version, tag)
 		if !auto {
-			notify("Up to date", "You're on the latest version (v"+core.Version+").")
+			go infoDialog("Multi-Claude Switcher", "You're on the latest version (v"+core.Version+").\nThere is no update to install.")
 		}
 		return
 	}
@@ -127,14 +130,23 @@ func checkForUpdate(auto bool) {
 	if !ok {
 		log.Printf("Release %s has no downloadable asset for this platform (%s…%s); cannot update", tag, appZipPrefix, appZipSuffix)
 		if !auto {
-			notify("Update unavailable", "The release has no downloadable app for this platform.")
+			go infoDialog("Multi-Claude Switcher", "Version "+tag+" is out, but it has no download for this computer yet.")
 		}
 		return
 	}
 
+	// Neither path asks before installing: a newer version is simply installed.
+	// A check the user asked for shows the installer's progress bar, since they
+	// are watching; a background one shows nothing. Either way the one
+	// notification comes from the new version once it is running (see
+	// announceUpdateIfNew).
 	if err := installUpdate(url, tag, auto); err != nil {
 		log.Printf("Update failed: %v", err)
-		notify("Update failed", err.Error())
+		if auto {
+			notify("Update failed", err.Error())
+		} else {
+			go infoDialog("Multi-Claude Switcher", "The update could not be installed:\n"+err.Error())
+		}
 	}
 	// On success installUpdate relaunches and quits: macOS swaps the bundle, Windows
 	// runs the downloaded setup.exe unattended and exits so it can replace the
@@ -145,6 +157,42 @@ func checkForUpdate(auto bool) {
 	// update_install_windows.go). This comment used to say the download page was the
 	// normal Windows outcome, which is how the silent installer looked like it had
 	// regressed when it had not.
+}
+
+// lastVersionFile records the version that last started, so the first start
+// after an update can say so. It lives beside the logs.
+func lastVersionFile() string {
+	return filepath.Join(filepath.Dir(core.LogDir()), "last-version")
+}
+
+// noteVersionStarted records current as the last version to start and returns
+// the version recorded before it, and whether current is newer than that. A
+// missing or unreadable record (first install) is not an upgrade: there is
+// nothing to announce to someone who just installed the app.
+func noteVersionStarted(path, current string) (previous string, upgraded bool) {
+	if b, err := os.ReadFile(path); err == nil {
+		previous = strings.TrimSpace(string(b))
+	}
+	if previous != current {
+		if err := os.WriteFile(path, []byte(current+"\n"), 0o644); err != nil {
+			log.Printf("could not record the running version in %s: %v", path, err)
+		}
+	}
+	return previous, previous != "" && core.IsNewer(current, previous)
+}
+
+// announceUpdateIfNew tells the user, once, that the app they are now running
+// is the version an update just installed. It is the only notification an
+// update produces, and a toast rather than a dialog: after a background update
+// nobody is waiting for it, and after a manual one the user already watched the
+// progress bar.
+func announceUpdateIfNew() {
+	previous, upgraded := noteVersionStarted(lastVersionFile(), core.Version)
+	if !upgraded {
+		return
+	}
+	log.Printf("Started on v%s after updating from v%s", core.Version, previous)
+	notify("Multi-Claude Switcher updated", fmt.Sprintf("Now on v%s (was v%s).", core.Version, previous))
 }
 
 // copyExecutable copies src to dst (0755), truncating dst. Used by the macOS
