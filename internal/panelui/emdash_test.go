@@ -313,10 +313,10 @@ func TestNoEmDashInUserFacingText(t *testing.T) {
 	}, map[string]bool{})
 
 	list := RenderList([]ProfileVM{
-		// Current account: its own card layout and "Current account" sub-copy.
+		// Current account: its own card layout and "In use now" sub-copy.
 		{Folder: "Claude", Name: "Work", Plan: "Pro", Convos: 3, Current: true, SignedIn: true, UUID: "dup-uuid"},
 		// Not signed in: the "Switch here, then sign in" sub-copy, distinct from
-		// the plain "Switch to this account" of a ready one.
+		// a ready one, which has no subtitle.
 		{Folder: "Claude_new", Name: "New one", SignedIn: false},
 		// Two profiles sharing a UUID: the duplicate-account warning banner.
 		{Folder: "Claude_dup", Name: "Work", Plan: "Pro", Convos: 1, SignedIn: true, UUID: "dup-uuid"},

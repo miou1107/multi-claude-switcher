@@ -119,7 +119,71 @@ var (
 	// panelHWND is the panel window, published for the JS action handlers,
 	// which have no other route to it.
 	panelHWND atomic.Uintptr
+
+	// panelCurHeight is the window's height now, in window pixels. It starts
+	// at panelHeight and follows the content (see fitPanelHeight); zero means
+	// not yet set.
+	panelCurHeight atomic.Int32
+
+	// panelOnScreen and panelLastAnchor let a resize keep a panel that is in
+	// view attached to the tray icon it was opened from.
+	panelOnScreen   atomic.Bool
+	panelAnchorMu   sync.Mutex
+	panelLastAnchor point
 )
+
+// panelMinHeightCSS is the shortest the panel gets, in page (CSS) pixels:
+// enough for the confirm dialog and the progress card, which float over the
+// page and would be clipped by a window sized to a two-row account list.
+const panelMinHeightCSS = 320
+
+// curPanelHeight is the window height to use now.
+func curPanelHeight() int32 {
+	if h := panelCurHeight.Load(); h > 0 {
+		return h
+	}
+	return panelHeight
+}
+
+// fittedPanelHeight turns the page's report (content bottom and the window's
+// own inner height, both in CSS pixels) into a window height. Scaling by the
+// window's current height over its inner height keeps this right at any
+// display scaling without knowing the DPI. The result never exceeds the old
+// fixed panelHeight, so a long screen scrolls exactly as it did before; ok is
+// false when nothing needs to change.
+func fittedPanelHeight(cur, content, inner int32) (h int32, ok bool) {
+	if cur <= 0 || content <= 0 || inner <= 0 {
+		return cur, false
+	}
+	if content < panelMinHeightCSS {
+		content = panelMinHeightCSS
+	}
+	h = (2*cur*content + inner) / (2 * inner) // rounded
+	if h > panelHeight {
+		h = panelHeight
+	}
+	if d := h - cur; d > -2 && d < 2 {
+		return cur, false
+	}
+	return h, true
+}
+
+// fitPanelHeight resizes the window to h and, when the panel is in view,
+// moves it so it stays beside the tray icon. Runs on the UI thread.
+func fitPanelHeight(hwnd uintptr, h int32) {
+	panelCurHeight.Store(h)
+	if !panelOnScreen.Load() {
+		procSetWindowPos.Call(hwnd, hwndTopmost, 0, 0, panelWidth, uintptr(h),
+			uintptr(swpNoMove|swpNoActivate))
+		return
+	}
+	panelAnchorMu.Lock()
+	anchor := panelLastAnchor
+	panelAnchorMu.Unlock()
+	x, y := panelPlacement(anchor, workAreaAt(anchor), panelWidth, h)
+	procSetWindowPos.Call(hwnd, hwndTopmost, winCoord(x), winCoord(y), panelWidth, uintptr(h),
+		uintptr(swpNoActivate))
+}
 
 // runPanel is the entry point when the binary is invoked as
 // `mcs-tray.exe --panel`. It creates the WebView2 window, wires JS ↔ Go
@@ -263,6 +327,7 @@ func showPanelAt(hwnd uintptr, anchor point) {
 // WebView2 can throttle a window that has been off-screen for a long time.
 func parkPanel(hwnd uintptr) {
 	panelActivated.Store(false)
+	panelOnScreen.Store(false)
 	procSetWindowPos.Call(hwnd, 0,
 		winCoord(offscreenPos), winCoord(offscreenPos),
 		0, 0,
@@ -557,6 +622,28 @@ func dispatchAction(action, arg string) {
 		notifyTray("MCS_CHECK_UPDATES")
 		panelSetStatus("Checking for updates… the answer will pop up in a moment.")
 		reloadPanel()
+	case "fitHeight":
+		// arg is "<content bottom>,<inner height>" in CSS pixels, from the
+		// page's ResizeObserver (see shell() in panelui).
+		parts := strings.SplitN(arg, ",", 2)
+		if len(parts) != 2 {
+			return
+		}
+		content, err1 := strconv.Atoi(parts[0])
+		inner, err2 := strconv.Atoi(parts[1])
+		if err1 != nil || err2 != nil {
+			return
+		}
+		if h, ok := fittedPanelHeight(curPanelHeight(), int32(content), int32(inner)); ok {
+			if hwnd := panelHWND.Load(); hwnd != 0 {
+				panelWV.Dispatch(func() { fitPanelHeight(hwnd, h) })
+			}
+		}
+	case "openChangelog":
+		// The version number at the foot of the list and Settings.
+		if err := openURL(core.ChangelogURL); err != nil {
+			log.Printf("open changelog: %v", err)
+		}
 	case "hidePanel":
 		// Esc. Park rather than exit: the process is reused for the next show.
 		if hwnd := panelHWND.Load(); hwnd != 0 {
@@ -1368,7 +1455,7 @@ func applyPanelSize(hwnd uintptr) {
 		hwndTopmost,
 		0, 0, // ignored because of SWP_NOMOVE
 		panelWidth,
-		panelHeight,
+		uintptr(curPanelHeight()),
 		uintptr(swpNoMove|swpNoActivate|swpFrameChanged),
 	)
 }
@@ -1385,7 +1472,12 @@ func positionPanelAt(hwnd uintptr, anchor point) {
 		anchor = point{X: fb.Right, Y: fb.Bottom}
 	}
 	work := workAreaAt(anchor)
-	x, y := panelPlacement(anchor, work, panelWidth, panelHeight)
+	h := curPanelHeight()
+	x, y := panelPlacement(anchor, work, panelWidth, h)
+	panelAnchorMu.Lock()
+	panelLastAnchor = anchor
+	panelAnchorMu.Unlock()
+	panelOnScreen.Store(true)
 
 	procSetWindowPos.Call(
 		hwnd,

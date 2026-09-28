@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- **The version number opens the changelog.** Click it at the foot of the
+  account list or Settings to see what changed, on GitHub.
 - **Every screen of the panel has a × in the top-right corner that closes
   it.** Until now the only ways out were Esc or clicking elsewhere, and
   neither is visible. The button sits in the same place on every screen,
@@ -10,6 +12,14 @@
   does.
 
 ### Changed
+- **The account in use stands out.** Its card now has a solid green edge, a
+  green wash and "In use now" in green, where the other accounts are plain
+  white. The "Switch to this account" line under every other account is gone:
+  the whole card is the switch button, so it only repeated that.
+- **The panel is only as tall as what is on it.** It used to be a fixed 540px,
+  which left a band of empty space under short screens such as a two-account
+  list. It now fits the screen it shows, with a floor that keeps the confirm
+  dialog and progress card whole, and long screens scroll as before.
 - **"Check for updates" always answers.** Up to date says so in a dialog, with
   the version. A newer version installs straight away, with the installer's
   progress bar on screen. A failed check or install says what went wrong.

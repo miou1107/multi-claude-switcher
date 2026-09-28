@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,19 @@ import (
 	"github.com/miou1107/multi-claude-switcher/internal/panelui"
 	"github.com/miou1107/multi-claude-switcher/platform"
 )
+
+// fitPopoverHeight clamps a page height to what the popover may be: at least
+// enough for the confirm dialog and progress card that float over the page,
+// and never taller than the old fixed 540pt, above which the page scrolls.
+func fitPopoverHeight(content int) int {
+	switch {
+	case content < 320:
+		return 320
+	case content > 540:
+		return 540
+	}
+	return content
+}
 
 var (
 	plat     platform.Platform
@@ -645,6 +659,19 @@ func goPanelAction(caction, cfolder *C.char) {
 		setBusyStatus(true, "Checking for updates…")
 		reloadPanel()
 		go manualCheckAndInstall()
+	case "fitHeight":
+		// arg is "<content bottom>,<inner height>" in CSS pixels. A WKWebView
+		// maps CSS pixels to points one to one, so the content height is the
+		// popover height directly; the inner height is only needed on Windows.
+		parts := strings.SplitN(arg, ",", 2)
+		content, err := strconv.Atoi(parts[0])
+		if err != nil || content <= 0 {
+			return
+		}
+		C.SetPopoverHeight(C.double(fitPopoverHeight(content)))
+	case "openChangelog":
+		// The version number at the foot of the list and Settings.
+		_ = exec.Command("open", core.ChangelogURL).Start()
 	case "hidePanel":
 		C.ClosePopover()
 	case "dismissAndHide":

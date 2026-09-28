@@ -110,6 +110,14 @@ void SetPopoverSticky(int sticky) {
   });
 }
 
+// SetPopoverHeight sizes the popover to its content (see the fitHeight action),
+// so a short screen no longer sits on top of a band of empty space.
+void SetPopoverHeight(double height) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    gD.popover.contentSize = NSMakeSize(400, height);
+  });
+}
+
 void TerminateApp(void) {
   dispatch_async(dispatch_get_main_queue(), ^{ [NSApp terminate:nil]; });
 }

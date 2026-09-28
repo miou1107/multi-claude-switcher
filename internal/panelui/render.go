@@ -57,6 +57,13 @@ func planPill(plan string) string {
 	}
 }
 
+// versionLink is the version number shown at the foot of a screen. Clicking
+// it opens the changelog on GitHub, which is where "what changed in this
+// version" is written down.
+func versionLink(version string) string {
+	return `<button class="aboutlink" title="What's new" onclick="send('openChangelog','')">v` + html.EscapeString(version) + `</button>`
+}
+
 // closeButton is the × in the top-right corner of every screen. It sends the
 // same hidePanel action as Esc, which both hosts already handle, so it needs
 // no host code: on Windows the panel is parked, on macOS the popover closes.
@@ -96,7 +103,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .card.selectable{cursor:pointer}
 .card.selectable:hover{box-shadow:0 5px 15px rgba(60,40,90,.13);border-color:#e0dcf3}
 .card.selected{border-color:#7c6cf0;background:#faf9ff}
-.card.current{border-color:#b7f0cd;background:#fbfffd}
+/* The account in use has to stand out from the ones you could switch to at a
+   glance: a solid green edge, a green wash and a matching "In use" line, where
+   the others are plain white with no subtitle at all. */
+.card.current{border-color:#1fa35c;background:linear-gradient(135deg,#e2f7eb,#f2fbf6);box-shadow:0 4px 14px rgba(26,138,79,.18)}
+.card.current .name{color:#11613a}
+.sub-current{font-size:11.5px;font-weight:700;color:#1a8a4f;margin-top:1px}
 .card.ghost{opacity:.55}
 .chev{width:24px;height:24px;flex:none;border-radius:8px;background:#f1eef9;color:#7c6cf0;font-size:14px;display:flex;align-items:center;justify-content:center}
 .dotcur{width:9px;height:9px;flex:none;border-radius:50%;background:#1a8a4f;margin:0 7px 0 3px;box-shadow:0 0 0 3px #d6f5e3}
@@ -266,6 +278,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     if (window.mcsAction) { window.mcsAction(a, arg || ''); return; }
     window.webkit.messageHandlers.mcs.postMessage({action:a, folder:arg||''});
   }
+  // The window is only as tall as what is on it. The host used to be a fixed
+  // 540px, which left a band of empty space under every short screen. This
+  // reports the content's height, and the window's own height for scale, each
+  // time the content changes size; the host resizes to fit, between a floor
+  // that leaves room for the confirm dialog and progress card and the old
+  // 540px ceiling, above which the page scrolls as before.
+  var lastFit = '';
+  function fitHeight(){
+    var arg = Math.ceil(document.body.getBoundingClientRect().bottom) + ',' + window.innerHeight;
+    if (arg === lastFit) return;
+    lastFit = arg;
+    send('fitHeight', arg);
+  }
+  if (window.ResizeObserver) { new ResizeObserver(fitHeight).observe(document.body); }
+  window.addEventListener('load', fitHeight);
   function toggleCard(el){ el.classList.toggle('selected'); var c=el.querySelector('.chk'); if(c) c.checked=el.classList.contains('selected'); }
   function confirmManaged(){
     var picked=[];
@@ -682,7 +709,7 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 		if p.Current {
 			cards.WriteString(fmt.Sprintf(`
       <div class="card current" data-folder="%s" data-name="%s"><div class="dotcur"></div>
-        <div class="body"><div class="viewrow row1"><span class="name">%s</span>%s%s</div><div class="sub viewrow">Current account</div>%s</div>%s</div>`,
+        <div class="body"><div class="viewrow row1"><span class="name">%s</span>%s%s</div><div class="sub-current viewrow">In use now</div>%s</div>%s</div>`,
 				esc(p.Folder), esc(p.Name), esc(p.Name), badge, dupPill, edit, menu))
 			continue
 		}
@@ -690,9 +717,11 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 		// how the user gets Claude open on it to sign in. Say so, otherwise the
 		// card looks identical to a ready account and switching to it lands on
 		// a login screen with no explanation.
-		sub := "Switch to this account"
+		// A ready account has no subtitle: the whole card is the switch button,
+		// and "Switch to this account" under every name only repeated that.
+		sub := ""
 		if !p.SignedIn {
-			sub = "Not signed in yet. Switch here, then sign in."
+			sub = `<div class="sub viewrow">Not signed in yet. Switch here, then sign in.</div>`
 		}
 		// The card stays the switch target — clicking anywhere on it that is not
 		// the chevron or the rename input still switches — except while it is
@@ -700,8 +729,8 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
 		// toggle, so there is nothing to keep in sync separately.
 		cards.WriteString(fmt.Sprintf(`
       <div class="card selectable" data-folder="%s" data-name="%s" onclick="if(!this.classList.contains('renaming'))askSwitch(this.dataset.folder,this.dataset.name)"><div class="chev">⇄</div>
-        <div class="body"><div class="viewrow row1"><span class="name">%s</span>%s%s</div><div class="sub viewrow">%s</div>%s</div>%s</div>`,
-			esc(p.Folder), esc(p.Name), esc(p.Name), badge, dupPill, esc(sub), edit, menu))
+        <div class="body"><div class="viewrow row1"><span class="name">%s</span>%s%s</div>%s%s</div>%s</div>`,
+			esc(p.Folder), esc(p.Name), esc(p.Name), badge, dupPill, sub, edit, menu))
 	}
 	if len(profiles) == 0 {
 		cards.WriteString(`<div class="empty">No managed accounts yet. Run Rescan to add some.</div>`)
@@ -719,7 +748,7 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
   <button class="btn btn-light" onclick="send('showRescan','')">⟳&nbsp; Rescan</button>
   <button class="btn btn-light" onclick="send('showSettings','')">⚙&nbsp; Settings</button>
 </div>
-<div class="about">v` + esc(core.Version) + `</div>`
+<div class="about">` + versionLink(core.Version) + `</div>`
 	return shell(body)
 }
 
@@ -773,7 +802,7 @@ func RenderSettings(vm SettingsVM) string {
   <button class="sbtn danger" onclick="send('quit','')">Quit Multi-Claude Switcher</button>
 </div>
 <div class="about">
-  <span>v` + html.EscapeString(vm.Version) + `</span>
+  ` + versionLink(vm.Version) + `
   <span class="sep">·</span>
   ` + update + `
   <span class="sep">·</span>

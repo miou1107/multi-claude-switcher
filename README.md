@@ -128,7 +128,8 @@ screen with the reason.
 
 **Settings** holds the two toggles, a **More** screen (sync between accounts,
 back up, and the backup and archive folders), and Quit. The version line at the
-bottom also checks for updates and opens a bug report.
+bottom also checks for updates and opens a bug report. Click the version number
+to see what changed in each release.
 
 Press **Esc** or click outside to close the panel. On Windows the tray icon
 toggles it, and right-clicking gives you **Quit**, which is your way out if the
