@@ -11,13 +11,12 @@
   for them.
 
 ### Changed
-- **"Check for updates" always answers, in a dialog.** Up to date says so, with
-  the version. A newer version asks before installing ("Update now?") and then
-  shows the installer's progress bar while it works. A failed check or install
-  says what went wrong.
-- **Background updates are announced.** They still install on their own, with
-  no window, but a notification says a new version is downloading, and the new
-  version says it is running once it starts.
+- **"Check for updates" always answers.** Up to date says so in a dialog, with
+  the version. A newer version installs straight away, with the installer's
+  progress bar on screen. A failed check or install says what went wrong.
+- **Updates are announced once they land.** Nothing asks before installing, and
+  a background update still shows no window, but the new version shows one
+  notification saying it is running.
 
 ## [0.13.5] - 2026-09-23
 

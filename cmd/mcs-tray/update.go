@@ -135,17 +135,11 @@ func checkForUpdate(auto bool) {
 		return
 	}
 
-	// A check the user asked for asks before doing anything: they pressed the
-	// button to find out, not necessarily to have the app close under them right
-	// now, and every outcome is a dialog because they are waiting for an answer.
-	// Background checks still update on their own and only toast: one when the
-	// download starts, one from the new version once it is running (see
+	// Neither path asks before installing: a newer version is simply installed.
+	// A check the user asked for shows the installer's progress bar, since they
+	// are watching; a background one shows nothing. Either way the one
+	// notification comes from the new version once it is running (see
 	// announceUpdateIfNew).
-	if !auto && !confirmDialog(updatePrompt(tag, core.Version), "Update now") {
-		log.Printf("User declined the update to %s", tag)
-		return
-	}
-
 	if err := installUpdate(url, tag, auto); err != nil {
 		log.Printf("Update failed: %v", err)
 		if auto {
@@ -163,15 +157,6 @@ func checkForUpdate(auto bool) {
 	// update_install_windows.go). This comment used to say the download page was the
 	// normal Windows outcome, which is how the silent installer looked like it had
 	// regressed when it had not.
-}
-
-// updatePrompt is the question a manual check asks once it has found a newer
-// release. It names both versions and says the app will close and come back,
-// because that is the part the user cannot see coming otherwise.
-func updatePrompt(latest, current string) string {
-	return fmt.Sprintf("A new version is available: %s (you have v%s).\n\n"+
-		"Update now? Multi-Claude Switcher will close, install the update, and reopen by itself. "+
-		"Claude Desktop is not affected.", latest, current)
 }
 
 // lastVersionFile records the version that last started, so the first start
@@ -197,9 +182,10 @@ func noteVersionStarted(path, current string) (previous string, upgraded bool) {
 }
 
 // announceUpdateIfNew tells the user, once, that the app they are now running
-// is the version an update just installed. It is a toast, not a dialog: after a
-// background update nobody is waiting for it, and after a manual one the user
-// already said yes and watched the progress bar.
+// is the version an update just installed. It is the only notification an
+// update produces, and a toast rather than a dialog: after a background update
+// nobody is waiting for it, and after a manual one the user already watched the
+// progress bar.
 func announceUpdateIfNew() {
 	previous, upgraded := noteVersionStarted(lastVersionFile(), core.Version)
 	if !upgraded {

@@ -83,9 +83,9 @@ is not supported: it keeps its data somewhere virtualized that cannot be swapped
 out, which is the mechanism the whole tool depends on.
 
 Updates install themselves in the background, on both platforms. You install
-once. A notification tells you when a new version is downloading and again once
-it is running. "Check for updates" at the bottom of the panel always answers:
-it says you are up to date, or asks before installing the new version.
+once. Nothing asks first; once a new version is running, one notification says
+so. "Check for updates" at the bottom of the panel always answers: it says you
+are up to date, or installs the new version right away.
 
 ## Using it
 

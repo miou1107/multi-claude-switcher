@@ -16,9 +16,8 @@ import (
 
 // Windows updates the same way macOS does: the check finds a newer release, the
 // new version is fetched and applied, and the app comes back on it — no prompt,
-// no browser, no download page. A toast says an update is on its way, and the
-// new version says it arrived (announceUpdateIfNew). The mechanism differs
-// because the artifacts do.
+// no browser, no download page. The new version says it arrived
+// (announceUpdateIfNew). The mechanism differs because the artifacts do.
 // macOS ships a zip holding a bare binary, so the update is an atomic rename of
 // the executable. Windows ships an Inno Setup installer, and Windows will not
 // let anything overwrite a running .exe, so the update runs that installer
@@ -42,7 +41,7 @@ const updateDirName = "mcs-update"
 // restart. showProgress picks /SILENT, which shows the progress bar, over
 // /VERYSILENT, which shows nothing: an update the user asked for should be seen
 // happening, while a background one should stay out of the way and is
-// announced by toasts before and after instead.
+// announced afterwards by the new version instead.
 func installerFlags(showProgress bool) []string {
 	mode := "/VERYSILENT"
 	if showProgress {
@@ -62,10 +61,9 @@ func looksLikeExecutable(header []byte) bool {
 // quits so it can replace the running executable. auto decides two things: a
 // check the user asked for shows the installer's progress bar, and when the
 // update fails it also opens the download page so there is somewhere to go; a
-// background check shows no installer window and only toasts.
+// background check shows no installer window at all.
 func installUpdate(url, tag string, auto bool) error {
 	log.Printf("Updating v%s -> %s", core.Version, tag)
-	notify("Updating Multi-Claude Switcher", fmt.Sprintf("Downloading %s. The app will restart by itself in a moment.", tag))
 
 	setup, err := downloadInstaller(url)
 	if err != nil {
