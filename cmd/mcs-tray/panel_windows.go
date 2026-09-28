@@ -448,7 +448,13 @@ func dispatchAction(action, arg string) {
 		}
 		var pair []string
 		if json.Unmarshal([]byte(arg), &pair) == nil && len(pair) == 2 {
-			_ = core.SetProfileName(pair[0], pair[1])
+			// A failed save used to be dropped: the list came back with the old
+			// name and nothing said why, so it looked like the rename had not
+			// been pressed.
+			if err := core.SetProfileName(pair[0], pair[1]); err != nil {
+				log.Printf("rename %s: %v", pair[0], err)
+				panelSetStatus("Could not rename: " + err.Error())
+			}
 		}
 		panelState.SetView("list")
 		go reloadPanel()
@@ -605,7 +611,12 @@ func dispatchAction(action, arg string) {
 		if panelGetBusy() {
 			return
 		}
-		panelSetBusy(true, "Setting up…")
+		// The progress card, like switch, sync and merge. This used to set a
+		// "Setting up…" status that the name-the-profile screen has nowhere to
+		// draw, so for the seconds Claude was closing and reopening the Add
+		// button sat there looking unpressed, and further clicks did nothing.
+		panelSetBusy(true, "")
+		panelState.SetProgress(panelui.AddAccountStarting(a[1] != ""))
 		reloadPanel()
 		go func() {
 			req := core.CreateProfileRequest{Name: a[0], RecoverUUID: a[1]}
@@ -638,7 +649,8 @@ func dispatchAction(action, arg string) {
 			// starts if a migration was already queued at boot. A create from the
 			// panel queues one afterwards, so ask the tray to pick it up.
 			notifyTrayMigrationQueued()
-			panelState.SetView("list")
+			panelState.SetViewKeeping("list")
+			panelState.SetProgress(panelui.AddAccountDone(a[0], a[1] != ""))
 			reloadPanel()
 		}()
 	case "showMerge":

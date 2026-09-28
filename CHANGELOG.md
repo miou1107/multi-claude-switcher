@@ -18,6 +18,19 @@
   notification saying it is running.
 
 ### Fixed
+- **Adding or recovering an account showed nothing while it ran.** The name
+  screen was meant to say "Setting up…" but had nowhere to draw it, so for the
+  seconds Claude closed and reopened the Add button looked unpressed and more
+  clicks did nothing. It now raises the same progress card as a switch, and
+  ends with a card saying to sign in on the Claude that just opened.
+- **A rename that failed to save was silent.** The old name came back with no
+  reason. The list now says the rename failed and why.
+- **On Windows, clicking the tray icon while the panel was restarting did
+  nothing.** After a panel crash the switcher waits before restarting it (up to
+  five minutes if it keeps crashing), and a click in that window was only
+  logged. A click now restarts the panel straight away and opens it, with a
+  notification saying so; if the panel cannot start, a notification says that
+  too.
 - **On Windows, no notification from the switcher ever appeared.** Toasts were
   sent under PowerShell's identity, and Windows lets users switch that off; on
   a machine where it was off, every one was dropped without a trace, including
