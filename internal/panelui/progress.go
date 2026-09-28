@@ -284,6 +284,34 @@ func MergeOutcome(err error) *ProgressVM {
 	}
 }
 
+// AddAccountStarting is the card raised while a new profile is set up, or a
+// signed-out account is recovered into one. It takes seconds because Claude
+// closes and a clean one opens, and the name screen has no status line of its
+// own, so without the card the Add button looked like it had not been pressed.
+func AddAccountStarting(recovering bool) *ProgressVM {
+	title := "Adding the account"
+	if recovering {
+		title = "Recovering the account"
+	}
+	return &ProgressVM{
+		Title:  title,
+		Detail: "Claude closes, your current account is saved, and a clean Claude opens.",
+	}
+}
+
+// AddAccountDone is the card once the profile exists. It says what is left,
+// because the job is not finished until the user signs in on the Claude that
+// just opened. Failures do not use a card: they return to the name screen
+// with the reason and the typed name, where the user can try again.
+func AddAccountDone(name string, recovering bool) *ProgressVM {
+	vm := &ProgressVM{Phase: ProgressDone, Title: "Account added"}
+	if recovering {
+		vm.Title = "Account recovered"
+	}
+	vm.Detail = "Sign in to " + name + " in the Claude window that just opened."
+	return vm
+}
+
 // BackupStarting is the card raised while every account is backed up.
 func BackupStarting() *ProgressVM {
 	return &ProgressVM{Title: "Backing up accounts", Dismiss: "showSettings"}
