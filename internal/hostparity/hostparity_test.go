@@ -207,7 +207,9 @@ func everyCard() map[string][]*panelui.ProgressVM {
 			panelui.BackupOutcome(2, 1),
 			panelui.BackupOutcome(0, 1),
 		},
-		"MergeStarting": {panelui.MergeStarting()},
+		"AddAccountStarting": {panelui.AddAccountStarting(false), panelui.AddAccountStarting(true)},
+		"AddAccountDone":     {panelui.AddAccountDone("Work", false), panelui.AddAccountDone("Work", true)},
+		"MergeStarting":      {panelui.MergeStarting()},
 		"MergeOutcome": {
 			panelui.MergeOutcome(nil),
 			panelui.MergeOutcome(failed),
