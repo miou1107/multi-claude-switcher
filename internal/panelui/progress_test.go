@@ -418,3 +418,25 @@ func TestOtherDoneCardsStillOnlyReturnToAScreen(t *testing.T) {
 		t.Errorf("a finished backup card is missing %q, got:\n%s", want, card)
 	}
 }
+
+// TestAddAccountCards pins the add-an-account card: while working it is the
+// spinner with no way out, like every other long operation, and once done it
+// tells the user the one thing left to do, which is signing in.
+func TestAddAccountCards(t *testing.T) {
+	for _, recovering := range []bool{false, true} {
+		start := listWith(AddAccountStarting(recovering))
+		if !strings.Contains(start, `class="prog-spin"`) || strings.Contains(start, ">Close<") {
+			t.Errorf("recovering=%v: the working card must be a spinner with no Close", recovering)
+		}
+		done := AddAccountDone("Work", recovering)
+		if done.Phase != ProgressDone {
+			t.Errorf("recovering=%v: done card phase = %v", recovering, done.Phase)
+		}
+		if !strings.Contains(done.Detail, "Sign in to Work") {
+			t.Errorf("recovering=%v: done card must say to sign in, got %q", recovering, done.Detail)
+		}
+	}
+	if AddAccountStarting(true).Title == AddAccountStarting(false).Title {
+		t.Error("recovering and adding must not share a title")
+	}
+}

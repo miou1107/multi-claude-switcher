@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- **The version number opens the changelog.** Click it at the foot of the
+  account list or Settings to see what changed, on GitHub.
+- **Every screen of the panel has a × in the top-right corner that closes
+  it.** Until now the only ways out were Esc or clicking elsewhere, and
+  neither is visible. The button sits in the same place on every screen,
+  including over a confirmation or a progress card, and does exactly what Esc
+  does.
+
 ### Changed
 - **The account in use stands out.** Its card now has a solid green edge, a
   green wash and "In use now" in green, where the other accounts are plain
@@ -11,10 +20,33 @@
   which left a band of empty space under short screens such as a two-account
   list. It now fits the screen it shows, with a floor that keeps the confirm
   dialog and progress card whole, and long screens scroll as before.
+- **"Check for updates" always answers.** Up to date says so in a dialog, with
+  the version. A newer version installs straight away, with the installer's
+  progress bar on screen. A failed check or install says what went wrong.
+- **Updates are announced once they land.** Nothing asks before installing, and
+  a background update still shows no window, but the new version shows one
+  notification saying it is running.
 
-### Added
-- **The version number opens the changelog.** Click it at the foot of the
-  account list or Settings to see what changed, on GitHub.
+### Fixed
+- **Adding or recovering an account showed nothing while it ran.** The name
+  screen was meant to say "Setting up…" but had nowhere to draw it, so for the
+  seconds Claude closed and reopened the Add button looked unpressed and more
+  clicks did nothing. It now raises the same progress card as a switch, and
+  ends with a card saying to sign in on the Claude that just opened.
+- **A rename that failed to save was silent.** The old name came back with no
+  reason. The list now says the rename failed and why.
+- **On Windows, clicking the tray icon while the panel was restarting did
+  nothing.** After a panel crash the switcher waits before restarting it (up to
+  five minutes if it keeps crashing), and a click in that window was only
+  logged. A click now restarts the panel straight away and opens it, with a
+  notification saying so; if the panel cannot start, a notification says that
+  too.
+- **On Windows, no notification from the switcher ever appeared.** Toasts were
+  sent under PowerShell's identity, and Windows lets users switch that off; on
+  a machine where it was off, every one was dropped without a trace, including
+  the answer to "Check for updates", so pressing the button looked like it did
+  nothing. Toasts now go out as Multi-Claude Switcher, which registers itself
+  for them.
 
 ## [0.13.5] - 2026-09-23
 

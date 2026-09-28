@@ -409,7 +409,12 @@ func goPanelAction(caction, cfolder *C.char) {
 		}
 		var pair []string
 		if json.Unmarshal([]byte(arg), &pair) == nil && len(pair) == 2 {
-			_ = core.SetProfileName(pair[0], pair[1])
+			// A failed save used to be dropped, leaving the old name with no
+			// reason given; the list now says why.
+			if err := core.SetProfileName(pair[0], pair[1]); err != nil {
+				log.Printf("rename %s: %v", pair[0], err)
+				setStatus("Could not rename: " + err.Error())
+			}
 		}
 		panelState.SetView("list")
 		go reloadPanel()
@@ -452,7 +457,10 @@ func goPanelAction(caction, cfolder *C.char) {
 		if getBusy() {
 			return
 		}
-		setBusyStatus(true, "Setting up…")
+		// The progress card, as on Windows: the name-the-profile screen has
+		// nowhere to draw a status line, so "Setting up…" never showed.
+		setBusyStatus(true, "")
+		panelState.SetProgress(panelui.AddAccountStarting(a[1] != ""))
 		reloadPanel()
 		go func() {
 			req := core.CreateProfileRequest{Name: a[0], RecoverUUID: a[1]}
@@ -479,7 +487,8 @@ func goPanelAction(caction, cfolder *C.char) {
 				mu.Unlock()
 				panelState.SetView("newprofile")
 			} else {
-				panelState.SetView("list")
+				panelState.SetViewKeeping("list")
+				panelState.SetProgress(panelui.AddAccountDone(a[0], a[1] != ""))
 			}
 			reloadPanel()
 		}()

@@ -1577,3 +1577,33 @@ func TestNoClassIsStyledFromTwoPlaces(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryScreenHasTheCloseButton pins the × in the top-right corner: every
+// screen carries exactly one, and it sends the action Esc sends, which both
+// hosts handle. It is added by shell(), so a new renderer gets it for free;
+// this is what notices if one ever stops going through shell().
+func TestEveryScreenHasTheCloseButton(t *testing.T) {
+	pages := map[string]string{
+		"list":       RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, ""),
+		"sync":       RenderSync([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, "", false),
+		"settings":   RenderSettings(SettingsVM{Version: "0.13.5"}),
+		"more":       RenderMore(MoreVM{}),
+		"rescan":     RenderRescan(nil, map[string]bool{}),
+		"newprofile": RenderNewProfile(NewProfileVM{SuggestedName: "Work"}),
+		"removed":    RenderRemoved(RemovedVM{Name: "Old one"}),
+		"notremoved": RenderRemoved(RemovedVM{Name: "Old one", Err: "in use"}),
+		"debug":      RenderDebug(DebugVM{Report: "MCS 0.13.5"}),
+		"merge": RenderMerge(
+			MergeCandidateVM{Folder: "Claude", Name: "Work", Current: true},
+			MergeCandidateVM{Folder: "Claude_2", Name: "Work 2"},
+			core.MergePlan{Combined: 3}, "", false),
+	}
+	for name, page := range pages {
+		if n := strings.Count(page, closeButton); n != 1 {
+			t.Errorf("%s: %d close buttons, want 1", name, n)
+		}
+	}
+	if !strings.Contains(closeButton, `send('hidePanel','')`) {
+		t.Errorf("the close button must send hidePanel, like Esc: %s", closeButton)
+	}
+}

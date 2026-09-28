@@ -68,7 +68,38 @@ var (
 
 	// trayQuitting stops the respawn loop once the tray is on its way out.
 	trayQuitting atomic.Bool
+
+	// panelWake cuts the respawn wait short. A tray click while the panel is
+	// down sends on it: the backoff exists so a broken panel cannot spin on its
+	// own, not to make a person who clicked wait up to five minutes for it.
+	panelWake = make(chan struct{}, 1)
+
+	// pendingShowMu guards pendingShow, the SHOW a click asked for while there
+	// was no panel to send it to. The next panel to start is sent it, so the
+	// click opens the panel instead of being lost.
+	pendingShowMu sync.Mutex
+	pendingShow   string
+
+	// panelStartedForClick marks a panel process started to answer a click,
+	// so the supervisor can tell the user if that panel dies straight away.
+	panelStartedForClick atomic.Bool
 )
+
+// setPendingShow records a SHOW to deliver once a panel is running; "" clears it.
+func setPendingShow(line string) {
+	pendingShowMu.Lock()
+	pendingShow = line
+	pendingShowMu.Unlock()
+}
+
+// takePendingShow returns and clears the SHOW waiting for a panel, if any.
+func takePendingShow() string {
+	pendingShowMu.Lock()
+	defer pendingShowMu.Unlock()
+	line := pendingShow
+	pendingShow = ""
+	return line
+}
 
 func onReadyWindowsPanel() {
 	setTrayIcon()
@@ -137,8 +168,18 @@ func superviseWarmPanel() {
 		if time.Since(start) > time.Minute {
 			delay = panelRespawnDelay
 		}
+		// A panel that dies within seconds of a restart the user asked for is
+		// not coming back on its own, so say so rather than leave the icon
+		// doing nothing.
+		if panelStartedForClick.Swap(false) && time.Since(start) < 10*time.Second {
+			notify("Multi-Claude Switcher", "The panel could not start. Quit the app from the tray icon's right-click menu and open it again.")
+		}
 		log.Printf("warm panel exited; restarting in %s", delay)
-		time.Sleep(delay)
+		select {
+		case <-time.After(delay):
+		case <-panelWake:
+			log.Printf("tray clicked while the panel was down; restarting it now")
+		}
 		if delay *= 2; delay > panelRespawnDelayMax {
 			delay = panelRespawnDelayMax
 		}
@@ -172,6 +213,17 @@ func runWarmPanel() error {
 	panelProc = cmd.Process
 	panelProcMu.Unlock()
 
+	// A click that arrived while there was no panel opens this one. The pipe
+	// buffers the line until the panel reads it, so it does not matter that
+	// the panel is still starting.
+	if line := takePendingShow(); line != "" {
+		allowPanelForeground()
+		if err := sendToPanel(line); err != nil {
+			log.Printf("show restarted panel: %v", err)
+		}
+		panelStartedForClick.Store(true)
+	}
+
 	readPanelMessages(stdout)
 
 	err = cmd.Wait()
@@ -204,8 +256,18 @@ func togglePanel() {
 		// of the primary display, which is still better than not opening.
 		x, y = 0, 0
 	}
-	if err := sendToPanel(fmt.Sprintf("SHOW %d,%d", x, y)); err != nil {
-		log.Printf("show panel: %v", err)
+	line := fmt.Sprintf("SHOW %d,%d", x, y)
+	if err := sendToPanel(line); err != nil {
+		// The panel process is down (it crashed and the supervisor is waiting
+		// to restart it). Until now the click was only logged and the icon did
+		// nothing. Restart it now, open it once it is up, and say so.
+		log.Printf("show panel: %v; restarting it", err)
+		setPendingShow(line)
+		select {
+		case panelWake <- struct{}{}:
+		default:
+		}
+		notify("Multi-Claude Switcher", "The panel is restarting and will open in a moment.")
 	}
 }
 

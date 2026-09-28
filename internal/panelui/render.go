@@ -64,6 +64,13 @@ func versionLink(version string) string {
 	return `<button class="aboutlink" title="What's new" onclick="send('openChangelog','')">v` + html.EscapeString(version) + `</button>`
 }
 
+// closeButton is the × in the top-right corner of every screen. It sends the
+// same hidePanel action as Esc, which both hosts already handle, so it needs
+// no host code: on Windows the panel is parked, on macOS the popover closes.
+// It lives in shell() rather than in each renderer so no screen can be added
+// without it.
+const closeButton = `<button class="closex" title="Close" aria-label="Close" onclick="send('hidePanel','')">×</button>`
+
 // shell wraps body content in the shared styled page. Every view lives in the
 // same webview — there are no separate windows on either platform.
 func shell(body string) string {
@@ -73,7 +80,15 @@ func shell(body string) string {
 html{color-scheme:light}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",system-ui,sans-serif;color:#241f38;
   background:linear-gradient(160deg,#efe9fb 0%,#f6eaf2 55%,#f9edf1 100%);padding:16px;-webkit-font-smoothing:antialiased;width:400px;overflow-x:hidden}
-.header{display:flex;align-items:center;gap:11px;margin:2px 2px 14px}
+.header{display:flex;align-items:center;gap:11px;margin:2px 2px 14px;padding-right:34px}
+/* The close button every screen carries in the same corner. Fixed, and above
+   the confirm dialog and the progress card, so it is always where the user
+   looks for it; it does what Esc does. The header's right padding keeps a long
+   title from running under it. */
+.closex{position:fixed;top:10px;right:10px;width:28px;height:28px;border-radius:9px;border:none;cursor:pointer;z-index:12;
+  background:rgba(255,255,255,.75);color:#6b6580;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 6px rgba(60,40,90,.08)}
+.closex:hover{background:#fff;color:#241f38}
 .avatar{width:40px;height:40px;border-radius:12px;flex:none;background:linear-gradient(140deg,#8a74f0,#b96cee 55%,#e0607a);
   display:flex;align-items:center;justify-content:center;box-shadow:0 5px 13px rgba(124,108,240,.32)}
 .avatar svg{width:22px;height:22px}
@@ -244,7 +259,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .prog-mark{width:38px;height:38px;border-radius:50%;color:#fff;font-size:19px;font-weight:800;line-height:38px;margin:0 auto 13px}
 .prog-mark.ok{background:#1a7a3d}
 .prog-mark.bad{background:#c23b3b}
-</style></head><body>` + body + `
+</style></head><body>` + closeButton + body + `
 <div class="modal-bg" id="mcsModal" onclick="if(event.target===this) closeConfirm()">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mcsModalTitle" aria-describedby="mcsModalBody">
     <h2 id="mcsModalTitle">Close Claude?</h2>
