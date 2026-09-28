@@ -88,7 +88,8 @@ once.
 ## Using it
 
 There is no window and no Dock icon. The app is a pair-of-eyes icon in the macOS
-menu bar or the Windows system tray. Click it and the panel appears.
+menu bar or the Windows system tray. Click it and the panel appears. The × in
+the top-right corner of every screen closes it, as does Esc.
 
 The panel lists your accounts with their plan and marks the one you are on.
 Click a different one, confirm, and Claude Desktop restarts on it. That restart

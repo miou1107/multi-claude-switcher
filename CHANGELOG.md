@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Added
+- **Every screen of the panel has a × in the top-right corner that closes
+  it.** Until now the only ways out were Esc or clicking elsewhere, and
+  neither is visible. The button sits in the same place on every screen,
+  including over a confirmation or a progress card, and does exactly what Esc
+  does.
+
 ## [0.13.5] - 2026-09-23
 
 ### Fixed
