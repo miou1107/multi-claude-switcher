@@ -552,7 +552,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     // Otherwise, Esc hides the whole panel (matches NSPopover click-outside).
     send('hidePanel','');
   });
-</script></body></html>`
+</script>` + chineseScriptTag() + `</body></html>`
 }
 
 func avatarHeader(title, subtitle string) string {
