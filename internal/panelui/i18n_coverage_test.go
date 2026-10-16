@@ -15,13 +15,34 @@ import (
 // the five ASCII ones and nothing else, so a pattern carried over verbatim
 // would stop matching the moment a non-breaking space is involved — and the
 // panel is full of them: every icon button is written ＋&nbsp; Add another
-// account, so the icon-prefix rule below reads the   as part of the icon
-// in a browser and as the start of the phrase here.
-const jsWhitespace = `[\t\n\v\f\r \x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]`
+// account, so the icon-prefix rule below reads that space as part of the icon
+// in a browser and, without this, as the start of the phrase here.
+const jsWhitespace = `[` + jsTrimCutset + `]`
+
+// jsTrimCutset is what String.prototype.trim removes, which is not what Go's
+// strings.TrimSpace removes: Go also takes U+0085, JavaScript also takes the
+// byte order mark. Trimming the wrong set either reports copy that is in fact
+// translated, or passes copy that is not.
+const jsTrimCutset = "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005" +
+	"\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+
+// iconRuleInScript is the line in i18n.js that iconPrefix below is a port of,
+// matched literally. The port cannot be derived from the line safely (see
+// iconPrefix), so the next person to edit the rule is made to come here.
+const iconRuleInScript = `const icon = s.match(/^([＋⟳⚙🏢✓]\s*)(.*)$/s);`
 
 // iconPrefix is i18n.js's own escape hatch for buttons whose label is an icon
 // followed by a phrase: the phrase alone is what the dictionary answers.
-var iconPrefix = regexp.MustCompile(`(?s)^([＋⟳⚙🏢✓]` + jsWhitespace + `*)(.*)$`)
+//
+// 🏢 is deliberately NOT in this class, although it is in the script's. That
+// class has no u flag, so JavaScript reads it as UTF-16 code units and 🏢
+// (U+1F3E2) joins it as its two surrogate halves. Handed "🏢 Team", the script
+// therefore takes \uD83C as the icon and looks up "\uDFE2 Team", which no
+// dictionary answers — so the badge stays in English in a browser. A Go class
+// is runes, so keeping 🏢 here would look up "Team" instead and call the badge
+// translated when it is not. The Team plan's badge is left in English on
+// purpose, and notCopy records that; this is about the two sides agreeing.
+var iconPrefix = regexp.MustCompile(`(?s)^([＋⟳⚙✓]` + jsWhitespace + `*)(.*)$`)
 
 // goPatterns reads one language's sentence patterns out of i18n.js and returns
 // them as Go regexps. Reading them rather than keeping a second copy here is
@@ -106,18 +127,69 @@ func jsRegexLiteral(t *testing.T, line string) (source, flags string) {
 // mark a sentence covered that the panel shows in English.
 func compileJSRegex(t *testing.T, source, flags string) *regexp.Regexp {
 	t.Helper()
-	if strings.Contains(source, `\\`) {
-		t.Fatalf("pattern escapes a backslash, which the translation below would read as \\s: %s", source)
-	}
 	for _, f := range flags {
-		// s is the only flag in use. g, i, m and u would each change what the
-		// pattern matches, so none may pass unnoticed.
+		// s is the only flag in use. g, i, m and y would each change what the
+		// pattern matches, and u is handled where the icon rule is read, so
+		// none may pass unnoticed.
 		if f != 's' {
 			t.Fatalf("pattern uses the %q flag, which this test does not translate: /%s/%s", f, source, flags)
 		}
 	}
-	go_ := strings.ReplaceAll(source, `\s`, jsWhitespace)
-	if strings.Contains(flags, "s") {
+	dotAll := strings.Contains(flags, "s")
+
+	// One pass, escape- and class-aware, because every one of these
+	// substitutions is wrong if it fires inside a character class or on the
+	// second half of an escape.
+	var b strings.Builder
+	inClass := false
+	runes := []rune(source)
+	for i := 0; i < len(runes); i++ {
+		c := runes[i]
+		if c == '\\' {
+			if i+1 >= len(runes) {
+				t.Fatalf("pattern ends in a backslash: %s", source)
+			}
+			switch next := runes[i+1]; next {
+			case 's':
+				// JavaScript's \s covers a non-breaking space and the Unicode
+				// spaces; Go's covers five ASCII characters. Inside a class the
+				// substitution would nest one class in another, and no pattern
+				// needs that today, so it is a failure rather than a guess.
+				if inClass {
+					t.Fatalf(`pattern uses \s inside a character class, which this translation cannot express: %s`, source)
+				}
+				b.WriteString(jsWhitespace)
+			case 'S':
+				// The negation cannot be expressed by substituting a class, and
+				// Go's \S would match the very characters JavaScript's does not.
+				t.Fatalf(`pattern uses \S, which this test does not translate: %s`, source)
+			case '\\':
+				t.Fatalf("pattern escapes a backslash, which this translation does not handle: %s", source)
+			default:
+				b.WriteRune(c)
+				b.WriteRune(next)
+			}
+			i++
+			continue
+		}
+		switch {
+		case c == '[':
+			inClass = true
+			b.WriteRune(c)
+		case c == ']':
+			inClass = false
+			b.WriteRune(c)
+		case c == '.' && !inClass && !dotAll:
+			// Without the s flag, JavaScript's . skips all four line
+			// terminators where Go's skips only \n, so Go would match a string
+			// JavaScript's pattern does not.
+			b.WriteString(`[^\n\r\x{2028}\x{2029}]`)
+		default:
+			b.WriteRune(c)
+		}
+	}
+	go_ := b.String()
+	if dotAll {
 		go_ = "(?s)" + go_
 	}
 	// Lookahead, lookbehind and back references have no RE2 equivalent, so
@@ -133,7 +205,7 @@ func compileJSRegex(t *testing.T, source, flags string) *regexp.Regexp {
 // script have something to show instead? It mirrors translate() in i18n.js —
 // whole phrase, then the icon-prefixed phrase, then the sentence patterns.
 func translatedBy(s string, words map[string]bool, patterns []*regexp.Regexp) bool {
-	s = strings.TrimSpace(s)
+	s = strings.Trim(s, jsTrimCutset)
 	if s == "" {
 		return true
 	}
@@ -176,8 +248,19 @@ func readable(s string) bool {
 // It is a fixed list of strings rather than a set of shapes on purpose. A rule
 // like "skip anything that looks like a name" would also skip the next
 // sentence somebody forgets to translate.
-func notCopy() map[string]string {
-	list := map[string]string{
+func notCopy(t *testing.T) map[string]string {
+	t.Helper()
+	list := map[string]string{}
+	add := func(s, why string) {
+		// Two entries that collapse into one would take a reason with them and
+		// leave the list a line short, silently. "v" + core.Version and the
+		// Settings fixture's own version are one release apart from doing it.
+		if had, ok := list[s]; ok {
+			t.Fatalf("%q is listed twice, as %q and as %q", s, had, why)
+		}
+		list[s] = why
+	}
+	for s, why := range map[string]string{
 		// The version in the corner of every screen, and the one the Settings
 		// fixture hands the renderer. A release number is the same in every
 		// language.
@@ -195,17 +278,24 @@ func notCopy() map[string]string {
 		// itself in any language. "Free" is a word rather than a name, and the
 		// dictionaries do answer that one.
 		"Pro": "Anthropic's name for the plan",
+		// The Team plan's badge, which stays in English the way Pro does. The
+		// script leaves it alone too, for a reason worth reading: see
+		// iconPrefix.
+		"🏢 Team": "Anthropic's name for the plan, with its badge",
+	} {
+		add(s, why)
 	}
 	// core's errors reach a screen as they are, carrying file paths, folder
 	// names and whatever the operating system said. Translating them means a
 	// pattern per message against core's wording, which is work of its own and
-	// has not been done for any of the 80-odd errors core can return — so
-	// these four are listed here rather than left looking like an oversight.
+	// has not been done for any of the 80-odd errors core can return — so the
+	// four that reach a screen in the fixtures, one of them a joined error that
+	// draws a line per complaint, are listed here rather than left looking like
+	// an oversight.
 	// The guard will flag the next core error that lands on a screen, which is
 	// the point: somebody then decides whether to translate it.
-	why := "core's own error text, printed word for word"
 	for _, s := range append([]string{errArchiveFailed, errSwitchFailed, errSyncSkipped}, errRegistryNote...) {
-		list[s] = why
+		add(s, "core's own error text, printed word for word")
 	}
 	return list
 }
@@ -215,10 +305,10 @@ func notCopy() map[string]string {
 var visibleAttributes = []string{"title", "aria-label", "placeholder"}
 
 // reachedAtDepth names, for four screens, copy that only a walk going all the
-// way into the page can find: the sub-copy of a card inside the card list, a
-// row note three divs down on Rescan, a hint under a control on Settings, one
-// line of a multi-line note, and a label that lives in an attribute rather
-// than in text.
+// way into the page can find: the sub-copy of a card inside the card list, the
+// note on a Rescan row and that screen's own header line, a hint under a
+// control on Settings, one line of a multi-line note, and a label that lives
+// in an attribute rather than in text.
 //
 // A walk that quietly stops early is this guard's worst failure, because it
 // reports nothing missing and passes. Counting how much it found does not
@@ -383,13 +473,30 @@ func hasClass(n *html.Node, class string) bool {
 // who asked for Chinese. That is not hypothetical — the message shown when
 // removing an account fails shipped untranslated and was found by a person
 // reading the screen.
+//
+// Two kinds of copy are outside this check, and a sentence that goes missing
+// is likeliest to be in one of them:
+//
+//   - The dialogs' copy, which the shell's own JavaScript concatenates at
+//     click time and writes in with textContent. It is in no screen's HTML, so
+//     no walk of a rendered screen can see it. About ten dictionary entries
+//     exist only to answer it; all ten are answered today, by hand.
+//   - Copy on states no fixture in views_test.go renders — the status lines
+//     while something is running, mostly. Roughly a quarter of the dictionary
+//     is reachable only that way. The fixtures are the contract for what this
+//     check covers, which is the argument for adding a fixture when a screen
+//     grows a state, rather than for trusting a green run here.
 func TestEveryStringOnScreenIsTranslated(t *testing.T) {
-	allowed := notCopy()
+	allowed := notCopy(t)
 	used := map[string]bool{}
 	views := renderedViews(t)
 	onScreen := map[string]map[string]string{}
 	for name, page := range views {
 		onScreen[name] = panelStrings(t, page)
+	}
+
+	if !strings.Contains(i18nScript, iconRuleInScript) {
+		t.Fatalf("i18n.js no longer carries the icon rule this test ports:\n  %s", iconRuleInScript)
 	}
 
 	// Before reading anything into what the walk did not find, check that it
@@ -413,12 +520,12 @@ func TestEveryStringOnScreenIsTranslated(t *testing.T) {
 
 		for _, name := range sortedKeys(views) {
 			for _, s := range sortedKeys(onScreen[name]) {
-				trimmed := strings.TrimSpace(s)
-				if translatedBy(s, words, patterns) || !readable(trimmed) {
-					continue
-				}
+				trimmed := strings.Trim(s, jsTrimCutset)
 				if _, ok := allowed[trimmed]; ok {
 					used[trimmed] = true
+					continue
+				}
+				if translatedBy(s, words, patterns) || !readable(trimmed) {
 					continue
 				}
 				t.Errorf("%s/%s is shown in English, and %s does not answer it — %s: %s",
@@ -427,9 +534,9 @@ func TestEveryStringOnScreenIsTranslated(t *testing.T) {
 		}
 	}
 
-	for s, why := range allowed {
+	for _, s := range sortedKeys(allowed) {
 		if !used[s] {
-			t.Errorf("%q is listed as not needing translation (%s), but no screen shows it any more", s, why)
+			t.Errorf("%q is listed as not needing translation (%s), but no screen shows it any more", s, allowed[s])
 		}
 	}
 }

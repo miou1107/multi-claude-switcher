@@ -56,7 +56,9 @@ func renderedViews(t *testing.T) map[string]string {
 		// LastUpdated at all. This is the exact shape that shipped the em dash
 		// this test exists to catch, so the fixture must be this, not a
 		// same-looking row with a date filled in.
-		{UUID: "u-complete", Complete: true, HomeFolder: "Claude", Email: "work@example.com", Convos: 3, LastUpdated: time.Time{}},
+		// On a Team plan, so the 🏢 Team badge is drawn: the plan name is left in
+		// English on purpose, and the localization guard records that decision.
+		{UUID: "u-complete", Complete: true, HomeFolder: "Claude", Email: "work@example.com", Account: core.AccountTeam, Convos: 3, LastUpdated: time.Time{}},
 	}, map[string]bool{})
 
 	list := RenderList([]ProfileVM{
