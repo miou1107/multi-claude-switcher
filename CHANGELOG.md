@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.14.0] - 2026-10-16
 
 ### Added
 - **The panel speaks Traditional Chinese, and Settings has a Language row.**
