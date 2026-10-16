@@ -87,6 +87,13 @@ once. Nothing asks first; once a new version is running, one notification says
 so. "Check for updates" at the bottom of the panel always answers: it says you
 are up to date, or installs the new version right away.
 
+## Interface language
+
+The desktop panel follows your system's preferred browser language. Simplified
+Chinese is used for `zh`, `zh-CN`, `zh-SG`, and `zh-Hans` locales; other locales
+keep the English interface. Account names, user input, paths, and diagnostic
+reports keep their original text.
+
 ## Using it
 
 There is no window and no Dock icon. The app is a pair-of-eyes icon in the macOS
