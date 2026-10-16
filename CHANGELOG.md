@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Changed
+- **The HTML parser behind the translation check is no longer the release that
+  predates its own security fix.** `golang.org/x/net` goes from v0.19.0 to
+  v0.35.0, which carries the fix for the non-linear parsing advisory in the
+  `html` package (GO-2024-3333). The version is still held down, but by a
+  different thing than before: v0.19.0 was the last release that left
+  `golang.org/x/sys` where it was, and v0.35.0 is the last one whose own `go`
+  directive stays at or below this module's `go 1.22`. Eight later `html`
+  advisories are fixed only in releases that ask for a newer Go than this
+  project does, so a scanner still names the module; raising the minimum Go is
+  a decision of its own and not one a test dependency gets to make.
+- `golang.org/x/sys` comes along from v0.15.0 to v0.30.0. It is what the macOS
+  menu bar and the Windows tray and panel window are built on, so all three
+  platforms were compiled against the new version before this was committed.
+  The test suite was run on macOS; the Windows and Linux suites run in CI,
+  which is the only place they run at all. Nothing a shipped binary executes
+  changed: the HTML parser is imported by one test file and by nothing else.
+
 ## [0.14.0] - 2026-10-16
 
 ### Added
