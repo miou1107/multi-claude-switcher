@@ -156,6 +156,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .slabel{flex:1;min-width:0}
 .slabel .t{font-size:14px;font-weight:600}
 .slabel .s{font-size:11.5px;color:#8b8598;margin-top:1px}
+select.lang{font:inherit;font-size:13px;color:#241f38;background:#fff;border:1px solid #d8d2e6;
+  border-radius:9px;padding:5px 8px;max-width:150px}
 .sbtn{width:100%;text-align:left;background:#fff;border:none;border-radius:14px;padding:13px 15px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 3px 10px rgba(60,40,90,.06);color:#241f38}
 .sbtn:hover{background:#faf9ff}
 .sbtn:disabled{opacity:.5;cursor:default;color:#8b8598}
@@ -552,7 +554,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
     // Otherwise, Esc hides the whole panel (matches NSPopover click-outside).
     send('hidePanel','');
   });
-</script>` + chineseScriptTag() + `</body></html>`
+</script>` + i18nScriptTag() + `</body></html>`
 }
 
 func avatarHeader(title, subtitle string) string {
@@ -763,9 +765,38 @@ type MoreVM struct {
 type SettingsVM struct {
 	AutoSync   bool
 	StartLogin bool
+	Language   string // core.LanguageAuto and friends; "" reads as auto
 	Version    string
 	Status     string // transient feedback banner (e.g. after a backup)
 	Busy       bool   // a maintenance action is running; disable its button
+}
+
+// languageOptions is the picker's contents, in the order they are offered.
+// Each language is named in its own script, the way every other language list
+// names them, so someone who has landed in the wrong one can still find their
+// way out. Only "Automatic" is translated, since it is a word rather than a
+// name.
+var languageOptions = []struct{ Value, Label string }{
+	{core.LanguageAuto, "Automatic"},
+	{core.LanguageChineseTraditional, "繁體中文"},
+	{core.LanguageChineseSimplified, "简体中文"},
+	{core.LanguageEnglish, "English"},
+}
+
+func languagePicker(current string) string {
+	if current == "" {
+		current = core.LanguageAuto
+	}
+	s := `<select class="lang" onchange="send('setLanguage',this.value)" aria-label="Language">`
+	for _, o := range languageOptions {
+		selected := ""
+		if o.Value == current {
+			selected = ` selected`
+		}
+		s += `<option value="` + html.EscapeString(o.Value) + `"` + selected + `>` +
+			html.EscapeString(o.Label) + `</option>`
+	}
+	return s + `</select>`
 }
 
 func toggleClass(on bool) string {
@@ -794,6 +825,8 @@ func RenderSettings(vm SettingsVM) string {
   <div class="htext"><h1>Settings</h1><p>Preferences and maintenance</p></div>
 </div>` + status + `
 <div class="slist">
+  <div class="srow"><div class="slabel"><div class="t">Language</div><div class="s">Which language the panel is shown in</div></div>
+    ` + languagePicker(vm.Language) + `</div>
   <div class="srow"><div class="slabel"><div class="t">Auto Sync on switch</div><div class="s">Merge both accounts' Code sessions when switching</div></div>
     <div class="` + toggleClass(vm.AutoSync) + `" onclick="send('toggleAutoSync','')"></div></div>
   <div class="srow"><div class="slabel"><div class="t">Start at login</div><div class="s">Launch Multi-Claude Switcher when you log in</div></div>

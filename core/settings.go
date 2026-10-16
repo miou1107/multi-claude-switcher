@@ -3,6 +3,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -21,8 +22,32 @@ var settingsPath = func() string {
 }
 
 type settings struct {
-	AutoSyncOnSwitch         bool `json:"autoSyncOnSwitch"`
-	AutoSyncWarningDismissed bool `json:"autoSyncWarningDismissed"`
+	AutoSyncOnSwitch         bool   `json:"autoSyncOnSwitch"`
+	AutoSyncWarningDismissed bool   `json:"autoSyncWarningDismissed"`
+	PanelLanguage            string `json:"panelLanguage"`
+}
+
+// The languages the panel can be shown in. LanguageAuto follows the computer's
+// own preferred language, which is what the panel did before this setting
+// existed: an older settings file has no entry, reads as "", and must keep
+// behaving the way it did, so the empty string means auto.
+const (
+	LanguageAuto               = "auto"
+	LanguageChineseTraditional = "zh-Hant"
+	LanguageChineseSimplified  = "zh-Hans"
+	LanguageEnglish            = "en"
+)
+
+// normalizeLanguage maps a stored value onto one the panel understands. A file
+// edited by hand, or written by a newer version that knows a language this one
+// does not, falls back to auto rather than leaving the panel untranslated with
+// no way to tell why.
+func normalizeLanguage(v string) string {
+	switch v {
+	case LanguageChineseTraditional, LanguageChineseSimplified, LanguageEnglish:
+		return v
+	}
+	return LanguageAuto
 }
 
 func loadSettingsLocked() settings {
@@ -84,5 +109,28 @@ func SetAutoSyncWarningDismissed(v bool) error {
 	defer settingsMu.Unlock()
 	s := loadSettingsLocked()
 	s.AutoSyncWarningDismissed = v
+	return saveSettingsLocked(s)
+}
+
+// PanelLanguage reports which language the panel is shown in, always one of
+// the four constants above.
+func PanelLanguage() string {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	return normalizeLanguage(loadSettingsLocked().PanelLanguage)
+}
+
+// SetPanelLanguage persists the panel language. A value the panel does not
+// know is refused rather than written: every later render reads this back, so
+// one bad write would leave the interface in a language nobody picked, with
+// the settings file as the only clue.
+func SetPanelLanguage(v string) error {
+	if v != LanguageAuto && normalizeLanguage(v) == LanguageAuto {
+		return fmt.Errorf("unknown panel language %q", v)
+	}
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	s := loadSettingsLocked()
+	s.PanelLanguage = v
 	return saveSettingsLocked(s)
 }

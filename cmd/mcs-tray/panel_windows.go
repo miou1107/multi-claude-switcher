@@ -474,6 +474,9 @@ func dispatchAction(action, arg string) {
 		}
 		panelState.SetView("list")
 		go reloadPanel()
+	case "setLanguage":
+		_ = core.SetPanelLanguage(arg)
+		reloadPanel()
 	case "toggleAutoSync":
 		_ = core.SetAutoSyncOnSwitch(!core.AutoSyncOnSwitch())
 		reloadPanel()
@@ -925,6 +928,7 @@ func reloadPanel() {
 		htmlStr = panelui.RenderSettings(panelui.SettingsVM{
 			AutoSync:   core.AutoSyncOnSwitch(),
 			StartLogin: core.LoginItemEnabled(),
+			Language:   core.PanelLanguage(),
 			Version:    core.Version,
 			Status:     panelGetStatus(),
 			Busy:       panelGetBusy(),

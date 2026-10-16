@@ -89,10 +89,13 @@ are up to date, or installs the new version right away.
 
 ## Interface language
 
-The desktop panel follows your system's preferred browser language. Simplified
-Chinese is used for `zh`, `zh-CN`, `zh-SG`, and `zh-Hans` locales; other locales
-keep the English interface. Account names, user input, paths, and diagnostic
-reports keep their original text.
+The panel comes up in the language the computer is set to: Traditional Chinese
+for Taiwan, Hong Kong and Macau, Simplified Chinese for the mainland and
+Singapore, English everywhere else. **Settings → Language** overrides that, and
+the choice is kept with the rest of your settings.
+
+Only the interface is translated. Account names, anything you typed yourself,
+folder paths and the diagnostic report are left exactly as they are.
 
 ## Using it
 
