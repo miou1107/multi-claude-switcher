@@ -10,9 +10,11 @@
   these sentences, and an eleventh added without a translation would have been
   read in English with every test green. The new check reads the shell instead
   of a rendered screen, follows each sentence back through the concatenation
-  that builds it, and fails when either dictionary has no answer for it. It
-  also fails if the shell grows another way of putting text on a dialog, since
-  that would be copy nothing reads.
+  that builds it, and fails when either dictionary has no answer for it. It also
+  fails when the shell grows another way of putting text on a dialog, when the
+  function every dialog goes through gains a parameter, and when a call is
+  written in a shape the check cannot read — each of those would otherwise be
+  copy nothing looks at.
 
 ## [0.14.0] - 2026-10-16
 
