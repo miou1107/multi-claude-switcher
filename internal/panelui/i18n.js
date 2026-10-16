@@ -11,9 +11,9 @@
   const DICTS = {
     "zh-Hant": {
       "Language": "語言",
-    "Which language the panel is shown in": "面板上的文字要用哪一種語言",
-    "Automatic": "自動",
-    "Multi-Claude Switcher": "Claude 帳號切換器",
+      "Which language the panel is shown in": "面板上的文字要用哪一種語言",
+      "Automatic": "自動",
+      "Multi-Claude Switcher": "Claude 帳號切換器",
       "What's new": "版本更新說明",
       "Close": "關閉",
       "Close Claude?": "要關閉 Claude 嗎？",
@@ -147,9 +147,9 @@
     },
     "zh-Hans": {
       "Language": "语言",
-    "Which language the panel is shown in": "面板上的文字用哪一种语言",
-    "Automatic": "自动",
-    "Multi-Claude Switcher": "Claude 多账号切换器",
+      "Which language the panel is shown in": "面板上的文字用哪一种语言",
+      "Automatic": "自动",
+      "Multi-Claude Switcher": "Claude 多账号切换器",
       "What's new": "版本更新说明",
       "Close": "关闭",
       "Close Claude?": "关闭 Claude？",

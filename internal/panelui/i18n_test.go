@@ -21,7 +21,7 @@ func dictionaryKeys(t *testing.T, language string) map[string]bool {
 		t.Fatalf("%q dictionary is not closed", language)
 	}
 	keys := map[string]bool{}
-	for _, m := range regexp.MustCompile(`(?m)^      "((?:[^"\\]|\\.)*)":`).FindAllStringSubmatch(rest[:end], -1) {
+	for _, m := range regexp.MustCompile(`(?m)^\s+"((?:[^"\\]|\\.)*)":`).FindAllStringSubmatch(rest[:end], -1) {
 		keys[m[1]] = true
 	}
 	if len(keys) == 0 {
@@ -101,14 +101,32 @@ func TestSettingsLanguageDefaultsToAutomatic(t *testing.T) {
 }
 
 // The page tells the script which language to use before the script runs. If
-// this tag went missing the panel would quietly fall back to the computer's
-// own language and ignore what the person picked.
+// this tag went missing, or carried something other than what was stored, the
+// panel would fall back to the computer's own language and ignore the choice.
 func TestPanelTellsTheScriptWhichLanguage(t *testing.T) {
+	orig := panelLanguage
+	t.Cleanup(func() { panelLanguage = orig })
+	panelLanguage = func() string { return core.LanguageChineseTraditional }
+
 	html := RenderSettings(SettingsVM{})
-	if !strings.Contains(html, "window.__mcsLang=") {
-		t.Error("the page does not carry a language preference")
+	if !strings.Contains(html, `window.__mcsLang="`+core.LanguageChineseTraditional+`"`) {
+		t.Error("the page does not carry the stored language")
 	}
 	if !strings.Contains(html, "<script src=\"data:text/javascript;base64,") {
 		t.Error("the localization script is not attached to the page")
+	}
+}
+
+// Every screen carries the script, not just Settings: a progress card or a
+// confirmation shown over the account list has to be readable too.
+func TestEveryScreenCarriesTheScript(t *testing.T) {
+	orig := panelLanguage
+	t.Cleanup(func() { panelLanguage = orig })
+	panelLanguage = func() string { return core.LanguageEnglish }
+
+	for name, html := range renderedViews(t) {
+		if !strings.Contains(html, "window.__mcsLang=") {
+			t.Errorf("%s does not carry a language preference", name)
+		}
 	}
 }

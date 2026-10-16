@@ -156,8 +156,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","SF Pro Text",syste
 .slabel{flex:1;min-width:0}
 .slabel .t{font-size:14px;font-weight:600}
 .slabel .s{font-size:11.5px;color:#8b8598;margin-top:1px}
-select.lang{font:inherit;font-size:13px;color:#241f38;background:#fff;border:1px solid #d8d2e6;
-  border-radius:9px;padding:5px 8px;max-width:150px}
+select.lang{font:inherit;font-size:13px;color:#241f38;border:1px solid #d8d2e6;
+  border-radius:9px;padding:5px 26px 5px 10px;max-width:160px;
+  /* WKWebView and WebView2 draw their own select chrome, and the two look
+     nothing alike. Turning it off and drawing the chevron here keeps the row
+     looking the same on both. */
+  -webkit-appearance:none;appearance:none;
+  background:#fff url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b8598' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center}
 .sbtn{width:100%;text-align:left;background:#fff;border:none;border-radius:14px;padding:13px 15px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 3px 10px rgba(60,40,90,.06);color:#241f38}
 .sbtn:hover{background:#faf9ff}
 .sbtn:disabled{opacity:.5;cursor:default;color:#8b8598}
@@ -550,7 +555,9 @@ select.lang{font:inherit;font-size:13px;color:#241f38;background:#fff;border:1px
     // arg here mirrors the back button's fix: showSettings on the Go side
     // saves it before switching the view away.
     if(ae && ae.id==='dbgc') { send('showSettings', ae.value); return; }
-    if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA')) { send('showList',''); return; }
+    // SELECT is here for the same reason: with the language picker focused,
+    // Escape should back out of Settings, not put the whole panel away.
+    if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA' || ae.tagName==='SELECT')) { send('showList',''); return; }
     // Otherwise, Esc hides the whole panel (matches NSPopover click-outside).
     send('hidePanel','');
   });
