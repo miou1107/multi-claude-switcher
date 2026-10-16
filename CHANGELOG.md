@@ -19,6 +19,26 @@
   them and not the other. The removal failure message, which had no
   translation at all, has one now.
 
+- **Seven more sentences the panel showed in English are translated.** Four are
+  the review notes on Rescan: the one under an account signed out inside
+  Claude, the one under an account whose conversations are still there, the one
+  under a profile waiting for its first sign-in, and the one under an account
+  with nothing left to recover. The others are the note above the diagnostic
+  report, the line on the merge screen that says where the conversations go,
+  and the status line while Windows checks for updates. Two of them had a
+  translation that could never be reached, because the dictionary held part of
+  the sentence rather than the whole of it.
+
+- **Every sentence a screen draws is now checked against both dictionaries.**
+  The two checks already here compare the dictionaries against each other,
+  which says nothing about the panel: copy added to a screen and to neither
+  dictionary passed both of them, passed the build, and was read in English by
+  everyone who asked for Chinese. The new check parses each screen and walks it
+  the way the localization script walks it in a browser, so account names,
+  plans, email addresses and the diagnostic report are skipped for the same
+  reason they are skipped on screen. What is left must be in both dictionaries
+  or be listed, string by string, as text that stays in English.
+
 ## [0.13.6] - 2026-09-28
 
 ### Added

@@ -2,10 +2,31 @@ package panelui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/miou1107/multi-claude-switcher/core"
+)
+
+// Four of core's own error messages, exactly as the screens below print them.
+// They are named rather than written inline because the localization guard
+// lists the same strings as text the dictionaries are not asked to answer: a
+// second copy of a sentence this long would go stale, and a stale copy there
+// means a sentence nothing checks.
+var (
+	errArchiveFailed = `couldn't archive Old one: Claude may still be holding its files. ` +
+		`Fully quit Claude and try again. (rename /Users/x/Library/Application Support/Claude_Old: permission denied)`
+	errSwitchFailed = "can't switch to Claude_Old: no profile folder there"
+	errSyncSkipped  = "skipped auto sync: failed to back up source profile " +
+		"(refusing to write without a backup): permission denied"
+	// errors.Join hands these over newline-separated and the screen draws a
+	// line per complaint, so each line reaches a reader on its own.
+	errRegistryNote = []string{
+		"Old one was removed, but some of what the switcher had recorded about it could not be cleared.",
+		"The switcher's own account list still mentions it. Nothing needs doing: the panel only shows accounts whose folder is still there. (write managed.json: permission denied)",
+		`Its name is still recorded as "Old one". If you sign in to this account again later it will come back under that name, which you can change with Rename. (write names.json: permission denied)`,
+	}
 )
 
 // renderedViews is every screen a user can land on, built once and shared by
@@ -15,14 +36,22 @@ import (
 func renderedViews(t *testing.T) map[string]string {
 	t.Helper()
 	rescan := RenderRescan([]core.ScannedAccount{
-		// Pending: no account yet, just a folder waiting for sign-in. Shares its
-		// branch with SignedOut (same copy either way), so this one row stands
-		// for both.
-		{HomeFolder: "Claude_pending", Pending: true, Note: "Ready to sign in"},
+		// Pending: no account yet, just a folder waiting for sign-in. It shares
+		// its branch with SignedOut below, so one row would draw both shapes —
+		// but each carries a different sentence, and the sentence is what these
+		// guards read. Every note here is the one core really hands over.
+		// Shorthand sat in their place until the localization check went in and
+		// found three sentences on this screen that neither dictionary answered:
+		// a made-up note is a note no guard has ever seen.
+		{HomeFolder: "Claude_pending", Pending: true, Note: core.PendingSignInNote},
+		// Signed out inside Claude: same branch, the other sentence.
+		{HomeFolder: "Claude_out", SignedOut: true, Note: core.SignedOutNote},
 		// Ghost, ranked recoverable: ID + conversations exist, no profile folder.
-		{UUID: "u-recoverable", Recoverable: true, Convos: 2, Note: "Recoverable"},
-		// Ghost, dead end: no folder, no bucket, nothing to recover.
-		{UUID: "u-dead", Convos: 0, Note: "No conversations left"},
+		{UUID: "u-recoverable", Recoverable: true, Convos: 2, Note: core.RecoverableGhostNote},
+		// Ghost, dead end: no folder, no bucket, nothing to recover. This note
+		// has no exported name — it is what core's deriveNote returns for an
+		// incomplete row, spelled the same way core's own tests spell it.
+		{UUID: "u-dead", Convos: 0, Note: "Invalid account data"},
 		// Complete, normal row, and the one that matters most here: no
 		// LastUpdated at all. This is the exact shape that shipped the em dash
 		// this test exists to catch, so the fixture must be this, not a
@@ -38,12 +67,17 @@ func renderedViews(t *testing.T) map[string]string {
 		{Folder: "Claude_new", Name: "New one", SignedIn: false},
 		// Two profiles sharing a UUID: the duplicate-account warning banner.
 		{Folder: "Claude_dup", Name: "Work", Plan: "Pro", Convos: 1, SignedIn: true, UUID: "dup-uuid"},
-	}, true, "Backed up 3 accounts")
+		// The status banner carries whatever the host last put there. This is
+		// one of the host's own lines, not a stand-in: a failed Recover sets it
+		// and then sends the user straight to this screen.
+	}, true, "That account is no longer recoverable. Run Rescan")
 	// The empty list has its own copy ("No managed accounts yet…") that a
 	// non-empty list can never reach in the same call.
 	listEmpty := RenderList(nil, false, "")
 
-	newProfile := RenderNewProfile(NewProfileVM{SuggestedName: "Work", Convos: 0, Err: "That name is already taken"})
+	// The error line is the one createProfile really returns when the name box
+	// comes back empty, for the same reason the notes above are core's own.
+	newProfile := RenderNewProfile(NewProfileVM{SuggestedName: "Work", Convos: 0, Err: "No account was named"})
 	// RecoverUUID switches the title, subtitle and hint text to the recovery
 	// variant; mutually exclusive with the add variant above in one call.
 	newProfileRecover := RenderNewProfile(NewProfileVM{RecoverUUID: "abcd1234efgh", SuggestedName: "Old one", Convos: 5})
@@ -51,7 +85,10 @@ func renderedViews(t *testing.T) map[string]string {
 	merge := RenderMerge(
 		MergeCandidateVM{Folder: "Claude", Name: "Work", Plan: "Pro", Convos: 3, Current: true},
 		MergeCandidateVM{Folder: "Claude_2", Name: "Work 2", Plan: "Pro", Convos: 5},
-		core.MergePlan{Combined: 8, Conflicts: 1, Unreadable: 1}, "Could not compute a plan", false)
+		core.MergePlan{Combined: 8, Conflicts: 1, Unreadable: 1},
+		// What the hosts show when planning the merge fails: they pass the
+		// error's own text through to this banner.
+		"one of those profiles is no longer there. Run Rescan", false)
 	// With neither candidate Current, the keeper reads "Keep this one" alone
 	// instead of "In use now · keep this one" — a third variant the call above
 	// cannot also produce, since a card is either the keeper or not.
@@ -85,18 +122,14 @@ func renderedViews(t *testing.T) map[string]string {
 	// TestNoEmDashInErrorStrings reads that package's source and is what keeps the
 	// two from drifting apart; this stays real text so the rendered screen is
 	// checked as the user meets it.
-	removedFailed := RenderRemoved(RemovedVM{Folder: "Claude_Old", Name: "Old one",
-		Err: `couldn't archive Old one: Claude may still be holding its files. ` +
-			`Fully quit Claude and try again. (rename /Users/x/Library/Application Support/Claude_Old: permission denied)`})
+	removedFailed := RenderRemoved(RemovedVM{Folder: "Claude_Old", Name: "Old one", Err: errArchiveFailed})
 	// A non-empty RegistryNote is the other live branch: the folder moved but a
 	// registry write afterward did not, so this is the only call that reaches the
 	// hintw block this test is here to cover.
 	// Two entries, newline-separated, as errors.Join really hands them over: the
 	// multi-line branch is the one that draws a line per complaint.
 	removedWithRegistryNote := RenderRemoved(RemovedVM{Name: "Old one", Convos: 34,
-		RegistryNote: "Old one was removed, but some of what the switcher had recorded about it could not be cleared.\n" +
-			"The switcher's own account list still mentions it. Nothing needs doing: the panel only shows accounts whose folder is still there. (write managed.json: permission denied)\n" +
-			"Its name is still recorded as \"Old one\". If you sign in to this account again later it will come back under that name, which you can change with Rename. (write names.json: permission denied)"})
+		RegistryNote: strings.Join(errRegistryNote, "\n")})
 
 	// The card's four shapes are mutually exclusive in one call, so each gets
 	// its own entry, and they are built through the outcome helpers the hosts
@@ -108,11 +141,8 @@ func renderedViews(t *testing.T) map[string]string {
 	cardOver := func(vm *ProgressVM) string { return WithProgress(listEmpty, vm) }
 	switchWorking := cardOver(SwitchStarting())
 	switchDone := cardOver(SwitchOutcome("Work", nil))
-	switchWarned := cardOver(SwitchOutcome("Work", &core.SwitchedWithWarning{
-		Err: errors.New("skipped auto sync: failed to back up source profile " +
-			"(refusing to write without a backup): permission denied")}))
-	switchFailed := cardOver(SwitchOutcome("Work",
-		errors.New("can't switch to Claude_Old: no profile folder there")))
+	switchWarned := cardOver(SwitchOutcome("Work", &core.SwitchedWithWarning{Err: errors.New(errSyncSkipped)}))
+	switchFailed := cardOver(SwitchOutcome("Work", errors.New(errSwitchFailed)))
 	// Failure with nothing to report takes the other branch: the card falls back
 	// to its own sentence, which no other fixture here can reach.
 	progressFailedBare := cardOver(&ProgressVM{Phase: ProgressFailed, Title: "Merge failed"})
@@ -132,8 +162,11 @@ func renderedViews(t *testing.T) map[string]string {
 	backupPartial := cardOver(BackupOutcome(2, 1))
 
 	return map[string]string{
-		"debug":                 RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "typed", Status: "Copied"}),
-		"settings":              RenderSettings(SettingsVM{Version: "0.11.2", Status: "Backed up", AutoSync: true, StartLogin: true}),
+		// Both status lines below are the ones the hosts set on these two
+		// screens: the Debug screen's copy button, and the Settings screen's
+		// update check on Windows.
+		"debug":                 RenderDebug(DebugVM{Report: "MCS 0.11.2", Comment: "typed", Status: "Report copied. Paste it into the issue."}),
+		"settings":              RenderSettings(SettingsVM{Version: "0.11.2", Status: "Checking for updates… the answer will pop up in a moment.", AutoSync: true, StartLogin: true}),
 		"settings_busy":         RenderSettings(SettingsVM{Version: "0.11.2", Busy: true}),
 		"more":                  RenderMore(MoreVM{}),
 		"more_busy":             RenderMore(MoreVM{Busy: true}),
