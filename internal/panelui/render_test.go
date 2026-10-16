@@ -297,13 +297,14 @@ func TestAskRemoveClosesTheRowMenuBeforeOpeningTheDialog(t *testing.T) {
 // TestEscapeClosesRowMenuBeforeItsOtherMeanings pins the ordering requirement
 // directly: the row-menu-closing branch must appear, in source, before every
 // other branch already in the panel's Escape chain (the modal, the debug
-// textarea, and the generic INPUT/TEXTAREA-backs-out-to-the-list case), since
+// textarea, and the generic INPUT/TEXTAREA/SELECT-backs-out-to-the-list case),
+// since
 // whichever branch runs first is the one Escape actually does.
 func TestEscapeClosesRowMenuBeforeItsOtherMeanings(t *testing.T) {
 	html := RenderList([]ProfileVM{{Folder: "Claude", Name: "Work", SignedIn: true}}, false, "")
 	rowMenuIdx := strings.Index(html, `if(document.querySelector('.rowmenu.open')) { closeAllRowMenus(); return; }`)
 	modalIdx := strings.Index(html, `if(document.getElementById('mcsModal').classList.contains('on')) { closeConfirm(); return; }`)
-	inputIdx := strings.Index(html, `if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA')) { send('showList',''); return; }`)
+	inputIdx := strings.Index(html, `if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA' || ae.tagName==='SELECT')) { send('showList',''); return; }`)
 	if rowMenuIdx < 0 || modalIdx < 0 || inputIdx < 0 {
 		t.Fatalf("fixture broken: one of the three Escape branches is missing entirely:\n%s", html)
 	}

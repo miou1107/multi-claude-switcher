@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Added
+- **The panel speaks Traditional Chinese, and Settings has a Language row.**
+  It comes up in the language the computer is set to: Traditional Chinese for
+  Taiwan, Hong Kong and Macau, Simplified Chinese for the mainland and
+  Singapore, English everywhere else. Settings now has a Language row that
+  overrides it with Automatic, Traditional Chinese, Simplified Chinese or
+  English, and the choice is stored with the other settings, so it survives a
+  restart. Account names, anything typed in, folder paths and the diagnostic
+  report are left alone.
+
+### Changed
+- **One localization file instead of one per language.**
+  `internal/panelui/zh_cn.js` is now `i18n.js` and holds both Chinese
+  dictionaries, with a test that fails when a phrase is translated into one of
+  them and not the other. The removal failure message, which had no
+  translation at all, has one now.
+
 ## [0.13.6] - 2026-09-28
 
 ### Added
