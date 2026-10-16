@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Changed
+- **The dialogs' copy is checked against both dictionaries too.** Every
+  sentence a confirmation shows is built by the shell's own JavaScript when
+  somebody clicks, so it appears in no screen's HTML and the check added in
+  0.14.0 could not see any of it: ten dictionary entries exist only to answer
+  these sentences, and an eleventh added without a translation would have been
+  read in English with every test green. The new check reads the shell instead
+  of a rendered screen, follows each sentence back through the concatenation
+  that builds it, and fails when either dictionary has no answer for it. It
+  also fails if the shell grows another way of putting text on a dialog, since
+  that would be copy nothing reads.
+
 ## [0.14.0] - 2026-10-16
 
 ### Added

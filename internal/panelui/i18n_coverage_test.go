@@ -474,18 +474,13 @@ func hasClass(n *html.Node, class string) bool {
 // removing an account fails shipped untranslated and was found by a person
 // reading the screen.
 //
-// Two kinds of copy are outside this check, and a sentence that goes missing
-// is likeliest to be in one of them:
-//
-//   - The dialogs' copy, which the shell's own JavaScript concatenates at
-//     click time and writes in with textContent. It is in no screen's HTML, so
-//     no walk of a rendered screen can see it. About ten dictionary entries
-//     exist only to answer it; all ten are answered today, by hand.
-//   - Copy on states no fixture in views_test.go renders — the status lines
-//     while something is running, mostly. Roughly a quarter of the dictionary
-//     is reachable only that way. The fixtures are the contract for what this
-//     check covers, which is the argument for adding a fixture when a screen
-//     grows a state, rather than for trusting a green run here.
+// What this check cannot see is copy on states no fixture in views_test.go
+// renders — the status lines while something is running, mostly. The fixtures
+// are the contract for what it covers, which is the argument for adding a
+// fixture when a screen grows a state, rather than for trusting a green run
+// here. The dialogs' copy is outside it too, since the shell builds those
+// sentences in JavaScript and no screen's HTML holds them; dialog_copy_test.go
+// reads the shell for them.
 func TestEveryStringOnScreenIsTranslated(t *testing.T) {
 	allowed := notCopy(t)
 	used := map[string]bool{}
