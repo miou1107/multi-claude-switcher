@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Fixed
+- **(Windows) After Claude updates itself, you are offered your account
+  back.** Claude Desktop's updater reopens it with no account named, so it
+  opened the default account every time, and anyone who had switched away from
+  it found themselves back there after each update. The switcher now notices
+  the version change and the move to the default account, and asks whether to
+  switch back. Opening the default account by hand, or choosing it in the
+  switcher, does not trigger it.
+
 ## [0.13.6] - 2026-09-28
 
 ### Added
