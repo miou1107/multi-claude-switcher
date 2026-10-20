@@ -11,6 +11,83 @@
   switch back. Opening the default account by hand, or choosing it in the
   switcher, does not trigger it.
 
+### Changed
+- **The HTML parser behind the translation check is no longer the release that
+  predates its own security fix.** `golang.org/x/net` goes from v0.19.0 to
+  v0.35.0, which carries the fix for the non-linear parsing advisory in the
+  `html` package (GO-2024-3333). The version is still held down, but by a
+  different thing than before: v0.19.0 was the last release that left
+  `golang.org/x/sys` where it was, and v0.35.0 is the last one whose own `go`
+  directive stays at or below this module's `go 1.22`. Eight later `html`
+  advisories are fixed only in releases that ask for a newer Go than this
+  project does, so a scanner still names the module; raising the minimum Go is
+  a decision of its own and not one a test dependency gets to make.
+- `golang.org/x/sys` comes along from v0.15.0 to v0.30.0. It is what the macOS
+  menu bar and the Windows tray and panel window are built on, so all three
+  platforms were compiled against the new version before this was committed.
+  The test suite was run on macOS; the Windows and Linux suites run in CI,
+  which is the only place they run at all. Nothing a shipped binary executes
+  changed: the HTML parser is imported by one test file and by nothing else.
+- **The dialogs' copy is checked against both dictionaries too.** Every
+  sentence a confirmation shows is built by the shell's own JavaScript when
+  somebody clicks, so it appears in no screen's HTML and the check added in
+  0.14.0 could not see any of it: ten dictionary entries exist only to answer
+  these sentences, and an eleventh added without a translation would have been
+  read in English with every test green. The new check reads the shell instead
+  of a rendered screen, follows each sentence back through the concatenation
+  that builds it, and fails when either dictionary has no answer for it. It also
+  fails when the shell grows another way of putting text on a dialog, when the
+  function every dialog goes through gains a parameter, and when a call is
+  written in a shape the check cannot read — each of those would otherwise be
+  copy nothing looks at.
+
+## [0.14.0] - 2026-10-16
+
+### Added
+- **The panel speaks Traditional Chinese, and Settings has a Language row.**
+  It comes up in the language the computer is set to: Traditional Chinese for
+  Taiwan, Hong Kong and Macau, Simplified Chinese for the mainland and
+  Singapore, English everywhere else. Settings now has a Language row that
+  overrides it with Automatic, Traditional Chinese, Simplified Chinese or
+  English, and the choice is stored with the other settings, so it survives a
+  restart. Account names, anything typed in, folder paths and the diagnostic
+  report are left alone.
+
+### Changed
+- **One localization file instead of one per language.**
+  `internal/panelui/zh_cn.js` is now `i18n.js` and holds both Chinese
+  dictionaries, with a test that fails when a phrase is translated into one of
+  them and not the other. The removal failure message, which had no
+  translation at all, has one now.
+
+- **Seven more sentences the panel showed in English are translated.** Four are
+  the review notes on Rescan: the one under an account signed out inside
+  Claude, the one under an account whose conversations are still there, the one
+  under a profile waiting for its first sign-in, and the one under an account
+  with nothing left to recover. The others are the note above the diagnostic
+  report, the line on the merge screen that says where the conversations go,
+  and the status line while Windows checks for updates. Two of them had a
+  translation that could never be reached, because the dictionary held part of
+  the sentence rather than the whole of it.
+
+- **Every sentence on a rendered screen is now checked against both
+  dictionaries.** The two checks already here compare the dictionaries against
+  each other, which says nothing about the panel: copy added to a screen and to
+  neither dictionary passed both of them, passed the build, and was read in
+  English by everyone who asked for Chinese. The new check parses each screen
+  and walks it the way the localization script walks it in a browser, so
+  account names, plans, email addresses and the diagnostic report are skipped
+  for the same reason they are skipped on screen. What is left must be in both
+  dictionaries or be listed, string by string, as text that stays in English.
+  Two kinds of copy are still outside it, and the test says so: the dialogs'
+  copy, which the shell builds in JavaScript at click time and no screen's HTML
+  contains, and copy on states no screen fixture renders.
+
+- **Four dictionary entries that nothing could reach are gone.** Three were
+  fragments of a sentence the panel draws whole, so they never matched
+  anything; one translated a button that no longer exists. The Team plan's
+  badge keeps its English name, as Pro does.
+
 ## [0.13.6] - 2026-09-28
 
 ### Added

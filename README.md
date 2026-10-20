@@ -87,6 +87,16 @@ once. Nothing asks first; once a new version is running, one notification says
 so. "Check for updates" at the bottom of the panel always answers: it says you
 are up to date, or installs the new version right away.
 
+## Interface language
+
+The panel comes up in the language the computer is set to: Traditional Chinese
+for Taiwan, Hong Kong and Macau, Simplified Chinese for the mainland and
+Singapore, English everywhere else. **Settings → Language** overrides that, and
+the choice is kept with the rest of your settings.
+
+Only the interface is translated. Account names, anything you typed yourself,
+folder paths and the diagnostic report are left exactly as they are.
+
 ## Using it
 
 There is no window and no Dock icon. The app is a pair-of-eyes icon in the macOS
