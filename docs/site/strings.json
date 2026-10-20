@@ -41,7 +41,7 @@
   },
   "zh-TW": {
     "title": "Multi-Claude Switcher：Claude Desktop 多帳號快速切換",
-    "description": "一鍵切換多個 Claude 桌面版帳號，免去繁瑣的登入登出。對話紀錄無縫同步，讓你的開發流程不被打斷。免費開源，macOS、Windows 都有。",
+    "description": "Claude 桌面版多帳號秒切換，免重登、對話不中斷，讓開發流程更高效。免費開源，macOS、Windows 都有。",
     "navFeatures": "功能", "navInstall": "安裝", "navDownload": "下載", "langLabel": "語言",
     "eyebrow": "Claude Desktop 專用 · macOS、Windows",
     "h1a": "不同帳號", "h1b": "快速切換",
@@ -81,7 +81,7 @@
   },
   "zh-CN": {
     "title": "Multi-Claude Switcher：Claude Desktop 多账号快速切换",
-    "description": "一键切换多个 Claude 桌面版账号，免去繁琐的登录退出。对话记录无缝同步，让你的开发流程不被打断。免费开源，支持 macOS 和 Windows。",
+    "description": "Claude 桌面版多账号秒切换，免重新登录、对话不中断，让开发流程更高效。免费开源，支持 macOS 和 Windows。",
     "navFeatures": "功能", "navInstall": "安装", "navDownload": "下载", "langLabel": "语言",
     "eyebrow": "Claude Desktop 专用 · macOS、Windows",
     "h1a": "不同账号", "h1b": "快速切换",
