@@ -7,7 +7,7 @@ passwords, and every account keeps its own Code history.
 
 [![Download](https://img.shields.io/github/v/release/miou1107/multi-claude-switcher?label=download&style=flat-square)](https://github.com/miou1107/multi-claude-switcher/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-&nbsp; **English** | [繁體中文](README.zh-TW.md)
+&nbsp; **English** | [繁體中文](README.zh-TW.md) &nbsp;·&nbsp; [Website](https://miou1107.github.io/multi-claude-switcher/)
 
 ---
 

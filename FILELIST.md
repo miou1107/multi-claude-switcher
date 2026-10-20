@@ -26,6 +26,10 @@
 - `cmd/mcs-tray/rsrc_windows_amd64.syso` — Windows resource object (generated from `icon.ico` via `rsrc`) that compiles the app icon into `mcs-tray.exe`; auto-linked for windows/amd64 so the Start Menu / taskbar / Explorer show the icon.
 - `scripts/gen-icons/main.go` — Standalone generator (`go run`) that rasterizes the eyes mark from geometry into all icon assets (app PNG, menu-bar template, Windows .ico, doc PNG); no external tools needed.
 - `scripts/gen-screenshot/main.go` — Standalone generator (`go run`) that renders the account panel with placeholder accounts, so the README screenshot comes from the shipped UI code instead of a photograph that can go stale or leak real account names.
+- `scripts/gen-site/main.go` — Generator (`go run ./scripts/gen-site`) for the project website: renders `docs/site/template.html` once per language from `docs/site/strings.json` into `docs/index.html` (English) and `docs/<lang>/index.html`, with hreflang links, plus `docs/sitemap.xml` and `docs/robots.txt`. `main_test.go` fails when a language lacks a string or the committed pages are stale.
+- `docs/site/template.html`, `docs/site/strings.json` — The website's single page and its words in 14 languages. Edit these, then regenerate.
+- `docs/index.html`, `docs/<lang>/index.html`, `docs/sitemap.xml`, `docs/robots.txt` — Generated website served by GitHub Pages from `docs/` on `main`. Do not edit by hand.
+- `docs/.nojekyll` — Tells GitHub Pages to serve `docs/` as plain files rather than through Jekyll, which would try to read the template's `{{...}}`.
 - `docs/assets/icon.png` — 512px color icon for README and documentation.
 - `docs/assets/panel.png` — README screenshot of the account panel, rendered from the shipped UI with placeholder accounts (regenerate with `scripts/gen-screenshot`).
 - `docs/building.md` — Building from source: which of the four binaries is the shipped app per platform, per-OS build commands, installer packaging, tests, release flow.

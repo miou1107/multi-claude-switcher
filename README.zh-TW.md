@@ -6,7 +6,7 @@
 
 [![下載](https://img.shields.io/github/v/release/miou1107/multi-claude-switcher?label=download&style=flat-square)](https://github.com/miou1107/multi-claude-switcher/releases/latest)
 [![授權 MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-&nbsp; [English](README.md) | **繁體中文**
+&nbsp; [English](README.md) | **繁體中文** &nbsp;·&nbsp; [官網](https://miou1107.github.io/multi-claude-switcher/zh-tw/)
 
 ---
 

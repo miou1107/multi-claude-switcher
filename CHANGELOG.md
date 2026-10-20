@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Added
+- **A website: https://miou1107.github.io/multi-claude-switcher/.** One
+  page with what the app does and download buttons that always point at the
+  latest release, in 14 languages, each at its own address so search engines
+  can show people the page in their language. It is generated from
+  `docs/site/` by `go run ./scripts/gen-site`, and a test fails when a
+  language is missing a sentence or the pages were not regenerated.
+
 ## [0.14.1] - 2026-10-20
 
 ### Fixed

@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Multi-Claude Switcher: chuyển tài khoản Claude Desktop chỉ với một cú nhấp</title>
+<meta name="description" content="Ứng dụng miễn phí, mã nguồn mở cho macOS và Windows. Dùng nhiều tài khoản Claude Desktop trên một máy: chuyển bằng một cú nhấp, luôn đăng nhập và giữ lịch sử Code của từng tài khoản.">
+<link rel="canonical" href="https://miou1107.github.io/multi-claude-switcher/vi/">
+<link rel="alternate" hreflang="en" href="https://miou1107.github.io/multi-claude-switcher/">
+<link rel="alternate" hreflang="zh-TW" href="https://miou1107.github.io/multi-claude-switcher/zh-tw/">
+<link rel="alternate" hreflang="zh-CN" href="https://miou1107.github.io/multi-claude-switcher/zh-cn/">
+<link rel="alternate" hreflang="ja" href="https://miou1107.github.io/multi-claude-switcher/ja/">
+<link rel="alternate" hreflang="ko" href="https://miou1107.github.io/multi-claude-switcher/ko/">
+<link rel="alternate" hreflang="es" href="https://miou1107.github.io/multi-claude-switcher/es/">
+<link rel="alternate" hreflang="fr" href="https://miou1107.github.io/multi-claude-switcher/fr/">
+<link rel="alternate" hreflang="de" href="https://miou1107.github.io/multi-claude-switcher/de/">
+<link rel="alternate" hreflang="pt-BR" href="https://miou1107.github.io/multi-claude-switcher/pt-br/">
+<link rel="alternate" hreflang="it" href="https://miou1107.github.io/multi-claude-switcher/it/">
+<link rel="alternate" hreflang="ru" href="https://miou1107.github.io/multi-claude-switcher/ru/">
+<link rel="alternate" hreflang="vi" href="https://miou1107.github.io/multi-claude-switcher/vi/">
+<link rel="alternate" hreflang="th" href="https://miou1107.github.io/multi-claude-switcher/th/">
+<link rel="alternate" hreflang="id" href="https://miou1107.github.io/multi-claude-switcher/id/">
+<link rel="alternate" hreflang="x-default" href="https://miou1107.github.io/multi-claude-switcher/">
+<link rel="icon" href="../assets/icon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Multi-Claude Switcher">
+<meta property="og:description" content="Ứng dụng miễn phí, mã nguồn mở cho macOS và Windows. Dùng nhiều tài khoản Claude Desktop trên một máy: chuyển bằng một cú nhấp, luôn đăng nhập và giữ lịch sử Code của từng tài khoản.">
+<meta property="og:url" content="https://miou1107.github.io/multi-claude-switcher/vi/">
+<meta property="og:locale" content="vi_VN">
+<meta property="og:image" content="https://miou1107.github.io/multi-claude-switcher/assets/panel.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Multi-Claude Switcher",
+  "operatingSystem": "macOS, Windows",
+  "applicationCategory": "UtilitiesApplication",
+  "inLanguage": "vi",
+  "description": "Ứng dụng miễn phí, mã nguồn mở cho macOS và Windows. Dùng nhiều tài khoản Claude Desktop trên một máy: chuyển bằng một cú nhấp, luôn đăng nhập và giữ lịch sử Code của từng tài khoản.",
+  "url": "https://miou1107.github.io/multi-claude-switcher/vi/",
+  "downloadUrl": "https://github.com/miou1107/multi-claude-switcher/releases/latest",
+  "license": "https://opensource.org/licenses/MIT",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+<style>
+  :root {
+    --bg: #ffffff; --soft: #f5f5f7; --text: #191919; --muted: #6e6e73; --line: #e5e5e5;
+    --accent: #ff6900; --accent-text: #ffffff; --ink: #000000; --ink-text: #ffffff; --ink-muted: #a1a1a6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0b0c; --soft: #161618; --text: #f5f5f7; --muted: #a1a1a6; --line: #2a2a2c;
+      --ink: #161618;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 17px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", "Noto Sans TC", "Noto Sans SC", "Noto Sans JP", "Noto Sans KR", "Noto Sans Thai", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+  .bar { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: saturate(180%) blur(16px); border-bottom: 1px solid var(--line); }
+  .bar .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16px; text-decoration: none; white-space: nowrap; }
+  .brand img { width: 26px; height: 26px; border-radius: 7px; }
+  .bar nav { display: flex; align-items: center; gap: 24px; font-size: 14px; }
+  .bar nav a { text-decoration: none; color: var(--muted); white-space: nowrap; }
+  .bar nav a.cta { color: var(--accent-text); background: var(--accent); padding: 7px 16px; border-radius: 999px; font-weight: 600; }
+  .bar select { font: inherit; font-size: 14px; color: var(--text); background: var(--soft); border: 1px solid var(--line);
+    border-radius: 999px; padding: 6px 10px; max-width: 150px; }
+
+  .hero { text-align: center; padding: 96px 0 0; overflow: hidden; }
+  .eyebrow { color: var(--accent); font-weight: 600; font-size: 18px; letter-spacing: .02em; margin: 0 0 14px; }
+  h1 { font-size: 76px; line-height: 1.08; font-weight: 700; letter-spacing: -0.035em; margin: 0 auto 22px; max-width: 960px; }
+  .lead { font-size: 22px; color: var(--muted); max-width: 680px; margin: 0 auto 36px; }
+  .buttons { display: flex; justify-content: center; flex-wrap: wrap; gap: 14px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-width: 210px; padding: 15px 28px;
+    border-radius: 999px; font-size: 17px; font-weight: 600; text-decoration: none; border: 1.5px solid var(--text); text-align: center; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .meta { margin: 18px 0 0; font-size: 14px; color: var(--muted); }
+  .stage { margin: 64px auto 0; max-width: 980px; background: linear-gradient(180deg, var(--soft), var(--bg));
+    border-radius: 36px 36px 0 0; padding: 64px 24px 0; }
+  .stage img { display: block; width: 100%; max-width: 520px; margin: 0 auto; border-radius: 22px;
+    box-shadow: 0 40px 80px rgba(0,0,0,.18); }
+
+  .specs { background: var(--soft); padding: 72px 0; }
+  .specs .wrap { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; text-align: center; }
+  .spec b { display: block; font-size: 64px; line-height: 1; font-weight: 700; letter-spacing: -0.03em; }
+  .spec b small { font-size: 24px; font-weight: 600; margin-left: 4px; letter-spacing: 0; }
+  .spec span { display: block; margin-top: 12px; color: var(--muted); font-size: 16px; }
+
+  .feature { padding: 120px 0; }
+  .feature .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: center; }
+  .feature.flip .copy { order: 2; }
+  .feature .tag { color: var(--accent); font-weight: 600; margin: 0 0 12px; }
+  h2 { font-size: 52px; line-height: 1.12; font-weight: 700; letter-spacing: -0.03em; margin: 0 0 20px; }
+  .feature p.body { font-size: 20px; color: var(--muted); margin: 0; }
+  .visual { background: var(--soft); border-radius: 28px; aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center; padding: 32px; }
+  .visual .big { font-size: 112px; font-weight: 700; letter-spacing: -0.04em; color: var(--accent); line-height: 1; text-align: center; }
+  .visual .big small { display: block; font-size: 20px; color: var(--muted); font-weight: 500; letter-spacing: 0; margin-top: 16px; line-height: 1.4; }
+
+  .dark { background: var(--ink); color: var(--ink-text); padding: 120px 0; text-align: center; }
+  .dark h2 { margin-bottom: 18px; }
+  .dark p { color: var(--ink-muted); font-size: 20px; max-width: 640px; margin: 0 auto 56px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; text-align: left; }
+  .step { border-top: 2px solid var(--accent); padding-top: 22px; }
+  .step b { display: block; font-size: 14px; color: var(--accent); letter-spacing: .1em; margin-bottom: 10px; }
+  .step h3 { font-size: 24px; margin: 0 0 8px; }
+  .step span { color: var(--ink-muted); }
+
+  .install { padding: 120px 0; text-align: center; }
+  .install .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 48px; text-align: left; }
+  .box { background: var(--soft); border-radius: 28px; padding: 40px; }
+  .box h3 { font-size: 30px; margin: 0 0 10px; letter-spacing: -0.02em; }
+  .box p { color: var(--muted); margin: 0 0 24px; }
+  pre { background: var(--bg); border-radius: 14px; padding: 14px 16px; overflow-x: auto; font-size: 14px; margin: 16px 0 0; }
+
+  .faq { background: var(--soft); padding: 100px 0; }
+  .faq h2 { text-align: center; margin-bottom: 40px; }
+  .faq .list { max-width: 780px; margin: 0 auto; }
+  details { border-bottom: 1px solid var(--line); padding: 22px 0; }
+  summary { font-size: 20px; font-weight: 600; cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--accent); font-weight: 400; font-size: 26px; line-height: 1; }
+  details[open] summary::after { content: "\2212"; }
+  details p { color: var(--muted); margin: 12px 0 0; font-size: 17px; }
+
+  footer { padding: 40px 0 56px; color: var(--muted); font-size: 13px; text-align: center; }
+  footer a { margin: 0 10px; }
+  footer .langs { margin-top: 18px; line-height: 2; }
+  footer .langs a { margin: 0 8px; text-decoration: none; }
+
+  @media (max-width: 860px) {
+    h1 { font-size: 44px; }
+    h2 { font-size: 34px; }
+    .lead { font-size: 18px; }
+    .hero { padding-top: 64px; }
+    .specs .wrap { grid-template-columns: repeat(2, 1fr); row-gap: 40px; }
+    .spec b { font-size: 48px; }
+    .feature { padding: 72px 0; }
+    .feature .wrap, .install .grid, .steps { grid-template-columns: 1fr; gap: 32px; }
+    .feature.flip .copy { order: 0; }
+    .visual .big { font-size: 80px; }
+    .bar nav a.optional { display: none; }
+    .brand span { display: none; }
+    .btn { min-width: 0; width: 100%; max-width: 340px; }
+    .box { padding: 28px; }
+  }
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="../assets/icon.png" alt=""><span>Multi-Claude Switcher</span></a>
+    <nav>
+      <a class="optional" href="#features">Tính năng</a>
+      <a class="optional" href="#install">Cài đặt</a>
+      <a class="optional" href="https://github.com/miou1107/multi-claude-switcher">GitHub</a>
+      <select aria-label="Ngôn ngữ" onchange="location.href=this.value">
+        <option value="../">English</option>
+        <option value="../zh-tw/">繁體中文</option>
+        <option value="../zh-cn/">简体中文</option>
+        <option value="../ja/">日本語</option>
+        <option value="../ko/">한국어</option>
+        <option value="../es/">Español</option>
+        <option value="../fr/">Français</option>
+        <option value="../de/">Deutsch</option>
+        <option value="../pt-br/">Português (Brasil)</option>
+        <option value="../it/">Italiano</option>
+        <option value="../ru/">Русский</option>
+        <option value="../vi/" selected>Tiếng Việt</option>
+        <option value="../th/">ไทย</option>
+        <option value="../id/">Bahasa Indonesia</option>
+        </select>
+      <a class="cta" href="#install">Tải về</a>
+    </nav>
+  </div>
+</div>
+
+<section class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Dành cho Claude Desktop · macOS &amp; Windows</p>
+    <h1>Mọi tài khoản.<br>Chỉ một cú nhấp.</h1>
+    <p class="lead">Dùng nhiều tài khoản Claude trên một máy tính. Không phải đăng xuất, không phải gõ lại mật khẩu, và mỗi tài khoản giữ lịch sử Code riêng.</p>
+    <div class="buttons">
+      <a class="btn primary dl-win" href="https://github.com/miou1107/multi-claude-switcher/releases/latest">Tải cho Windows</a>
+      <a class="btn dl-mac" href="https://github.com/miou1107/multi-claude-switcher/releases/latest">Tải cho macOS</a>
+    </div>
+    <p class="meta"><span class="version" data-prefix="Phiên bản">Phiên bản mới nhất</span> · Miễn phí và mã nguồn mở</p>
+  </div>
+  <div class="stage">
+    <img src="../assets/panel.png" alt="Bảng chuyển đổi liệt kê ba tài khoản Claude: Work gói Team đang dùng, Personal gói Max và Side project gói Pro">
+  </div>
+</section>
+
+<section class="specs">
+  <div class="wrap">
+    <div class="spec"><b>1<small>nhấp</small></b><span>để chuyển tài khoản</span></div>
+    <div class="spec"><b>0<small>mật khẩu</small></b><span>phải gõ lại</span></div>
+    <div class="spec"><b>2<small>hệ điều hành</small></b><span>macOS và Windows</span></div>
+    <div class="spec"><b>$0</b><span>Miễn phí, mã nguồn mở MIT</span></div>
+  </div>
+</section>
+
+<section class="feature" id="features">
+  <div class="wrap">
+    <div class="copy">
+      <p class="tag">Hết hạn mức</p>
+      <h2>Chạm giới hạn?<br>Cứ tiếp tục làm.</h2>
+      <p class="body">Một tài khoản tạm hết hạn mức, tài khoản khác vẫn còn. Chuyển sang bằng một cú nhấp và làm tiếp, không cần chờ đặt lại.</p>
+    </div>
+    <div class="visual"><div class="big">1 nhấp<small>từ tài khoản này sang tài khoản khác</small></div></div>
+  </div>
+</section>
+
+<section class="feature flip">
+  <div class="wrap">
+    <div class="copy">
+      <p class="tag">Công việc và cá nhân</p>
+      <h2>Hai thế giới.<br>Một máy tính.</h2>
+      <p class="body">Tách tài khoản Team của công ty khỏi dự án riêng của bạn. Mọi tài khoản đều luôn đăng nhập, nên chuyển đổi không bao giờ phải đăng nhập lại.</p>
+    </div>
+    <div class="visual"><div class="big">Team<small>cùng Max, Pro, bao nhiêu cũng được</small></div></div>
+  </div>
+</section>
+
+<section class="feature">
+  <div class="wrap">
+    <div class="copy">
+      <p class="tag">Lịch sử vẫn còn</p>
+      <h2>Thanh bên Code của bạn,<br>y như lúc bạn rời đi.</h2>
+      <p class="body">Tự đăng xuất sẽ làm trống thanh bên Code. Ở đây mỗi tài khoản giữ các cuộc trò chuyện của mình, và một lần chuyển thông thường không đụng đến chúng.</p>
+    </div>
+    <div class="visual"><div class="big">100%<small>lịch sử của mỗi tài khoản được giữ nguyên</small></div></div>
+  </div>
+</section>
+
+<section class="dark">
+  <div class="wrap">
+    <h2>Đơn giản hết mức.</h2>
+    <p>Không cần học gì. Nó nằm cạnh đồng hồ và chờ bạn.</p>
+    <div class="steps">
+      <div class="step"><b>BƯỚC 01</b><h3>Nhấp vào biểu tượng</h3><span>Trên thanh menu ở macOS, khay hệ thống ở Windows.</span></div>
+      <div class="step"><b>BƯỚC 02</b><h3>Chọn tài khoản</h3><span>Mọi tài khoản bạn đã thêm đều được liệt kê kèm gói.</span></div>
+      <div class="step"><b>BƯỚC 03</b><h3>Claude mở lại bằng tài khoản đó</h3><span>Đã đăng nhập sẵn. Không cần gõ gì.</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="install" id="install">
+  <div class="wrap">
+    <h2>Tải miễn phí.</h2>
+    <p class="meta">Bản cập nhật tự cài trong nền.</p>
+    <div class="grid">
+      <div class="box">
+        <h3>Windows</h3>
+        <p>Tải tệp cài đặt và chạy. Không cần quyền quản trị.</p>
+        <a class="btn primary dl-win" href="https://github.com/miou1107/multi-claude-switcher/releases/latest">Tải cho Windows</a>
+      </div>
+      <div class="box">
+        <h3>macOS</h3>
+        <p>Tải ứng dụng hoặc cài bằng Homebrew.</p>
+        <a class="btn primary dl-mac" href="https://github.com/miou1107/multi-claude-switcher/releases/latest">Tải cho macOS</a>
+        <pre>brew install --cask miou1107/tap/multi-claude-switcher</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="faq">
+  <div class="wrap">
+    <h2>Câu hỏi</h2>
+    <div class="list">
+      <details><summary>Có miễn phí không?</summary><p>Có. Đây là phần mềm mã nguồn mở theo giấy phép MIT.</p></details>
+      <details><summary>Nó có thấy mật khẩu hay cuộc trò chuyện của tôi không?</summary><p>Không. Nó chỉ đổi thư mục mà Claude Desktop mở trên máy của bạn. Tài khoản và cuộc trò chuyện không rời khỏi máy; ứng dụng chỉ kết nối mạng để kiểm tra bản cập nhật của chính nó trên GitHub.</p></details>
+      <details><summary>Có phải do Anthropic làm không?</summary><p>Không. Đây là dự án độc lập, hoạt động cùng ứng dụng Claude Desktop.</p></details>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    Multi-Claude Switcher
+    <a href="https://github.com/miou1107/multi-claude-switcher">Mã nguồn trên GitHub</a>
+    <a href="https://github.com/miou1107/multi-claude-switcher/blob/main/CHANGELOG.md">Có gì mới</a>
+    <div class="langs"><a href="../" hreflang="en" lang="en">English</a><a href="../zh-tw/" hreflang="zh-TW" lang="zh-TW">繁體中文</a><a href="../zh-cn/" hreflang="zh-CN" lang="zh-CN">简体中文</a><a href="../ja/" hreflang="ja" lang="ja">日本語</a><a href="../ko/" hreflang="ko" lang="ko">한국어</a><a href="../es/" hreflang="es" lang="es">Español</a><a href="../fr/" hreflang="fr" lang="fr">Français</a><a href="../de/" hreflang="de" lang="de">Deutsch</a><a href="../pt-br/" hreflang="pt-BR" lang="pt-BR">Português (Brasil)</a><a href="../it/" hreflang="it" lang="it">Italiano</a><a href="../ru/" hreflang="ru" lang="ru">Русский</a><a href="../vi/" hreflang="vi" lang="vi">Tiếng Việt</a><a href="../th/" hreflang="th" lang="th">ไทย</a><a href="../id/" hreflang="id" lang="id">Bahasa Indonesia</a></div>
+  </div>
+</footer>
+
+<script>
+  
+  
+  fetch("https://api.github.com/repos/miou1107/multi-claude-switcher/releases/latest")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (rel) {
+      if (!rel) return;
+      document.querySelectorAll(".version").forEach(function (el) {
+        el.textContent = el.getAttribute("data-prefix") + " " + rel.tag_name.replace(/^v/, "");
+      });
+      (rel.assets || []).forEach(function (a) {
+        var cls = /windows_setup\.exe$/.test(a.name) ? ".dl-win" : /macos\.zip$/.test(a.name) ? ".dl-mac" : null;
+        if (cls) document.querySelectorAll(cls).forEach(function (el) { el.href = a.browser_download_url; });
+      });
+    })
+    .catch(function () {});
+</script>
+</body>
+</html>
