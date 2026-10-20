@@ -2,7 +2,7 @@
 
 <img src="docs/assets/icon.png" width="88" alt="Multi-Claude Switcher 圖示" align="right" />
 
-在同一台電腦上切換多個 Claude Desktop 帳號。免登出、免重打密碼，每個帳號的 Claude Code 對話紀錄各自保留。
+一鍵切換多個 Claude 桌面版帳號，免去繁瑣的登入登出。對話紀錄無縫同步，讓你的開發流程不被打斷。
 
 [![下載](https://img.shields.io/github/v/release/miou1107/multi-claude-switcher?label=download&style=flat-square)](https://github.com/miou1107/multi-claude-switcher/releases/latest)
 [![授權 MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
