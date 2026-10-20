@@ -28,7 +28,7 @@
 <meta property="og:description" content="Kostenlose Open-Source-App für macOS und Windows. Mehrere Claude-Desktop-Konten auf einem Computer: mit einem Klick wechseln, angemeldet bleiben und den Code-Verlauf jedes Kontos behalten.">
 <meta property="og:url" content="https://miou1107.github.io/multi-claude-switcher/de/">
 <meta property="og:locale" content="de_DE">
-<meta property="og:image" content="https://miou1107.github.io/multi-claude-switcher/assets/panel.png">
+<meta property="og:image" content="https://miou1107.github.io/multi-claude-switcher/assets/demo-share.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">
 {
@@ -85,10 +85,13 @@
     border-radius: 999px; font-size: 17px; font-weight: 600; text-decoration: none; border: 1.5px solid var(--text); text-align: center; }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
   .meta { margin: 18px 0 0; font-size: 14px; color: var(--muted); }
-  .stage { margin: 64px auto 0; max-width: 980px; background: linear-gradient(180deg, var(--soft), var(--bg));
-    border-radius: 36px 36px 0 0; padding: 64px 24px 0; }
-  .stage img { display: block; width: 100%; max-width: 520px; margin: 0 auto; border-radius: 22px;
-    box-shadow: 0 40px 80px rgba(0,0,0,.18); }
+  .stage { margin: 64px auto 0; max-width: 1080px; background: linear-gradient(180deg, var(--soft), var(--bg));
+    border-radius: 36px 36px 0 0; padding: 48px 24px 28px; }
+  .stage video { display: block; width: 100%; max-width: 980px; height: auto; margin: 0 auto; border-radius: 16px;
+    box-shadow: 0 40px 80px rgba(0,0,0,.2); background: var(--soft); }
+  .stage video { cursor: pointer; }
+  .stage video:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+  .stage .demo-cap { margin: 18px 0 0; font-size: 14px; color: var(--muted); text-align: center; }
 
   .specs { background: var(--soft); padding: 72px 0; }
   .specs .wrap { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; text-align: center; }
@@ -142,6 +145,8 @@
     h2 { font-size: 34px; }
     .lead { font-size: 18px; }
     .hero { padding-top: 64px; }
+    .stage { padding: 28px 12px 20px; border-radius: 24px 24px 0 0; }
+    .stage video { border-radius: 10px; }
     .specs .wrap { grid-template-columns: repeat(2, 1fr); row-gap: 40px; }
     .spec b { font-size: 48px; }
     .feature { padding: 72px 0; }
@@ -196,7 +201,11 @@
     <p class="meta"><span class="version" data-prefix="Version">Neueste Version</span> · Kostenlos und Open Source</p>
   </div>
   <div class="stage">
-    <img src="../assets/panel.png" alt="Das Umschalter-Panel mit drei Claude-Konten: Work im Team-Plan in Verwendung, Personal mit Max und Side project mit Pro">
+    <video class="demo" tabindex="0" autoplay muted loop playsinline preload="metadata" poster="../assets/demo-poster.jpg" aria-label="Mac-Bildschirm: Claude Desktop im hellen Design erreicht sein Nutzungslimit, der Umschalter in der Menüleiste wird angeklickt, Personal wird gewählt, und Claude öffnet sich im dunklen Design mit derselben Sitzung zum Weiterarbeiten.">
+      <source src="../assets/demo.mp4" type="video/mp4">
+      <img src="../assets/panel.png" alt="Das Umschalter-Panel mit drei Claude-Konten: Work im Team-Plan in Verwendung, Personal mit Max und Side project mit Pro">
+    </video>
+    <p class="demo-cap">Ansicht unter macOS. Unter Windows sitzt der Umschalter im Infobereich.</p>
   </div>
 </section>
 
@@ -295,6 +304,19 @@
 </footer>
 
 <script>
+  
+  (function () {
+    var v = document.querySelector(".demo");
+    
+    function toggle() { if (v.paused) { v.play(); } else { v.pause(); } }
+    if (v) {
+      v.addEventListener("click", toggle);
+      v.addEventListener("keydown", function (e) { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggle(); } });
+    }
+    if (v && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      v.removeAttribute("autoplay"); v.pause(); v.controls = true;
+    }
+  })();
   
   
   fetch("https://api.github.com/repos/miou1107/multi-claude-switcher/releases/latest")

@@ -10,6 +10,13 @@
 
 ---
 
+<p align="center">
+  <img src="docs/assets/demo.gif" width="760" alt="Mac 桌面的操作畫面：亮色主題的 Claude 桌面版用量用完，點選單列的切換器、選 Personal，Claude 以暗色主題重新開啟，原本的對話可以接著做。" /><br />
+  <sub>這是 macOS 的畫面，Windows 的切換器在系統匣。</sub>
+</p>
+
+---
+
 ## 為什麼你需要這個工具？
 
 通常 Claude Desktop 一次只支援使用一個帳號，所以在這兩種情況下你會特別痛：

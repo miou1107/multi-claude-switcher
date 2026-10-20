@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+- **The website and the README now show the switch on a real-looking desktop.**
+  A 34-second recording plays at the top of the page: Claude Desktop in the
+  light theme runs out of usage, the switcher in the menu bar is clicked,
+  another account is picked, and Claude reopens in the dark theme with the
+  same session. It is a mock-up drawn from stock macOS pieces with made-up
+  accounts and conversations, so it shows nothing from a real machine. The
+  README uses a GIF of it, and the explanatory text under it is translated
+  into all 14 languages. Clicking the video pauses and resumes it, and it
+  stays paused for visitors whose system asks for less motion.
+
 ### Added
 - **A website: https://miou1107.github.io/multi-claude-switcher/.** One
   page with what the app does and download buttons that always point at the

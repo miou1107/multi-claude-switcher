@@ -11,6 +11,13 @@ passwords, and every account keeps its own Code history.
 
 ---
 
+<p align="center">
+  <img src="docs/assets/demo.gif" width="760" alt="Screen recording of a Mac: Claude Desktop in the light theme hits its usage limit, the switcher in the menu bar is clicked, Personal is chosen, and Claude reopens in the dark theme with the same session ready to continue." /><br />
+  <sub>Shown on macOS. On Windows the switcher sits in the system tray.</sub>
+</p>
+
+---
+
 ## Why you'd want this
 
 Claude Desktop remembers one account at a time. Two situations make that hurt:
