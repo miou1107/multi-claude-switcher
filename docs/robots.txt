@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /site/
+
+Sitemap: https://miou1107.github.io/multi-claude-switcher/sitemap.xml
