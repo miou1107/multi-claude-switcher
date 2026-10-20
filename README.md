@@ -2,8 +2,9 @@
 
 <img src="docs/assets/icon.png" width="88" alt="Multi-Claude Switcher icon" align="right" />
 
-Run several Claude Desktop accounts on one machine. No signing out, no retyping
-passwords, and every account keeps its own Code history.
+Switch between several Claude Desktop accounts in one click. No signing out, no
+retyping passwords, and your Code sessions can sync across accounts, so nothing
+interrupts your work.
 
 [![Download](https://img.shields.io/github/v/release/miou1107/multi-claude-switcher?label=download&style=flat-square)](https://github.com/miou1107/multi-claude-switcher/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
@@ -39,6 +40,9 @@ left. Enough friction that most people stop bothering.
    retype a password.
 3. **Histories stay separate.** Each account's Code conversations are left
    exactly as they were. A plain switch never touches session data at all.
+4. **Sessions can follow you.** Turn on auto-sync and every switch merges the
+   Code conversation list both ways, so the same sessions are waiting whichever
+   account you open. Or sync once by hand from Settings.
 
 <img src="docs/assets/panel.png" width="400" alt="The panel listing three accounts: Work on a Team plan marked as the current account, Personal on Max 20×, and Side project on Pro, above Rescan and Settings buttons" />
 
