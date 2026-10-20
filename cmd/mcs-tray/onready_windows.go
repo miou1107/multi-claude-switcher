@@ -126,6 +126,10 @@ func onReadyWindowsPanel() {
 
 	// Store build: resume any pending first-login session migration.
 	startMigrationWatcher()
+
+	// Standalone build: offer the user's account back after Claude updates itself
+	// and reopens on the default one.
+	startUpdateRelaunchWatcher()
 }
 
 // restoreProtocolHandler puts the claude:// handler back to the form Claude

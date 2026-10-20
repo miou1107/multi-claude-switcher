@@ -81,6 +81,8 @@
 - `cmd/mcs-tray/instance_windows_test.go` — Unit tests for the Windows tasklist tray-detection parser.
 - `cmd/mcs-tray/relaunch_unix.go` — Self-update relaunch detach on Unix (own process group via Setpgid).
 - `cmd/mcs-tray/relaunch_windows.go` — Self-update relaunch detach on Windows (CREATE_NEW_PROCESS_GROUP).
+- `cmd/mcs-tray/updaterelaunch.go` — Decides when Claude Desktop's own updater has reopened it on the default profile (version changed, only the default profile open now, and the account MCS last switched to was open before). No build tag, so it is tested on every CI runner. `updaterelaunch_test.go` covers it.
+- `cmd/mcs-tray/updaterelaunch_windows.go` — Standalone-build watcher started by the tray: looks at what Claude runs on every 20s, and when `updaterelaunch.go` says the updater moved the user, asks and switches them back with `SafeSwitch`.
 - `cmd/mcs-tray/hidewindow_windows.go` — Windows helper: launch a spawned console helper (powershell/tasklist) with CREATE_NO_WINDOW so no console window flashes.
 - `cmd/mcs-tray/profiles_windows.go` — Windows-only tray flow: "New account profile…" (Store build) — save the current account and open a fresh Claude to sign into another, then relaunch the tray. Also holds `newProfileSupported`, which now reports true on both Windows builds: the panel's "Add another account" runs through `ProfileCreator`, whose `CreateProfile` has had a working standalone branch for some time.
 - `cmd/mcs-tray/profiles_other.go` — Non-Windows no-ops for the new-profile flow (macOS standalone profiles are ordinary sibling data dirs).

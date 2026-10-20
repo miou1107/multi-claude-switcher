@@ -229,6 +229,12 @@ through a link, and Windows opens that link with your default account unless
 the switcher points it elsewhere. Older versions only did that for an account
 that had never signed in, so an account asked to sign in again was missed.
 
+**(Windows) Claude updated itself and I was on the other account afterwards.**
+Claude Desktop's updater reopens it without saying which account, so it opens
+your default one. The switcher notices this and asks whether to switch you back
+to the account you were on. Choosing your default account in the switcher
+yourself is never undone.
+
 **(Windows) The panel will not open.**
 Usually WebView2 is missing. Right-click the eyes icon in the tray, choose
 **Quit**, install WebView2, and start the app again.
