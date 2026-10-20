@@ -11,8 +11,8 @@
 ---
 
 <p align="center">
-  <img src="docs/assets/demo.gif" width="760" alt="Mac 桌面的操作畫面：亮色主題的 Claude 桌面版用量用完，點選單列的切換器、選 Personal，Claude 以暗色主題重新開啟，原本的對話可以接著做。" /><br />
-  <sub>這是 macOS 的畫面，Windows 的切換器在系統匣。</sub>
+  <img src="docs/assets/demo.gif" width="760" alt="Mac 桌面的操作畫面：亮色主題的 Claude Desktop 使用額度用完，接著在選單列點一下切換器、選擇 Personal，Claude 便以暗色主題重新開啟，原本的對話可以繼續。" /><br />
+  <sub>影片中是 macOS 的畫面。Windows 上，切換器在右下角的系統匣。</sub>
 </p>
 
 ---

@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Changed
+- **The Chinese pages were reworded to read like Taiwanese and mainland
+  Chinese instead of translated copy.** Slogans such as "一鍵就到" became
+  "一鍵切換", sentences that lost their subject or object ("這個用完了",
+  "不會動到它們") were completed, and spoken fillers were removed. The
+  Traditional Chinese README's recording caption now matches the page.
 - **The website and the README now show the switch on a real-looking desktop.**
   A 34-second recording plays at the top of the page: Claude Desktop in the
   light theme runs out of usage, the switcher in the menu bar is clicked,
