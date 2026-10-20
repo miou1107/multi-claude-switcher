@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.14.1] - 2026-10-20
 
 ### Fixed
 - **(Windows) After Claude updates itself, you are offered your account

@@ -10,7 +10,7 @@ package core
 //
 // The GitHub release workflow injects the git tag here; local builds use the
 // default below.
-var Version = "0.14.0"
+var Version = "0.14.1"
 
 // ChangelogURL is where the panel's version number links to: the list of what
 // changed in each release.
