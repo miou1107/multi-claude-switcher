@@ -31,6 +31,8 @@
 - `docs/index.html`, `docs/<lang>/index.html`, `docs/sitemap.xml`, `docs/robots.txt` — Generated website served by GitHub Pages from `docs/` on `main`. Do not edit by hand.
 - `docs/.nojekyll` — Tells GitHub Pages to serve `docs/` as plain files rather than through Jekyll, which would try to read the template's `{{...}}`.
 - `docs/assets/icon.png` — 512px color icon for README and documentation.
+- `docs/assets/demo.mp4`, `docs/assets/demo-poster.jpg`, `docs/assets/demo-share.jpg` — The 34-second switch recording at the top of the website, its poster frame, and a 1.91:1 crop of that frame used as the link-preview image. A mock-up built from stock macOS pieces with made-up accounts, so it carries nothing from a real machine.
+- `docs/assets/demo.gif` — The same recording as a GIF, for the two READMEs (GitHub does not play repository videos inline).
 - `docs/assets/panel.png` — README screenshot of the account panel, rendered from the shipped UI with placeholder accounts (regenerate with `scripts/gen-screenshot`).
 - `docs/building.md` — Building from source: which of the four binaries is the shipped app per platform, per-OS build commands, installer packaging, tests, release flow.
 - `docs/cli.md` — CLI reference for `mcs` (status/backup/sync/switch/restore), prefaced with the fact that the CLI is not shipped in releases.
