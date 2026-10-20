@@ -77,8 +77,12 @@ func TestCommittedPagesAreUpToDate(t *testing.T) {
 			t.Errorf("docs/%s: %v (run: go run ./scripts/gen-site)", n, err)
 			continue
 		}
-		if !bytes.Equal(bytes.ReplaceAll(on, []byte("\r\n"), []byte("\n")), files[n]) {
+		// Both sides lose their CRs: a Windows checkout turns LF into CRLF in the
+		// committed pages AND in the template they are rendered from.
+		if !bytes.Equal(lf(on), lf(files[n])) {
 			t.Errorf("docs/%s is out of date (run: go run ./scripts/gen-site)", n)
 		}
 	}
 }
+
+func lf(b []byte) []byte { return bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n")) }
