@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Changed
+- **Four passages of the Traditional Chinese README were rewritten from the
+  reader's side.** The switching progress, the Team-account section, and the
+  two FAQ answers about older versions (the Windows sign-in landing on another
+  account, and the `tidied-` backup folder) now say what the user sees and
+  what to do, instead of explaining how an earlier version went wrong. The
+  Team section no longer retells the old mistake; the measurements stay in
+  `docs/team-accounts.md`.
 - **The Chinese pages were reworded to read like Taiwanese and mainland
   Chinese instead of translated copy.** Slogans such as "一鍵就到" became
   "一鍵切換", sentences that lost their subject or object ("這個用完了",
