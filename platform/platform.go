@@ -186,3 +186,8 @@ func GetProfileAccountUUID(profilePath string) (string, error) {
 	}
 	return cfg.LastKnownAccountUUID, nil
 }
+
+// electronChildFlag is how Chromium marks every process under the app's own:
+// renderer, gpu-process, utility, crashpad-handler. The main process is the one
+// started without it.
+const electronChildFlag = "--type="

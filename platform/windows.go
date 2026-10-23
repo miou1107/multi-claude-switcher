@@ -300,11 +300,6 @@ func (w *WindowsPlatform) defaultProfilePath() string {
 	return filepath.Join(root, msixSlotName)
 }
 
-// electronChildFlag is how Chromium marks every process under the app's own:
-// renderer, gpu-process, utility, crashpad-handler. The main process is the one
-// started without it.
-const electronChildFlag = "--type="
-
 // runningProfilesInProcsWindows returns every known profile named by a
 // --user-data-dir in the given command lines, in the order the processes appear
 // and without repeats. Pure so the matching is tested rather than assumed.

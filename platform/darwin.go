@@ -184,6 +184,21 @@ const userDataDirFlag = "--user-data-dir="
 // Helper" and never contains this substring.
 const mainProcessMarker = "Claude.app/Contents/MacOS/Claude"
 
+// ClaudeMainProcessInProcs reports whether Claude Desktop's own process is among
+// procs (lines from IsAppRunning). It exists for the moment right after Claude
+// quits: the helpers and the crashpad handler outlive the app briefly and carry
+// the profile flag too, so DetectRunningProfiles still names a profile while
+// the app is already gone. A host deciding "has Claude quit?" at that moment
+// needs the app's own process, not its leftovers.
+func ClaudeMainProcessInProcs(procs []string) bool {
+	for _, line := range procs {
+		if strings.Contains(line, mainProcessMarker) && !strings.Contains(line, electronChildFlag) {
+			return true
+		}
+	}
+	return false
+}
+
 // runningProfilesInProcs returns every known profile Claude Desktop is running
 // on, in the order the processes appear, without repeats.
 //

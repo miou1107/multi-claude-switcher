@@ -6,4 +6,5 @@ void ClosePopover(void);
 void SetPopoverSticky(int sticky);
 void SetPopoverHeight(double height);
 void TerminateApp(void);
+void WatchClaudeDesktop(void);
 #endif
