@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.14.2] - 2026-10-24
 
 ### Added
 - **(macOS) After Claude updates itself, you are put back on your account.**
