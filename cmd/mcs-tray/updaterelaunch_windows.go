@@ -42,12 +42,19 @@ func startUpdateRelaunchWatcher() {
 				continue
 			}
 			identity, recordedPath := recordedProfile()
-			if target := updateRelaunchTarget(prev, cur, defaultPath, recordedPath); target != "" {
+			target, reason := updateRelaunchTarget(prev, cur, defaultPath, recordedPath)
+			if target != "" {
 				log.Printf("[Update relaunch] Claude %s -> %s reopened on %s; the user was on %s", prev.version, cur.version, defaultPath, target)
 				restoreAfterUpdate(defaultPath, target, identity)
 				// Look again from scratch next tick, so a refusal is not asked twice.
 				prev = claudeSnapshot{}
 				continue
+			}
+			if reason != "" {
+				// Something happened to Claude and the watcher chose to leave it.
+				// Said once per change, so a user left on the default account can
+				// read why.
+				log.Printf("[Update relaunch] %s", reason)
 			}
 			prev = cur
 		}

@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Changed
+- **(Windows) When Claude comes back on the default account and the switcher
+  decides not to offer yours back, the log now says why.** The watcher added in
+  0.14.1 declined in silence: a user left on the default account after an
+  update had no line to read, and neither did anyone trying to help them, which
+  is the position the macOS guard was in the first night it missed a relaunch.
+  Each step where Claude's version or open accounts change now writes one line:
+  the update kept your account, the version could not be read from Claude's
+  command line, the version did not change so it looks like you opened the
+  default account yourself, there is no record of your account, you chose the
+  default account in the switcher, or your account was not open before the
+  update. Ticks where nothing changed stay silent, so the log does not grow
+  every 20 seconds.
+
 ## [0.14.2] - 2026-10-24
 
 ### Added
