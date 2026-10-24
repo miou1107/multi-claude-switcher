@@ -146,3 +146,22 @@ func TestPrepareRemoveResolvesUnderAppSupport(t *testing.T) {
 		t.Fatalf("PrepareRemove = %q, want %q", got, want)
 	}
 }
+
+// TestClaudeMainProcessInProcs: after Claude Desktop quits, its helpers (and
+// the crashpad handler) can outlive the app for a moment, and they carry the
+// profile flag too. Only the app's own process says Claude is still running.
+func TestClaudeMainProcessInProcs(t *testing.T) {
+	main := "501 123 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/Users/x/Library/Application Support/Claude_Profile2"
+	helper := "501 124 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer --user-data-dir=/Users/x/Library/Application Support/Claude_Profile2"
+	crashpad := "501 125 /Applications/Claude.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler --database=/Users/x/Library/Application Support/Claude_Profile2/Crashpad"
+
+	if !ClaudeMainProcessInProcs([]string{helper, main, crashpad}) {
+		t.Error("the app's own process is among the lines; Claude is running")
+	}
+	if ClaudeMainProcessInProcs([]string{helper, crashpad}) {
+		t.Error("only helpers are left; Claude has quit")
+	}
+	if ClaudeMainProcessInProcs(nil) {
+		t.Error("no processes, not running")
+	}
+}

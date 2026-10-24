@@ -19,9 +19,12 @@ type mockPlatform struct {
 	// closes every profile at once, so "what got reopened" is a set, not one path.
 	launchedPaths []string
 	terminated    bool
-	detected      string   // DetectRunningProfile result
-	detectedAll   []string // DetectRunningProfiles result; nil falls back to detected
-	appSupport    string   // AppSupportDir result
+	// terminateErr makes TerminateApp fail, for the paths that must not launch
+	// anything while Claude is still up.
+	terminateErr error
+	detected     string   // DetectRunningProfile result
+	detectedAll  []string // DetectRunningProfiles result; nil falls back to detected
+	appSupport   string   // AppSupportDir result
 	// launchErr makes LaunchProfile fail for particular profiles, which is how the
 	// difference between "the target never opened" and "an account that was open
 	// did not come back" gets tested.
@@ -82,6 +85,9 @@ func (m *mockPlatform) AppSupportDir() string                          { return 
 func (m *mockPlatform) FindProfiles() ([]*platform.ProfileInfo, error) { return nil, nil }
 func (m *mockPlatform) IsAppRunning() (bool, []string, error)          { return m.running, nil, nil }
 func (m *mockPlatform) TerminateApp() error {
+	if m.terminateErr != nil {
+		return m.terminateErr
+	}
 	m.terminated = true
 	m.running = false
 	if m.onTerminate != nil {

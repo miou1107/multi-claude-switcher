@@ -139,3 +139,12 @@ func CurrentProfilePath(running []string, lastActivatedPath string) string {
 	}
 	return running[0]
 }
+
+// ActiveProfilePath resolves the recorded active account to its directory, or
+// "" when there is no record or it names a profile that is no longer there. It
+// is lastActivatedPath made available to the hosts, which need it to tell a
+// Claude Desktop that relaunched itself onto the wrong account from one the
+// user opened on purpose (see RelaunchGuard).
+func ActiveProfilePath(profiles []*platform.ProfileInfo) string {
+	return lastActivatedPath(profiles)
+}

@@ -934,6 +934,7 @@ func main() {
 	switcher = core.NewSwitcher(plat, core.NewBackupManager(""))
 	core.StartTidyMisfiled(plat) // one-off cleanup of what the pre-0.11.2 sync misfiled
 	startUpdateChecker()         // periodic background self-update
+	startRelaunchGuard()         // put the user back when Claude relaunches itself on the wrong account
 	C.RunMenuBar()
 }
 

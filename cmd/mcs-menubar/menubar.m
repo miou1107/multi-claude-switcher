@@ -121,3 +121,28 @@ void SetPopoverHeight(double height) {
 void TerminateApp(void) {
   dispatch_async(dispatch_get_main_queue(), ^{ [NSApp terminate:nil]; });
 }
+
+// Implemented in Go (relaunchguard.go).
+extern void goClaudeAppChanged(int launched);
+
+static NSString *const kClaudeBundleID = @"com.anthropic.claudefordesktop";
+
+// WatchClaudeDesktop tells Go every time a Claude Desktop instance starts or
+// quits, by bundle identifier, so the relaunch guard can notice Claude
+// relaunching itself onto the wrong account. Registered on the main queue so
+// it takes effect once the run loop in RunMenuBar is going; NSWorkspace
+// delivers these for every launch however it was started — the Dock,
+// `open -n`, or Claude's own updater restarting it.
+void WatchClaudeDesktop(void) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSNotificationCenter *nc = [[NSWorkspace sharedWorkspace] notificationCenter];
+    for (NSString *name in @[NSWorkspaceDidLaunchApplicationNotification,
+                             NSWorkspaceDidTerminateApplicationNotification]) {
+      [nc addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *n) {
+        NSRunningApplication *app = n.userInfo[NSWorkspaceApplicationKey];
+        if (![app.bundleIdentifier isEqualToString:kClaudeBundleID]) return;
+        goClaudeAppChanged([n.name isEqualToString:NSWorkspaceDidLaunchApplicationNotification] ? 1 : 0);
+      }];
+    }
+  });
+}

@@ -240,6 +240,19 @@ through a link, and Windows opens that link with your default account unless
 the switcher points it elsewhere. Older versions only did that for an account
 that had never signed in, so an account asked to sign in again was missed.
 
+**(macOS) Claude updated itself and I was on the other account afterwards.**
+Update to the latest version. Claude Desktop installs updates in the
+background: once you have been idle for a while it quits and relaunches
+itself, and the relaunch names no account, so it opens your default one.
+Before that restart Claude leaves a note for itself in the account it is
+on; the switcher sees the note still sitting in your account while Claude
+is back on another one, closes that one, reopens the account you were on,
+and shows a notification. Quitting Claude and opening it from the Dock
+yourself leaves no note, so that, and choosing your default account in the
+switcher, are never undone. If a future Claude Desktop restarts itself some
+other way, the switcher stops stepping in rather than guessing, and its log
+says so.
+
 **(Windows) Claude updated itself and I was on the other account afterwards.**
 Claude Desktop's updater reopens it without saying which account, so it opens
 your default one. The switcher notices this and asks whether to switch you back

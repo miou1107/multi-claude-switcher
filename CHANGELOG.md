@@ -1,6 +1,24 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.14.2] - 2026-10-24
+
+### Added
+- **(macOS) After Claude updates itself, you are put back on your account.**
+  Claude Desktop installs its updates in the background: it waits until you
+  have been idle for a while, quits, and relaunches itself, and that relaunch
+  names no account, so it opened the default one every time. Anyone who had
+  switched away from it found themselves back on it after each update, with
+  nothing in the switcher's own log to say why. The switcher now watches
+  Claude start and quit. When Claude vanishes and comes back on an account
+  other than the one you were switched to, and the account you were on holds
+  the note Claude leaves for itself before an update restart, the switcher
+  closes the instance that came back and reopens the account you were on,
+  together with any other account you had open, and a notification says so.
+  Quitting Claude yourself and opening it from the Dock leaves no such note,
+  so that, and choosing the default account in the switcher, are never undone.
+  Windows asks before switching back; macOS does not, because Claude
+  relaunches itself while you are away from the keyboard and there is nobody
+  at it to ask.
 
 ### Changed
 - **Four passages of the Traditional Chinese README were rewritten from the
