@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.14.3] - 2026-10-24
 
 ### Changed
 - **(Windows) When Claude comes back on the default account and the switcher
