@@ -38,9 +38,18 @@ var (
 )
 
 // startRelaunchGuard begins watching Claude Desktop start and quit.
+//
+// It also takes one look at what Claude is running on right now. The guard
+// learns what was open from launch events, and when this app starts after
+// Claude is already open there has been no such event; without this first
+// look the guard would have no history to judge the next quit against.
 func startRelaunchGuard() {
 	C.WatchClaudeDesktop()
 	log.Printf("[Relaunch Guard] Watching for Claude Desktop relaunching itself on the wrong account.")
+	go func() {
+		time.Sleep(2 * time.Second)
+		observeClaude()
+	}()
 }
 
 // goClaudeAppChanged is called from Objective-C on every Claude Desktop launch
@@ -62,7 +71,10 @@ func goClaudeAppChanged(launched C.int) {
 	}
 	go func() {
 		if launched == 0 {
+			log.Printf("[Relaunch Guard] A Claude Desktop instance quit.")
 			noteClaudeQuit()
+		} else {
+			log.Printf("[Relaunch Guard] A Claude Desktop instance launched.")
 		}
 		for _, d := range delays {
 			time.Sleep(d)
@@ -109,6 +121,7 @@ func observeClaude() {
 	marker := recorded != "" && core.SelfRelaunchMarkerFresh(recorded, time.Now())
 	r := relaunchGuard.Observe(running, recorded, mcsHasClaudeClosed(), marker)
 	if r == nil {
+		log.Printf("[Relaunch Guard] Claude Desktop is on %v; recorded account %s; nothing to do.", running, recorded)
 		return
 	}
 	log.Printf("[Relaunch Guard] Claude Desktop was gone for %s and came back on %v, not on %s; its relaunch marker is there", r.Gap.Round(time.Second), running, recorded)

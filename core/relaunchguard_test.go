@@ -263,3 +263,34 @@ func TestSelfRelaunchMarkerFresh(t *testing.T) {
 		t.Error("no marker, no self-relaunch")
 	}
 }
+
+// TestRelaunchGuardTrustsTheMarkerWhenItNeverSawClaudeRunning covers the
+// first real update after this feature shipped (2026-10-24 01:34): the
+// switcher had been started while Claude was already open, so it had never
+// observed what Claude was running on. The quit and the relaunch onto the
+// default profile were seen, the marker was in FTData, and the guard still
+// did nothing, because "FTData was open before" could not be answered from a
+// history it did not have. The marker answers it: Claude wrote it into FTData
+// seconds before quitting, so FTData was open.
+func TestRelaunchGuardTrustsTheMarkerWhenItNeverSawClaudeRunning(t *testing.T) {
+	g, clock := newGuardUnderTest()
+	g.MarkGone(false)
+	clock.advance(10 * time.Second)
+	r := g.Observe([]string{guardDefault}, guardFTData, false, withMarker)
+	if r == nil {
+		t.Fatal("marker in the recorded profile proves it was open; expected a restore even with no history")
+	}
+	if len(r.Reopen) != 1 || r.Reopen[0] != guardFTData {
+		t.Fatalf("with no history only the recorded account can be reopened, got %v", r.Reopen)
+	}
+}
+
+// Without the marker, no history means no evidence, and the user is left alone.
+func TestRelaunchGuardWithoutHistoryOrMarkerDoesNothing(t *testing.T) {
+	g, clock := newGuardUnderTest()
+	g.MarkGone(false)
+	clock.advance(10 * time.Second)
+	if r := g.Observe([]string{guardDefault}, guardFTData, false, withoutMarker); r != nil {
+		t.Fatalf("no history and no marker; expected nothing, got %+v", r)
+	}
+}

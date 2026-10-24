@@ -136,9 +136,24 @@ func (g *RelaunchGuard) Observe(running []string, recorded string, mcsOwes, self
 	}
 	gap := g.now().Sub(goneAt)
 	if gap > selfRelaunchWindow {
+		log.Printf("[Relaunch Guard] Claude Desktop came back %s after quitting; too long ago to be its own relaunch, leaving it alone.", gap.Round(time.Second))
 		return nil
 	}
-	if !containsPath(before, recorded) || containsPath(running, recorded) {
+	if containsPath(running, recorded) {
+		return nil
+	}
+	// No history: the guard was started while Claude was already open and has
+	// never seen it running, so it cannot say from memory what was open. The
+	// marker can: Claude wrote it into the recorded profile seconds before
+	// quitting, which is proof that profile was running. This is exactly how
+	// the first real update after this shipped was missed (2026-10-24 01:34),
+	// so it is not a corner case. Only the recorded account comes back then;
+	// bystanders the guard never saw cannot be reopened.
+	if len(before) == 0 && selfRelaunched {
+		before = []string{recorded}
+	}
+	if !containsPath(before, recorded) {
+		log.Printf("[Relaunch Guard] Claude Desktop came back on %v, but %s was not open before it quit; leaving it alone.", running, recorded)
 		return nil
 	}
 	if !selfRelaunched {
