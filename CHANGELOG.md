@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.14.4] - 2026-10-28
 
 ### Added
 - **(Windows, Store) Signing in to an account other than the default one works,
