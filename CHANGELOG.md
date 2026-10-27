@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [0.14.5] - 2026-10-28
+
+### Changed
+- **The Chinese wording of the sign-in notice and its guide reads as written
+  in Chinese, not translated from English.** The notice now says what happens
+  on this machine and what to do, in two short sentences each, and the line
+  shown after picking another app in Windows' window says to press the button
+  again. Simplified Chinese follows the same wording.
+- **The READMEs say what to do instead of how it works inside.** Install opens
+  with one line about Claude Desktop, and setting up sign-in for Claude from
+  the Microsoft Store is four numbered steps under Windows, with the button
+  names as the panel shows them. The two sign-in questions in the FAQ are one
+  now. The Chinese README is rewritten in Chinese rather than translated, and
+  names every button as the Chinese panel shows it. The backup folder is
+  reached through Settings → More, as the panel has it.
+
 ## [0.14.4] - 2026-10-28
 
 ### Added
