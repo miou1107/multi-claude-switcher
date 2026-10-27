@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added
+- **(Windows, Store) Signing in to an account other than the default one works,
+  once you choose the switcher for sign-in links.** Signing in comes back to
+  Claude through a `claude://` link. With Claude from the Microsoft Store
+  installed, Windows hands every such link to the Store app, which opens it on
+  its default account: a Google sign-in never finished, and an email link or
+  single sign-on signed the default account in as the other one
+  ([#60](https://github.com/miou1107/multi-claude-switcher/issues/60)). Which
+  app opens a link is your choice in Windows, so the panel now asks you to make
+  it once. A notice above your accounts explains it, and its button shows what
+  Windows' "How do you want to open this?" window looks like and where to
+  click, then makes Windows show it. Pick Multi-Claude Switcher, marked
+  recommended there. From then on the switcher passes each link to the account
+  you are on. The notice has no "Not now", because sign-in is broken until this
+  is done, and it stays until the switcher is chosen. If you pick another app,
+  it says so, and the button asks Windows again. Uninstalling the switcher
+  removes it from Windows' list of apps.
+- **The foot of the account list names the Claude Desktop the switcher drives**
+  ([#61](https://github.com/miou1107/multi-claude-switcher/issues/61)): its
+  version, and whether it is from the Microsoft Store, from claude.com, or the
+  Mac app, next to the switcher's own version. These are the first two things a
+  bug report needs.
+
 ### Fixed
 - **(Windows) Claude from the Microsoft Store switches accounts.** The Store
   now installs Claude Desktop as the package `AnthropicPBC.Claude`. The

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/platform"
 )
 
 // Four of core's own error messages, exactly as the screens below print them.
@@ -76,6 +77,16 @@ func renderedViews(t *testing.T) map[string]string {
 	// The empty list has its own copy ("No managed accounts yet…") that a
 	// non-empty list can never reach in the same call.
 	listEmpty := RenderList(nil, false, "")
+	// The claude:// notice (issue #60) in its two shapes, and the foot naming
+	// each edition of Claude. The status is the one the Windows host sets once
+	// the user picked the switcher.
+	ready := []ProfileVM{{Folder: "Claude", Name: "Work", Current: true, SignedIn: true}}
+	listLinks := RenderListPage(ListVM{Profiles: ready, Links: platform.ClaudeLinksNeedSwitcher,
+		Claude: ClaudeAppVM{Version: "3.6556.2", Edition: platform.EditionStore}})
+	listLinksOtherApp := RenderListPage(ListVM{Profiles: ready, Links: platform.ClaudeLinksOtherAppPicked,
+		Claude: ClaudeAppVM{Version: "3.6556.2", Edition: platform.EditionClaudeCom}})
+	listLinksChosen := RenderListPage(ListVM{Profiles: ready, Status: LinksChosenStatus,
+		Links: platform.ClaudeLinksViaSwitcher, Claude: ClaudeAppVM{Version: "1.5354.0", Edition: platform.EditionMac}})
 
 	// The error line is the one createProfile really returns when the name box
 	// comes back empty, for the same reason the notes above are core's own.
@@ -174,6 +185,11 @@ func renderedViews(t *testing.T) map[string]string {
 		"more_busy":             RenderMore(MoreVM{Busy: true}),
 		"list":                  list,
 		"list_empty":            listEmpty,
+		"listpage_links":        listLinks,
+		"listpage_other_app":    listLinksOtherApp,
+		"listpage_chosen":       listLinksChosen,
+		"linkguide":             RenderLinkGuide(""),
+		"linkguide_no_window":   RenderLinkGuide(LinkGuideNoWindow),
 		"rescan":                rescan,
 		"newprofile":            newProfile,
 		"newprofile_recover":    newProfileRecover,

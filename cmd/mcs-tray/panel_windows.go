@@ -430,6 +430,13 @@ func dispatchAction(action, arg string) {
 	case "showRescan":
 		panelState.SetView("rescan")
 		go reloadPanel()
+	case "showLinkGuide":
+		// The claude:// notice's button (issue #60).
+		panelSetStatus("")
+		panelState.SetView("linkguide")
+		go reloadPanel()
+	case "askWindowsForLinkApp":
+		askWindowsForLinkApp()
 	case "showList":
 		panelState.SetView("list")
 		panelSetStatus("") // a deliberate return to the list starts clean; the paths
@@ -920,7 +927,7 @@ func reloadPanel() {
 			panelSetStatus(planErr.Error())
 			panelState.SetViewKeeping("list")
 			rendered = "list"
-			htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus())
+			htmlStr = panelListPage()
 			break
 		}
 		htmlStr = panelui.RenderMerge(a, b, plan, panelGetStatus(), panelGetBusy())
@@ -939,6 +946,8 @@ func reloadPanel() {
 			Status:     panelGetStatus(),
 			Busy:       panelGetBusy(),
 		})
+	case "linkguide":
+		htmlStr = panelui.RenderLinkGuide(panelGetStatus())
 	case "debug":
 		// Reused, not rebuilt: showDebug is the only path into this view, and it
 		// only sets the view once the gather that fills panelDebugReportCache
@@ -952,7 +961,7 @@ func reloadPanel() {
 			Status:  panelGetStatus(),
 		})
 	default:
-		htmlStr = panelui.RenderList(panelBuildProfiles(), newProfileSupported(), panelGetStatus())
+		htmlStr = panelListPage()
 	}
 	// One call for every screen, rather than a view model threaded through each
 	// renderer: the card is an overlay that does not care what is underneath it,
@@ -1811,6 +1820,11 @@ func panelWndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 				// also parks the panel, and Escape still parks it, so nothing
 				// here can strand the user.
 				log.Println("panel deactivated while a switch is on screen; staying up")
+			} else if waitingForLinkPick() {
+				// Windows' "How do you want to open this?" window took the focus.
+				// The panel is what reports the pick, so it has to be there when
+				// the user has made it.
+				log.Println("panel deactivated while Windows asks which app opens claude:// links; staying up")
 			} else if panelActivated.Load() {
 				// Defer to keep the message pump healthy; park right after.
 				go func() {

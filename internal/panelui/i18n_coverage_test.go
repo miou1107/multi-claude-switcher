@@ -390,13 +390,17 @@ func panelStrings(t *testing.T, page string) map[string]string {
 
 // skipsSubtree is localize()'s own early return: these elements are not copy
 // at all (a stylesheet, a script), or they are the user's own text (the
-// diagnostic report in .dbgbox, a plan or folder .chip).
+// diagnostic report in .dbgbox, a plan or folder .chip), or they are a name
+// another program shows in its own words (translate="no").
 func skipsSubtree(n *html.Node) bool {
 	if n.Type != html.ElementNode {
 		return false
 	}
 	switch n.Data {
 	case "script", "style", "textarea", "code", "pre":
+		return true
+	}
+	if v, ok := attribute(n, "translate"); ok && v == "no" {
 		return true
 	}
 	return hasClass(n, "dbgbox") || hasClass(n, "chip")

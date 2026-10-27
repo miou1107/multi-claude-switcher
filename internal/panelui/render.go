@@ -16,6 +16,7 @@ import (
 
 	"github.com/miou1107/multi-claude-switcher/core"
 	"github.com/miou1107/multi-claude-switcher/core/diagnostics"
+	"github.com/miou1107/multi-claude-switcher/platform"
 )
 
 // ProfileVM is one row in the account-list view.
@@ -236,6 +237,26 @@ select.lang{font:inherit;font-size:13px;color:#241f38;border:1px solid #d8d2e6;
 .rnsave{flex:none;background:linear-gradient(135deg,#7c6cf0,#9b6bff);color:#fff;border:none;border-radius:8px;padding:7px 11px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .rnsave:hover{filter:brightness(1.05)}
 .hint{font-size:12px;color:#6b6580;line-height:1.5;margin-top:11px}
+/* The claude:// notice and its guide (claudelink.go). Amber like .hintw, since
+   it is a step the user still has to take, with a title and a button. */
+.linknote{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.5;padding:11px 13px;border-radius:11px;margin-bottom:12px}
+.linknote .lntitle{font-weight:700;font-size:13px;margin-bottom:4px}
+.linknote .lnmiss{font-weight:600;margin-top:6px}
+.linknote .btn{flex:none;padding:8px 12px;margin-top:10px}
+.gsteps{font-size:12.5px;color:#514b66;line-height:1.7;margin:6px 2px 0}
+.gsteps b{color:#e5484d;margin-right:4px}
+.gpick{background:#fff;border:1px solid #d9d4e6;border-radius:10px;padding:12px 12px 10px;margin:10px 0 12px;font-family:"Segoe UI",system-ui,sans-serif;color:#111}
+.gpick .gq{font-size:14px;margin-bottom:8px}
+.gpick .gapp{display:flex;align-items:center;gap:9px;padding:5px 6px;font-size:12.5px;border-radius:3px}
+.gpick .gapp svg{width:24px;height:24px;flex:none}
+.gpick .gapp.gon{background:#cce4f7;outline:3px solid #e5484d;outline-offset:2px}
+.gpick .gmark{margin-left:auto;color:#e5484d;font-weight:700}
+.gpick .gbox{display:flex;align-items:center;gap:7px;font-size:12px;margin:12px 0 4px;padding:2px;outline:3px solid #e5484d;outline-offset:2px;border-radius:3px}
+.gpick .gtick{width:14px;height:14px;background:#0078d4;color:#fff;font-size:10px;line-height:14px;text-align:center;flex:none}
+.gpick .gok{display:flex;align-items:center;gap:8px;margin-top:10px}
+.gpick .gok .gmark{margin-left:0}
+.gpick .gokbtn{margin-left:auto;background:#0078d4;color:#fff;font-size:12px;padding:5px 22px;outline:3px solid #e5484d;outline-offset:2px}
+.aboutclaude{color:#514b66;font-weight:600}
 .hintw{background:#fff6e0;color:#854f0b;font-size:12px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-top:10px}
 .hintw .noteline+.noteline{margin-top:7px}
 .dbgnote{background:#e9f5ee;color:#1a7a3d;font-size:11.5px;line-height:1.5;padding:9px 12px;border-radius:11px;margin-bottom:9px}
@@ -693,6 +714,26 @@ func editRow(esc func(string) string, name string) string {
 }
 
 func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string {
+	return RenderListPage(ListVM{Profiles: profiles, CanAddAccount: canAddAccount, Status: status})
+}
+
+// ListVM is everything the account list shows. RenderList draws it for callers
+// that have only the accounts.
+type ListVM struct {
+	Profiles      []ProfileVM
+	CanAddAccount bool
+	Status        string
+	// Links is who opens claude:// links on this machine. When sign-in to any
+	// account but the default one is broken until the user chooses the
+	// switcher, the list says so above the accounts (issue #60).
+	Links platform.ClaudeLinkStatus
+	// Claude is the Claude Desktop the switcher drives, named at the foot.
+	Claude ClaudeAppVM
+}
+
+// RenderListPage draws the account list.
+func RenderListPage(vm ListVM) string {
+	profiles, canAddAccount, status := vm.Profiles, vm.CanAddAccount, vm.Status
 	esc := html.EscapeString
 	dupFolder, dupWarning := duplicateAccounts(profiles, esc)
 	// status carries the result of an action that ended back on the list — a
@@ -752,12 +793,12 @@ func RenderList(profiles []ProfileVM, canAddAccount bool, status string) string 
       <button class="addcard" onclick="send('newProfile','')">＋&nbsp; Add another account</button>`)
 	}
 	body := avatarHeader("Multi-Claude Switcher", "Switch or manage your Claude accounts") +
-		statusBanner + dupWarning + `<div class="cards">` + cards.String() + `</div>
+		statusBanner + linkNotice(vm.Links) + dupWarning + `<div class="cards">` + cards.String() + `</div>
 <div class="footer">
   <button class="btn btn-light" onclick="send('showRescan','')">⟳&nbsp; Rescan</button>
   <button class="btn btn-light" onclick="send('showSettings','')">⚙&nbsp; Settings</button>
 </div>
-<div class="about">` + versionLink(core.Version) + `</div>`
+` + aboutLine(core.Version, vm.Claude)
 	return shell(body)
 }
 

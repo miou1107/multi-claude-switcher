@@ -144,6 +144,27 @@
       "Update check failed. Try again later.": "檢查更新失敗，請稍後再試。",
       "Some conversations were skipped": "有部分對話已跳過",
       "Recovered": "已復原",
+      "Switcher": "切換器",
+      "Microsoft Store": "Microsoft Store 版",
+      "installed from claude.com": "claude.com 安裝版",
+      "Mac": "Mac 版",
+      "Sign-in links need one more step": "登入連結還差一個步驟",
+      "Claude from the Microsoft Store opens every sign-in link on its default account, so signing in to another account can get stuck. Choose Multi-Claude Switcher for claude:// links once, and the switcher sends each link to the account you are on. This stays here until it is set up.": "Microsoft Store 版的 Claude 會把每個登入連結都開在預設帳號，所以登入其他帳號時可能會卡住。只要設定一次，讓 claude:// 連結改用 Multi-Claude Switcher 開啟，切換器就會把每個連結送到你正在用的帳號。設定好之前，這個提醒會一直留著。",
+      "Windows still opens claude:// links with another app, not Multi-Claude Switcher.": "Windows 現在還是用別的應用程式開啟 claude:// 連結，不是 Multi-Claude Switcher。",
+      "Choose Multi-Claude Switcher": "選擇 Multi-Claude Switcher",
+      "Choose the switcher": "選擇切換器",
+      "One time, so sign-in links reach the right account": "設定一次，登入連結就會送到對的帳號",
+      "Windows will ask which app opens claude:// links. In that window:": "Windows 會問要用哪個應用程式開啟 claude:// 連結。在那個視窗裡：",
+      "Click Multi-Claude Switcher (recommended)": "點「Multi-Claude Switcher（推薦）」",
+      "Leave Always use this app ticked": "「一律使用此應用程式」保持打勾",
+      "Click OK": "按「確定」",
+      "How do you want to open this?": "您要如何開啟此項目?",
+      "(recommended)": "（推薦）",
+      "Always use this app": "一律使用此應用程式",
+      "OK": "確定",
+      "Open the Windows window": "打開 Windows 的視窗",
+      "Sign-in links now go through the switcher.": "之後的登入連結都會經過切換器，送到對的帳號。",
+      "Windows did not show its window. In Windows Settings, open Apps, Default apps, Choose default apps by protocol, and pick Multi-Claude Switcher for CLAUDE.": "Windows 沒有跳出視窗。請到 Windows 的 設定 > 應用程式 > 預設應用程式 > 依通訊協定選擇預設應用程式，把 CLAUDE 改成 Multi-Claude Switcher。",
     },
     "zh-Hans": {
       "Language": "语言",
@@ -279,7 +300,28 @@
       "An update is already in progress.": "正在更新，请稍候。",
       "Update check failed. Try again later.": "检查更新失败，请稍后重试。",
       "Some conversations were skipped": "部分会话索引已跳过",
-      "Recovered": "已恢复"
+      "Recovered": "已恢复",
+      "Switcher": "切换器",
+      "Microsoft Store": "Microsoft Store 版",
+      "installed from claude.com": "claude.com 安装版",
+      "Mac": "Mac 版",
+      "Sign-in links need one more step": "登录链接还差一个步骤",
+      "Claude from the Microsoft Store opens every sign-in link on its default account, so signing in to another account can get stuck. Choose Multi-Claude Switcher for claude:// links once, and the switcher sends each link to the account you are on. This stays here until it is set up.": "Microsoft Store 版的 Claude 会把每个登录链接都打开在默认账号，所以登录其他账号时可能会卡住。只要设置一次，让 claude:// 链接改用 Multi-Claude Switcher 打开，切换器就会把每个链接送到你正在用的账号。设置好之前，这个提醒会一直留着。",
+      "Windows still opens claude:// links with another app, not Multi-Claude Switcher.": "Windows 现在还是用别的应用打开 claude:// 链接，不是 Multi-Claude Switcher。",
+      "Choose Multi-Claude Switcher": "选择 Multi-Claude Switcher",
+      "Choose the switcher": "选择切换器",
+      "One time, so sign-in links reach the right account": "设置一次，登录链接就会送到对的账号",
+      "Windows will ask which app opens claude:// links. In that window:": "Windows 会问要用哪个应用打开 claude:// 链接。在那个窗口里：",
+      "Click Multi-Claude Switcher (recommended)": "点击“Multi-Claude Switcher（推荐）”",
+      "Leave Always use this app ticked": "保持勾选“始终使用此应用”",
+      "Click OK": "点击“确定”",
+      "How do you want to open this?": "你要如何打开这个?",
+      "(recommended)": "（推荐）",
+      "Always use this app": "始终使用此应用",
+      "OK": "确定",
+      "Open the Windows window": "打开 Windows 的窗口",
+      "Sign-in links now go through the switcher.": "之后的登录链接都会经过切换器，送到对的账号。",
+      "Windows did not show its window. In Windows Settings, open Apps, Default apps, Choose default apps by protocol, and pick Multi-Claude Switcher for CLAUDE.": "Windows 没有弹出窗口。请到 Windows 的 设置 > 应用 > 默认应用 > 按协议指定默认应用，把 CLAUDE 改成 Multi-Claude Switcher。"
     }
   };
 
@@ -391,8 +433,10 @@
     }
     return result ? original.replace(s, () => result) : original;
   }
+  // [translate="no"] marks a name another program shows in its own words, such
+  // as an app in Windows' "How do you want to open this?" window.
   function protectedText(el) {
-    if (!el || el.closest('script,style,textarea,code,pre,.dbgbox,.chip')) return true;
+    if (!el || el.closest('script,style,textarea,code,pre,.dbgbox,.chip,[translate="no"]')) return true;
     if (el.closest('.name') && el.closest('[data-name],[data-from],.card.selectable')) return true;
     return false;
   }
@@ -413,7 +457,7 @@
         }
       }
     }
-    if (root.nodeType === Node.ELEMENT_NODE && root.matches('script,style,textarea,code,pre,.dbgbox,.chip')) return;
+    if (root.nodeType === Node.ELEMENT_NODE && root.matches('script,style,textarea,code,pre,.dbgbox,.chip,[translate="no"]')) return;
     for (const child of Array.from(root.childNodes)) localize(child);
   }
   function start() {
