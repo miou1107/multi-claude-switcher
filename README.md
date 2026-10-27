@@ -50,14 +50,8 @@ left. Enough friction that most people stop bothering.
 
 ## Install
 
-> ⚠️ **Before anything else**
-> You need [Claude Desktop](https://claude.com/download), from claude.com or from
-> the Microsoft Store. The Store installs it today as the package
-> `AnthropicPBC.Claude`, which the switcher opens through the
-> `claude-desktop-msstore.exe` command the Store adds, one folder per account,
-> the same way as the claude.com build. The older Store package
-> (`Claude_<hash>`) has a single data folder, which the switcher swaps when you
-> switch.
+Install [Claude Desktop](https://claude.com/download) first, from claude.com or
+from the Microsoft Store.
 
 **macOS**
 
@@ -91,21 +85,17 @@ The panel is drawn with the **WebView2 Runtime**, which ships with Windows 11 an
 with Windows 10 21H2 or newer. On anything older the app points you at
 Microsoft's installer.
 
-**Before any of this**, you need [Claude Desktop](https://claude.com/download),
-from claude.com or from the Microsoft Store. When both are installed, the
-switcher uses the one from claude.com. The Store installs Claude today as the
-package `AnthropicPBC.Claude`, which is switched the same way as the claude.com
-build; the older Store package (`Claude_<hash>`) is switched by swapping its
-single data folder.
+**With Claude from the Microsoft Store, set up sign-in once after installing.**
+Without it, signing in to another account gets stuck, because Windows sends
+every sign-in back to your default account.
 
-With the Store package installed, the panel asks you once to choose the
-switcher for sign-in links, the `claude://` links that bring a sign-in back to
-Claude. Windows otherwise gives every one of them to the Store app, which opens
-it on your default account. The button under the notice shows where to click,
-then Windows asks "How do you want to open this?": pick **Multi-Claude
-Switcher**, marked recommended, keep **Always use this app** ticked, and click
-**OK**. The bottom of the panel names the Claude you are using, its version,
-and whether it came from the Microsoft Store or claude.com.
+1. Click the switcher's icon in the system tray to open the panel.
+2. In the yellow notice at the top, click **Choose Multi-Claude Switcher**.
+3. Click **Open the Windows window**.
+4. When Windows asks "How do you want to open this?", click **Multi-Claude
+   Switcher (recommended)**, then **OK**.
+
+The panel then says "Sign-in links now go through the switcher."
 
 Updates install themselves in the background, on both platforms. You install
 once. Nothing asks first; once a new version is running, one notification says
@@ -163,8 +153,11 @@ screen with the reason.
 
 **Settings** holds the two toggles, a **More** screen (sync between accounts,
 back up, and the backup and archive folders), and Quit. The version line at the
-bottom also checks for updates and opens a bug report. Click the version number
-to see what changed in each release.
+bottom also checks for updates and opens a bug report.
+
+The foot of the account list shows the switcher's version and the version of
+Claude it drives, which a bug report needs. Click the switcher's version to see
+what changed in each release.
 
 Press **Esc** or click outside to close the panel. On Windows the tray icon
 toggles it, and right-clicking gives you **Quit**, which is your way out if the
@@ -248,11 +241,14 @@ To avoid this, add accounts with **＋ Add another account** in the panel rather
 than signing out inside Claude Desktop. Each account then gets its own profile
 from the start.
 
-**(Windows) I switched, signed in, and ended up in the other account.**
-Update to the latest version. Signing in with Google comes back to Claude
-through a link, and Windows opens that link with your default account unless
-the switcher points it elsewhere. Older versions only did that for an account
-that had never signed in, so an account asked to sign in again was missed.
+**(Windows) Signing in to another account gets stuck, or signs in the wrong
+account.**
+Update to the latest version first.
+With Claude from the Microsoft Store, also do the one-time setup under Install.
+If you clicked the wrong app in Windows' window, the yellow notice stays; click
+its button again and Windows asks again.
+If Windows does not ask at all, open Settings → Apps → Default apps → Choose
+default apps by protocol, find CLAUDE, and pick Multi-Claude Switcher.
 
 **(macOS) Claude updated itself and I was on the other account afterwards.**
 Update to the latest version. Claude Desktop installs updates in the
@@ -273,30 +269,20 @@ your default one. The switcher notices this and asks whether to switch you back
 to the account you were on. Choosing your default account in the switcher
 yourself is never undone.
 
-**(Windows, Microsoft Store) Signing in to another account never finishes, or
-signs in the wrong account.**
-Signing in comes back to Claude through a `claude://` link, and Windows gives
-those to the Store app, which opens them on your default account. Use the
-notice at the top of the panel to choose the switcher for them: it passes each
-link to the account you are on. If you picked another app in Windows' window,
-the notice says so; click its button again and Windows asks again. If Windows
-does not ask, open Settings → Apps → Default apps → Choose default apps by
-protocol, and pick Multi-Claude Switcher for CLAUDE.
-
 **(Windows, Microsoft Store) Switching stopped and says Claude moved its data.**
 The Store build of Claude Desktop can move its data out of the Store app's
 folder into `%LOCALAPPDATA%\Claude-Data`. After that, Claude reads only the
 moved copy, and the switcher cannot switch accounts there yet, so it stops
 before closing Claude and changes nothing. Closing the message opens the bug
 report with the reason filled in; sending it helps get this supported. Until
-then, Claude installed from claude.ai works with the switcher.
+then, Claude installed from claude.com works with the switcher.
 
 **(Windows) The panel will not open.**
 Usually WebView2 is missing. Right-click the eyes icon in the tray, choose
 **Quit**, install WebView2, and start the app again.
 
 **My conversation history is a mess. Can I get the old one back?**
-Yes. Settings → **Open backup folder** holds timestamped snapshots, kept per
+Yes. Settings → More → **Open backup folder** holds timestamped snapshots, kept per
 profile, alongside a dated `tidied-` folder holding conversations an old version
 saved where no account could open them. The five most recent snapshots of each
 account are kept. Nothing in there is deleted except an emptied folder's own
