@@ -103,3 +103,51 @@ func TestUpdateRelaunchTarget(t *testing.T) {
 		}
 	}
 }
+
+// Issue #56. Squirrel closes the old main process before starting the new one,
+// and for a moment only the old helpers are alive. They still carry the work
+// account's --user-data-dir but no readable version, so a look that lands then
+// sees the work account at version "". The look after that is the default
+// account at the new version, and it has to be judged against the last look
+// that could read a version, or the watcher declines and the user stays put.
+func TestRelaunchWatchLookDuringTheSwap(t *testing.T) {
+	looks := []claudeSnapshot{
+		{profiles: []string{testWork}, version: "2.42304.0"},
+		{profiles: []string{testWork}}, // old helpers only
+		{profiles: []string{testDefault}, version: "2.42304.2"},
+	}
+	var w relaunchWatch
+	for i, cur := range looks {
+		got, reason := w.look(cur, testDefault, testWork)
+		if i < len(looks)-1 {
+			if got != "" || reason != "" {
+				t.Errorf("look %d: got %q / %q, want silence while the update is under way", i, got, reason)
+			}
+			continue
+		}
+		if got != testWork {
+			t.Errorf("look after the swap: got %q / %q, want %q", got, reason, testWork)
+		}
+	}
+}
+
+// A version that stays unreadable is not a swap, which takes seconds against a
+// 20-second poll. The watcher says why once and then goes quiet, instead of
+// writing the same line every 20 seconds.
+func TestRelaunchWatchUnreadableVersionThatStays(t *testing.T) {
+	var w relaunchWatch
+	w.look(claudeSnapshot{profiles: []string{testWork}, version: "2.42304.0"}, testDefault, testWork)
+	var reasons []string
+	for i := 0; i < 4; i++ {
+		got, reason := w.look(claudeSnapshot{profiles: []string{testWork}}, testDefault, testWork)
+		if got != "" {
+			t.Fatalf("look %d: got target %q, want none", i, got)
+		}
+		if reason != "" {
+			reasons = append(reasons, reason)
+		}
+	}
+	if len(reasons) != 1 || !strings.Contains(reasons[0], "could not be read") {
+		t.Errorf("reasons = %q, want exactly one saying the version could not be read", reasons)
+	}
+}

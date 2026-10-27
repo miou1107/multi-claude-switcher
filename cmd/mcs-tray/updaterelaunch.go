@@ -121,6 +121,39 @@ func updateRelaunchTarget(prev, cur claudeSnapshot, defaultPath, recordedPath st
 	return "", fmt.Sprintf("%s; the recorded account %s was not open before the update, so nothing to put back.", step, recordedPath)
 }
 
+// relaunchWatch is what the watcher remembers between looks.
+type relaunchWatch struct {
+	prev claudeSnapshot
+	// held is set when the last look was set aside as one taken mid-update.
+	held bool
+}
+
+// look judges one snapshot against the last one and returns the profile to put
+// the user back on, or the reason it was left alone, worded for the log.
+//
+// A look on the same accounts whose version cannot be read is set aside once,
+// silently, and the next look is judged against the one before it. That is what
+// a look taken mid-update sees: Squirrel has closed the old main process and not
+// yet started the new one, and the old helpers still carry the old
+// --user-data-dir but, being helpers, no version. Judged against that look, the
+// updater's relaunch has an unreadable "before" and is declined (issue #56).
+// Only once in a row: an update takes seconds and the watcher looks every 20, so
+// a version that stays unreadable is something else, and is reported then.
+func (w *relaunchWatch) look(cur claudeSnapshot, defaultPath, recordedPath string) (target, reason string) {
+	target, reason = updateRelaunchTarget(w.prev, cur, defaultPath, recordedPath)
+	if target != "" {
+		// Look again from scratch next tick, so a refusal is not asked twice.
+		*w = relaunchWatch{}
+		return target, ""
+	}
+	if !w.held && cur.version == "" && w.prev.version != "" && sameProfileSet(w.prev.profiles, cur.profiles) {
+		w.held = true
+		return "", ""
+	}
+	w.prev, w.held = cur, false
+	return "", reason
+}
+
 // sameProfileSet reports whether a and b name the same profiles, in any order.
 func sameProfileSet(a, b []string) bool {
 	if len(a) != len(b) {
