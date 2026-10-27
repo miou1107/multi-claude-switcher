@@ -40,9 +40,9 @@
 ## 安裝
 
 > ⚠️ **Windows用戶重要提醒**
-> 你必須使用**獨立安裝版**的 [Claude Desktop](https://claude.com/download)。
-> **Microsoft Store 版不支援**：如果你是從 Microsoft Store 安裝 Claude Code，可能會因其沙盒限制而無法正常使用。
->  建議你從 Claude 下載官方 .exe 獨立安裝版。
+> 你需要從 [claude.com](https://claude.com/download) 下載的 Claude Desktop，或是現在從 Microsoft Store 安裝的版本（套件名稱 `AnthropicPBC.Claude`）。
+> Store 版會多一個 `claude-desktop-msstore.exe` 指令，切換器用它來開 Claude。兩種都裝了的話，切換器用 claude.com 那一個。
+> **比較舊的 Store 版不支援**：它的資料放在沒辦法替換的虛擬資料夾裡，切換器靠的就是替換資料夾，所以切不了。
 
 **macOS**
 > macOS使用者推薦使用 brew 指令安裝，快速又方便!

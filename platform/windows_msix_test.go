@@ -707,3 +707,85 @@ func TestWindowsSwitchBlockedAndInstallKindOnceClaudeHasMovedItsData(t *testing.
 		t.Fatalf("InstallKind = %q, want it to say the data moved to Claude-Data", got)
 	}
 }
+
+// storeAliasFixture creates the command the Microsoft Store build of Claude
+// Desktop (package AnthropicPBC.Claude) installs, under the %LOCALAPPDATA% that
+// msixRealFixture points at. The real one is an app execution alias; a plain
+// file stands in for it here.
+func storeAliasFixture(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "WindowsApps")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(dir, "claude-desktop-msstore.exe")
+	if err := os.WriteFile(alias, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return alias
+}
+
+// Issue #53. Microsoft Store installs of Claude are now the package
+// AnthropicPBC.Claude, which takes --user-data-dir through its alias like the
+// standalone build does. A machine that once had the old Store package keeps
+// its Packages\Claude_<hash> folder, and the switcher used to see that folder,
+// switch into Store mode and swap a slot the new Claude never reads: every
+// switch opened the same account while the panel showed the one picked.
+func TestTheNewStorePackageIsLaunchedLikeTheStandaloneBuild(t *testing.T) {
+	roaming := msixRealFixture(t) // the old package's folder, left behind
+	writeProfileDir(t, msixSlotDir(roaming), "A")
+	alias := storeAliasFixture(t)
+
+	w := &WindowsPlatform{}
+	if w.isMSIX() {
+		t.Fatal("Store mode chosen from the old package's leftover folder although the new Store package is installed")
+	}
+	exe, err := findClaudeExecutable()
+	if err != nil || !strings.EqualFold(exe, alias) {
+		t.Fatalf("findClaudeExecutable = %q, %v; want the Store alias %q", exe, err, alias)
+	}
+	if got := w.InstallKind(); !strings.Contains(got, "AnthropicPBC.Claude") {
+		t.Errorf("InstallKind = %q, want it to name the new Store package", got)
+	}
+}
+
+// The standalone build still wins when both are installed: it is the one the
+// switcher has always launched, and its profiles are where the user's data is.
+func TestTheStandaloneBuildIsPreferredOverTheNewStorePackage(t *testing.T) {
+	msixRealFixture(t)
+	storeAliasFixture(t)
+	standalone := filepath.Join(os.Getenv("LOCALAPPDATA"), "AnthropicClaude", "claude.exe")
+	if err := os.MkdirAll(filepath.Dir(standalone), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(standalone, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exe, err := findClaudeExecutable()
+	if err != nil || !strings.EqualFold(exe, standalone) {
+		t.Fatalf("findClaudeExecutable = %q, %v; want the standalone build %q", exe, err, standalone)
+	}
+	if got := (&WindowsPlatform{}).InstallKind(); got != "standalone" {
+		t.Errorf("InstallKind = %q, want standalone", got)
+	}
+}
+
+// The Store build registers claude:// with its own path under Program
+// Files\WindowsApps, which Windows refuses to start directly ("Access is
+// denied"). Holding the handler on a profile kept that path, so a sign-in on a
+// Store install never came back. The alias is what can be started.
+func TestAHandlerPointingIntoWindowsAppsIsRewrittenToTheAlias(t *testing.T) {
+	msixRealFixture(t)
+	alias := storeAliasFixture(t)
+	packaged := `C:\Program Files\WindowsApps\AnthropicPBC.Claude_3.6556.2.0_x64__fnn82j28hfe8t\app\Claude.exe`
+	if got := launchableHandlerExe(packaged); !strings.EqualFold(got, alias) {
+		t.Errorf("launchableHandlerExe(packaged) = %q, want the alias %q", got, alias)
+	}
+	if got := launchableHandlerExe(alias); got != alias {
+		t.Errorf("the alias itself was rewritten to %q", got)
+	}
+	standalone := `C:\Users\Example\AppData\Local\AnthropicClaude\app-3.6556.2\claude.exe`
+	if got := launchableHandlerExe(standalone); got != standalone {
+		t.Errorf("a standalone path was rewritten to %q", got)
+	}
+}

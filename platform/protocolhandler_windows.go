@@ -51,6 +51,7 @@ package platform
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -141,18 +142,42 @@ func SetProtocolHandlerProfile(profilePath string) error {
 	if err != nil {
 		return err
 	}
-	if cur, ok := protocolCommandProfile(cmd); ok && strings.EqualFold(cur, profilePath) {
-		return nil
-	}
 	exe, ok := exeFromProtocolCommand(cmd)
 	if !ok {
 		return fmt.Errorf("could not read Claude's path out of the claude:// handler (%q)", cmd)
 	}
-	if err := writeProtocolCommand(buildProtocolCommand(exe, profilePath)); err != nil {
+	launchable := launchableHandlerExe(exe)
+	if cur, ok := protocolCommandProfile(cmd); ok && strings.EqualFold(cur, profilePath) && launchable == exe {
+		return nil
+	}
+	if err := writeProtocolCommand(buildProtocolCommand(launchable, profilePath)); err != nil {
 		return err
 	}
 	log.Printf("claude:// handler now opens %s", profilePath)
 	return nil
+}
+
+// launchableHandlerExe returns exe, or the command that can start the same Claude
+// when exe cannot be started from a handler. The Microsoft Store build registers
+// claude:// with its own Claude.exe under Program Files\WindowsApps, and Windows
+// refuses to start that file directly ("Access is denied"), so a sign-in held on
+// a profile with that path never came back. Its execution alias starts it.
+func launchableHandlerExe(exe string) string {
+	if !isPackagedInstallPath(exe) {
+		return exe
+	}
+	if alt, err := findClaudeExecutable(); err == nil {
+		return alt
+	}
+	return exe
+}
+
+// isPackagedInstallPath reports whether path is inside a package's install folder
+// under Program Files\WindowsApps. The execution aliases in
+// %LOCALAPPDATA%\Microsoft\WindowsApps are not: those are what starts a package.
+func isPackagedInstallPath(path string) bool {
+	p := strings.ToLower(filepath.Clean(path))
+	return strings.Contains(p, `\windowsapps\`) && !strings.Contains(p, `\microsoft\windowsapps\`)
 }
 
 // RestoreProtocolHandler puts `claude://` back to the form Claude Desktop

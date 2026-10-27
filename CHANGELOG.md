@@ -3,6 +3,19 @@
 ## [Unreleased]
 
 ### Fixed
+- **(Windows) Claude from the Microsoft Store switches accounts.** The Store
+  now installs Claude Desktop as the package `AnthropicPBC.Claude`. The
+  switcher only knew the earlier Store package, so on a machine that still had
+  that package's folder it switched inside a folder the new Claude never reads,
+  and every switch opened the same account while the panel showed the one you
+  picked ([#53](https://github.com/miou1107/multi-claude-switcher/issues/53)).
+  The new package opens on whichever account folder it is given, the same as
+  the claude.com build, through the `claude-desktop-msstore.exe` command the
+  Store adds. The switcher now finds that command when there is no claude.com
+  build and switches with it, one folder per account. Signing in comes back to
+  the right account too: Claude registers `claude://` with a path Windows will
+  not start directly, and the switcher now puts that command there instead. The
+  bug report names the Store package.
 - **(Windows, Store) Switching now stops and says why once Claude has moved its
   data, instead of saying it switched when it did not.** The Microsoft Store
   build of Claude Desktop can move its data out of the Store app's folder into
