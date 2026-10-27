@@ -31,6 +31,11 @@ func main() {
 		runPanel()
 		return
 	}
+	// A claude:// link Windows hands over, or the uninstaller removing the
+	// handler. Both run beside the tray, so before its one-copy check.
+	if runClaudeLinkCommand(os.Args) {
+		return
+	}
 
 	if closer, _, err := core.SetupLogging("mcs-tray"); err == nil {
 		defer closer.Close()

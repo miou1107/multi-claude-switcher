@@ -43,6 +43,9 @@
 > 你需要 [Claude Desktop](https://claude.com/download)，從 claude.com 下載或從 Microsoft Store 安裝都可以。兩種都裝了的話，切換器用 claude.com 那一個。
 > 現在從 Store 安裝的是套件 `AnthropicPBC.Claude`，它會多一個 `claude-desktop-msstore.exe` 指令。切換器用這個指令開 Claude，每個帳號一個資料夾，跟 claude.com 版一樣。
 > 比較舊的 Store 套件（`Claude_<一串代碼>`）只有一個資料夾，切換器切換時會把它換掉。
+> 裝了 Store 版的電腦，面板會請你設定一次：登入連結（`claude://` 開頭、把登入結果帶回 Claude 的連結）改用切換器開啟。不設定的話，Windows 會把這些連結都交給 Store 版，Store 版只會開在預設帳號。
+> 按提示框的按鈕，會先看到要點哪裡，接著 Windows 跳出「您要如何開啟此項目?」：點 **Multi-Claude Switcher（推薦）**，「一律使用此應用程式」保持打勾，按 **確定**。
+> 面板最下面會寫你用的 Claude 版本，以及是 Microsoft Store 版還是 claude.com 安裝版。
 
 **macOS**
 > macOS使用者推薦使用 brew 指令安裝，快速又方便!
@@ -159,6 +162,12 @@ Claude 自己重開之前，會在你原本的帳號裡留下一個記號。最�
 **Q：（Windows）Claude 自己更新完，怎麼跑到另一個帳號？**
 Claude Desktop 更新完重開時沒有指定帳號，所以會開預設帳號。切換器會發現，跳出視窗問你要不要切回更新前的帳號；
 你自己在切換器裡選預設帳號的話，它不會幫你切走。
+
+**Q：（Windows，Microsoft Store 版）登入其他帳號一直卡住，或登入到錯的帳號？**
+登入完成後，瀏覽器用 `claude://` 連結把結果帶回 Claude。Windows 會把這種連結交給 Store 版，Store 版只會開在預設帳號。
+請用面板最上面的提示框，把這種連結改用切換器開啟，切換器會把每個連結送到你正在用的帳號。
+如果你在 Windows 的視窗裡選了別的應用程式，提示框會寫出來；再按一次按鈕，Windows 會再問一次。
+如果 Windows 沒有跳出視窗，請到 設定 > 應用程式 > 預設應用程式 > 依通訊協定選擇預設應用程式，把 CLAUDE 改成 Multi-Claude Switcher。
 
 **Q：（Windows，Microsoft Store 版）切換停下來，說 Claude 把資料搬走了？**
 Microsoft Store 版的 Claude Desktop 可能會把資料從 Store 版自己的資料夾，搬到 `%LOCALAPPDATA%\Claude-Data`。

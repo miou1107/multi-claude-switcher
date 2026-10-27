@@ -35,6 +35,7 @@ import (
 
 	"github.com/miou1107/multi-claude-switcher/core"
 	"github.com/miou1107/multi-claude-switcher/internal/panelui"
+	"github.com/miou1107/multi-claude-switcher/platform"
 )
 
 // The two dispatch functions, and the parameter each switches on.
@@ -128,6 +129,11 @@ func everyScreen() []string {
 	}
 	return []string{
 		panelui.RenderList(profiles, true, ""),
+		// With the claude:// notice up, so its button is among what is scanned.
+		// Only the Windows host ever shows it, but the action set both hosts
+		// answer is one set.
+		panelui.RenderListPage(panelui.ListVM{Profiles: profiles, Links: platform.ClaudeLinksNeedSwitcher}),
+		panelui.RenderLinkGuide("", ""),
 		panelui.RenderSettings(panelui.SettingsVM{Version: "0.0.0"}),
 		panelui.RenderMore(panelui.MoreVM{}),
 		panelui.RenderDebug(panelui.DebugVM{Report: "report"}),

@@ -70,3 +70,10 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ; back on the new version. A postinstall entry runs in silent mode too (it is
 ; treated as checked), which is exactly what is wanted here.
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Multi-Claude Switcher"; Flags: nowait postinstall
+
+[UninstallRun]
+; The panel offers the switcher to Windows as an app that opens claude:// links
+; when the user chooses it for sign-in links (issue #60). This takes that offer
+; back, so Windows lists no app that is gone. It runs before the files are
+; deleted, which it needs: it is the switcher itself, run with this flag.
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--unregister-claude-link"; Flags: runhidden waituntilterminated; RunOnceId: "UnregisterClaudeLink"

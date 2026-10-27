@@ -320,6 +320,9 @@ func goPanelAction(caction, cfolder *C.char) {
 	case "showRescan":
 		panelState.SetView("rescan")
 		go reloadPanel()
+	case "showLinkGuide", "askWindowsForLinkApp":
+		// The claude:// notice and its guide are Windows only (see listPage), so
+		// nothing on a Mac sends these.
 	case "showList":
 		panelState.SetView("list")
 		setStatus("") // a deliberate return to the list starts clean; the paths that
@@ -866,7 +869,7 @@ func reloadPanel() {
 			setStatus(planErr.Error())
 			panelState.SetViewKeeping("list")
 			rendered = "list"
-			htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())
+			htmlStr = listPage()
 			break
 		}
 		htmlStr = panelui.RenderMerge(a, b, plan, getStatus(), getBusy())
@@ -898,7 +901,7 @@ func reloadPanel() {
 			Status:  getStatus(),
 		})
 	default:
-		htmlStr = panelui.RenderList(buildProfiles(), newProfileSupported(), getStatus())
+		htmlStr = listPage()
 	}
 	// One call for every screen, rather than a view model threaded through each
 	// renderer: the card is an overlay that does not care what is underneath it,
@@ -1009,6 +1012,19 @@ func pendingFolders() []string {
 // build. (The Windows standalone build, whose profiles the user picks by hand,
 // returns false for exactly this reason.)
 func newProfileSupported() bool { return true }
+
+// listPage renders the account list with the Claude it drives at the foot. It
+// carries no claude:// notice: Claude on a Mac opens a link on the account it
+// runs on, which is the one the switcher opened (issue #60 is Windows only).
+func listPage() string {
+	version, edition := platform.ClaudeApp()
+	return panelui.RenderListPage(panelui.ListVM{
+		Profiles:      buildProfiles(),
+		CanAddAccount: newProfileSupported(),
+		Status:        getStatus(),
+		Claude:        panelui.ClaudeAppVM{Version: version, Edition: edition},
+	})
+}
 
 // profilePathFor resolves a profile identity to its real path by looking it up
 // among the discovered profiles, and returns "" when there is no such profile.

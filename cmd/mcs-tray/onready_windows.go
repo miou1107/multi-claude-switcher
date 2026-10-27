@@ -130,6 +130,15 @@ func onReadyWindowsPanel() {
 	// Standalone build: offer the user's account back after Claude updates itself
 	// and reopens on the default one.
 	startUpdateRelaunchWatcher()
+
+	// Once the switcher opens claude:// links, Windows runs whatever exe was
+	// registered for them. Point that at this one, in case the switcher has
+	// moved since: a link sent to an exe that is gone just does nothing.
+	go func() {
+		if err := platform.RefreshClaudeLinkHandler(); err != nil {
+			log.Printf("could not update the claude:// handler: %v", err)
+		}
+	}()
 }
 
 // restoreProtocolHandler puts the claude:// handler back to the form Claude

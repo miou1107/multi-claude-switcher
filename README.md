@@ -98,6 +98,15 @@ package `AnthropicPBC.Claude`, which is switched the same way as the claude.com
 build; the older Store package (`Claude_<hash>`) is switched by swapping its
 single data folder.
 
+With the Store package installed, the panel asks you once to choose the
+switcher for sign-in links, the `claude://` links that bring a sign-in back to
+Claude. Windows otherwise gives every one of them to the Store app, which opens
+it on your default account. The button under the notice shows where to click,
+then Windows asks "How do you want to open this?": pick **Multi-Claude
+Switcher**, marked recommended, keep **Always use this app** ticked, and click
+**OK**. The bottom of the panel names the Claude you are using, its version,
+and whether it came from the Microsoft Store or claude.com.
+
 Updates install themselves in the background, on both platforms. You install
 once. Nothing asks first; once a new version is running, one notification says
 so. "Check for updates" at the bottom of the panel always answers: it says you
@@ -263,6 +272,16 @@ Claude Desktop's updater reopens it without saying which account, so it opens
 your default one. The switcher notices this and asks whether to switch you back
 to the account you were on. Choosing your default account in the switcher
 yourself is never undone.
+
+**(Windows, Microsoft Store) Signing in to another account never finishes, or
+signs in the wrong account.**
+Signing in comes back to Claude through a `claude://` link, and Windows gives
+those to the Store app, which opens them on your default account. Use the
+notice at the top of the panel to choose the switcher for them: it passes each
+link to the account you are on. If you picked another app in Windows' window,
+the notice says so; click its button again and Windows asks again. If Windows
+does not ask, open Settings → Apps → Default apps → Choose default apps by
+protocol, and pick Multi-Claude Switcher for CLAUDE.
 
 **(Windows, Microsoft Store) Switching stopped and says Claude moved its data.**
 The Store build of Claude Desktop can move its data out of the Store app's
