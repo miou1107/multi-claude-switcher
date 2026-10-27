@@ -58,6 +58,11 @@ func (c *ProfileCreator) Create(req CreateProfileRequest) (*CreatedProfile, erro
 		return nil, fmt.Errorf("internal: a recovery needs the profiles holding the conversations")
 	}
 
+	// Asked before Claude is closed, for the same reason SafeSwitch asks first.
+	if err := switchBlocked(c.Plat); err != nil {
+		return nil, err
+	}
+
 	// Claude holds its data dir open, and on the Store build the profile is created
 	// by moving that very directory.
 	if err := c.Plat.TerminateApp(); err != nil {

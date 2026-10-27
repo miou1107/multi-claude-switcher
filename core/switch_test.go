@@ -32,6 +32,9 @@ type mockPlatform struct {
 	// onTerminate runs at the moment Claude is closed, so a test can inspect state
 	// in the window where Claude is shut and MCS has not yet reopened it.
 	onTerminate func()
+	// switchBlocked is what SwitchBlocked returns: the platform knowing, before
+	// anything is closed, that a switch cannot work.
+	switchBlocked error
 
 	// createdIdentity and createdPath are separate on purpose. They differ on the
 	// Store build, where the identity comes from state.json and the directory is
@@ -80,6 +83,10 @@ func (m *mockPlatform) ArchiveDir() string { return m.archiveRoot }
 // InstallKind is fixed to "macos" because no test here exercises install-kind
 // branching; it only needs to satisfy platform.Platform.
 func (m *mockPlatform) InstallKind() string { return "macos" }
+
+// SwitchBlocked makes the mock a platform.SwitchGuard; switchBlocked is what a
+// test sets to have it refuse.
+func (m *mockPlatform) SwitchBlocked() error { return m.switchBlocked }
 
 func (m *mockPlatform) AppSupportDir() string                          { return m.appSupport }
 func (m *mockPlatform) FindProfiles() ([]*platform.ProfileInfo, error) { return nil, nil }
@@ -623,6 +630,35 @@ func TestSafeSwitchValidatesTargetBeforeClosingClaude(t *testing.T) {
 	}
 	if mp.terminated {
 		t.Error("Claude must not be closed before the target is known to exist")
+	}
+	if mp.launched {
+		t.Error("nothing should have been launched")
+	}
+	if p := s.PendingRelaunch(); len(p) != 0 {
+		t.Errorf("nothing was closed, so nothing is owed a relaunch, got %q", p)
+	}
+}
+
+// TestSafeSwitchAsksThePlatformBeforeClosingClaude: on a Store install whose data
+// Claude has moved (issue #53) the platform knows the switch cannot work, and it
+// must say so while Claude is still open. Closing the user's app and then
+// refusing is the order this gate exists to prevent.
+func TestSafeSwitchAsksThePlatformBeforeClosingClaude(t *testing.T) {
+	root := t.TempDir()
+	dst := filepath.Join(root, "Claude_Work")
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mp := &mockPlatform{running: true, switchBlocked: platform.ErrClaudeMovedData}
+	s := NewSwitcher(mp, NewBackupManager(filepath.Join(root, "backups")))
+
+	err := s.SafeSwitch(filepath.Join(root, "Claude"), dst, "Claude_Work")
+
+	if !errors.Is(err, platform.ErrClaudeMovedData) {
+		t.Fatalf("err = %v, want the platform's refusal", err)
+	}
+	if mp.terminated {
+		t.Error("Claude was closed for a switch the platform had already refused")
 	}
 	if mp.launched {
 		t.Error("nothing should have been launched")

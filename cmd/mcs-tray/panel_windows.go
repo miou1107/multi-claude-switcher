@@ -13,6 +13,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -412,6 +413,11 @@ func dispatchAction(action, arg string) {
 			err := doSwitchPanel(arg)
 			if err != nil {
 				log.Printf("switch to %s: %v", arg, err)
+			}
+			if errors.Is(err, platform.ErrClaudeMovedData) {
+				// The card closes into the bug report (see SwitchOutcome). Say what
+				// happened in its comment box, so the report is ready to send as is.
+				panelSetDebugComment(movedDataReportComment)
 			}
 			vm := panelui.SwitchOutcome(core.DisplayName(arg), err)
 			// The card goes up before busy comes down, so there is no instant in
@@ -1234,6 +1240,11 @@ func panelCachedPlan(path string) string {
 // doSwitchPanel closes the running Claude and reopens it with the target
 // account, and reports whether it worked.
 //
+// movedDataReportComment fills the bug report's comment box after a switch is
+// refused because the Store build of Claude moved its data (issue #53). It also
+// becomes the issue title, so it names the cause rather than the symptom.
+const movedDataReportComment = "Switching stopped: Claude moved its data to Claude-Data (Microsoft Store build)"
+
 // The error SafeSwitch returns used to be discarded here, and that is how a
 // switch that had actually failed — a rename that never landed, a profile left
 // parked under .mcs-profiles — looked exactly like one that worked. The user

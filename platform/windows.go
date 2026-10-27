@@ -4,6 +4,7 @@ package platform
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -559,9 +560,27 @@ func (w *WindowsPlatform) msixLaunchProfile(profilePath string) error {
 		return msixLaunch()
 	}
 	if err := msixSwapToIn(roaming, filepath.Base(profilePath)); err != nil {
+		if errors.Is(err, ErrClaudeMovedData) {
+			// SwitchBlocked normally stops this before Claude is closed. Reaching
+			// here means Claude moved its data in between, and Claude is closed
+			// now: nothing was swapped, so reopen it as it was.
+			if lerr := msixLaunch(); lerr != nil {
+				log.Printf("[msix] could not reopen Claude after refusing the switch: %v", lerr)
+			}
+		}
 		return err
 	}
 	return msixLaunch()
+}
+
+// SwitchBlocked refuses a switch or a new profile on a Store install whose data
+// Claude has moved out of the package (issue #53), before Claude is closed. See
+// msixMovedDataDir.
+func (w *WindowsPlatform) SwitchBlocked() error {
+	if !w.isMSIX() {
+		return nil
+	}
+	return msixRefuseMovedData(msixRoamingDir())
 }
 
 // findClaudeExecutable locates the standalone Claude Desktop executable. Squirrel
@@ -781,8 +800,15 @@ func (w *WindowsPlatform) ArchiveDir() string {
 // InstallKind distinguishes the two Windows builds because they behave
 // differently enough (shared slot vs. per-profile directory) that a bug report
 // naming just "windows" cannot be acted on.
+//
+// A Store install whose data Claude has moved out of the package says so here,
+// since that is the one fact a report about switching doing nothing turns on
+// (issue #53). Only the folder name is given: the full path holds the user name.
 func (w *WindowsPlatform) InstallKind() string {
 	if w.isMSIX() {
+		if msixMovedDataDir(msixRoamingDir()) != "" {
+			return "store, data moved by Claude to " + claudeMovedDataParent
+		}
 		return "store"
 	}
 	return "standalone"

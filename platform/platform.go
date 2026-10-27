@@ -2,12 +2,28 @@ package platform
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 )
+
+// ErrClaudeMovedData is wrapped by every refusal that comes from the Store build
+// of Claude Desktop having moved its data out of its package (issue #53). Once it
+// has, Claude reads only the moved folder, so swapping the folder MCS manages
+// changes nothing the user sees. Hosts test for it with errors.Is to put the bug
+// report in front of the user rather than only the error.
+var ErrClaudeMovedData = errors.New("Claude has moved its data out of the Microsoft Store app")
+
+// SwitchGuard is implemented by a platform that can tell, before Claude is closed,
+// that a switch or a new profile cannot work on this machine. Callers check it
+// first: closing the app the user is working in and then refusing is the worst
+// order to do those two things in.
+type SwitchGuard interface {
+	SwitchBlocked() error
+}
 
 // SamePath reports whether two paths name the same profile directory.
 //

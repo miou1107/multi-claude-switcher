@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/platform"
 )
 
 // ProgressPhase is where an operation has got to. It is deliberately not a pair
@@ -77,6 +78,9 @@ var dismissActions = map[string]bool{
 	"showList":     true,
 	"showSync":     true,
 	"showSettings": true,
+	// The bug report. Only a switch refused because Claude moved its data asks
+	// for it — see SwitchOutcome.
+	"showDebug": true,
 	// Not a screen: it takes the card down AND puts the whole panel away. Only
 	// a finished switch asks for it — see SwitchOutcome.
 	"dismissAndHide": true,
@@ -213,7 +217,13 @@ func SwitchOutcome(target string, err error) *ProgressVM {
 	if err != nil {
 		var warn *core.SwitchedWithWarning
 		if !errors.As(err, &warn) {
-			return &ProgressVM{Phase: ProgressFailed, Title: "Switch failed", Err: err.Error()}
+			vm := &ProgressVM{Phase: ProgressFailed, Title: "Switch failed", Err: err.Error()}
+			if errors.Is(err, platform.ErrClaudeMovedData) {
+				// Nothing the user can do here fixes it, and the report is what
+				// lets it be fixed (issue #53), so closing the card opens it.
+				vm.Dismiss = "showDebug"
+			}
+			return vm
 		}
 	}
 	vm := &ProgressVM{Phase: ProgressDone, Title: "Switched successfully"}

@@ -3,6 +3,19 @@
 ## [Unreleased]
 
 ### Fixed
+- **(Windows, Store) Switching now stops and says why once Claude has moved its
+  data, instead of saying it switched when it did not.** The Microsoft Store
+  build of Claude Desktop can move its data out of the Store app's folder into
+  `%LOCALAPPDATA%\Claude-Data`, when Anthropic turns that on for an install.
+  From then on Claude reads only the moved copy, while the switcher still
+  swapped the folder inside the Store app, so every switch opened the same
+  account and the panel showed the one you picked
+  ([#53](https://github.com/miou1107/multi-claude-switcher/issues/53)). The
+  switcher now checks for the moved folder before it closes Claude. When it is
+  there, the switch and adding an account both stop with nothing changed, and
+  closing the message opens the bug report with the reason already filled in.
+  The report itself now says when Claude has moved its data. Switching accounts
+  in the moved folder is not supported yet.
 - **(Windows) The offer to switch back is no longer missed when the switcher
   looks at Claude in the middle of an update.** Claude's updater closes the old
   version before it starts the new one, and for a moment only the old version's
