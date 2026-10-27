@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [Unreleased]
+
+### Fixed
+- **(Windows) The offer to switch back is no longer missed when the switcher
+  looks at Claude in the middle of an update.** Claude's updater closes the old
+  version before it starts the new one, and for a moment only the old version's
+  helper processes are left. They still name your account but carry no version,
+  and the switcher, which looks every 20 seconds, took that moment as the
+  "before" picture. When the new version then came up on the default account,
+  the before-and-after comparison had no version on one side, so the switcher
+  declined and you stayed on the default account with no offer. A look like
+  that is now set aside once and the next one is compared with the last look
+  that had a version. A version that stays unreadable for two looks in a row is
+  not an update, and the log says so once instead of every 20 seconds.
+  ([#56](https://github.com/miou1107/multi-claude-switcher/issues/56))
+
 ## [0.14.3] - 2026-10-24
 
 ### Changed

@@ -31,7 +31,7 @@ func startUpdateRelaunchWatcher() {
 	}
 	defaultPath := filepath.Join(plat.AppSupportDir(), "Claude")
 	go func() {
-		var prev claudeSnapshot
+		var watch relaunchWatch
 		for !trayQuitting.Load() {
 			time.Sleep(updateRelaunchPoll)
 			cur, ok := snapshotClaude()
@@ -42,12 +42,11 @@ func startUpdateRelaunchWatcher() {
 				continue
 			}
 			identity, recordedPath := recordedProfile()
-			target, reason := updateRelaunchTarget(prev, cur, defaultPath, recordedPath)
+			from := watch.prev.version
+			target, reason := watch.look(cur, defaultPath, recordedPath)
 			if target != "" {
-				log.Printf("[Update relaunch] Claude %s -> %s reopened on %s; the user was on %s", prev.version, cur.version, defaultPath, target)
+				log.Printf("[Update relaunch] Claude %s -> %s reopened on %s; the user was on %s", from, cur.version, defaultPath, target)
 				restoreAfterUpdate(defaultPath, target, identity)
-				// Look again from scratch next tick, so a refusal is not asked twice.
-				prev = claudeSnapshot{}
 				continue
 			}
 			if reason != "" {
@@ -56,7 +55,6 @@ func startUpdateRelaunchWatcher() {
 				// read why.
 				log.Printf("[Update relaunch] %s", reason)
 			}
-			prev = cur
 		}
 	}()
 }
