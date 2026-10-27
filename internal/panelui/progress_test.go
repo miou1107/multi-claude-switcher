@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/miou1107/multi-claude-switcher/core"
+	"github.com/miou1107/multi-claude-switcher/platform"
 )
 
 func progressAccounts() []ProfileVM {
@@ -438,5 +439,21 @@ func TestAddAccountCards(t *testing.T) {
 	}
 	if AddAccountStarting(true).Title == AddAccountStarting(false).Title {
 		t.Error("recovering and adding must not share a title")
+	}
+}
+
+// Issue #53: a switch refused because the Store build of Claude moved its data.
+// Closing the card opens the bug report instead of the account list, so the
+// report the user is asked to send is one click away rather than three.
+func TestSwitchOutcomeForMovedDataClosesToTheReport(t *testing.T) {
+	got := SwitchOutcome("Work", fmt.Errorf("%w, into somewhere", platform.ErrClaudeMovedData))
+	if got.Phase != ProgressFailed {
+		t.Fatalf("phase %v, want ProgressFailed", got.Phase)
+	}
+	if got.Dismiss != "showDebug" {
+		t.Errorf("Dismiss = %q, want showDebug", got.Dismiss)
+	}
+	if html := listWith(got); !strings.Contains(html, "send('showDebug'") {
+		t.Error("the card's Close does not open the report; showDebug is missing from the dismiss allowlist")
 	}
 }

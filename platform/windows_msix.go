@@ -79,6 +79,56 @@ func msixAUMID() string {
 
 func msixSlotDir(roaming string) string { return filepath.Join(roaming, msixSlotName) }
 
+// claudeMovedDataParent is the folder under %LOCALAPPDATA% that the Store build of
+// Claude Desktop moves its data into, one subfolder per package family in lower
+// case. Read from Claude 3.6556.2 (index.pre.js: LOCALAPPDATA + "Claude" + "-Data",
+// then the family). Claude does this when a server-side switch tells it to; once
+// the folder exists Claude uses it as its data folder on every launch and no
+// longer reads the slot.
+const claudeMovedDataParent = "Claude-Data"
+
+// msixMovedDataDir returns the folder Claude moved its data into, or "" when it
+// has not. roaming must be <LOCALAPPDATA>\Packages\<family>\LocalCache\Roaming;
+// anything else is not a Store install and has nothing moved.
+//
+// Two places are checked. The real %LOCALAPPDATA%\Claude-Data\<family> is where
+// Claude means the data to go. Inside the package's own LocalCache\Local is where
+// the same path lands when Windows redirects the write into the package instead,
+// which Claude's own code allows for. Either way Claude is no longer reading the
+// slot.
+func msixMovedDataDir(roaming string) string {
+	localCache := filepath.Dir(roaming)
+	pkg := filepath.Dir(localCache)
+	packages := filepath.Dir(pkg)
+	if !strings.EqualFold(filepath.Base(roaming), "Roaming") ||
+		!strings.EqualFold(filepath.Base(localCache), "LocalCache") ||
+		!strings.EqualFold(filepath.Base(packages), "Packages") {
+		return ""
+	}
+	family := strings.ToLower(filepath.Base(pkg))
+	for _, dir := range []string{
+		filepath.Join(filepath.Dir(packages), claudeMovedDataParent, family),
+		filepath.Join(localCache, "Local", claudeMovedDataParent, family),
+	} {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			return dir
+		}
+	}
+	return ""
+}
+
+// msixRefuseMovedData returns the refusal for an install whose data Claude has
+// moved, or nil. Every operation that moves the slot asks it first, so nothing on
+// disk changes for a switch that could not have worked.
+func msixRefuseMovedData(roaming string) error {
+	moved := msixMovedDataDir(roaming)
+	if moved == "" {
+		return nil
+	}
+	log.Printf("[msix] Claude has moved its data to %q; refusing to swap the slot, which Claude no longer reads", moved)
+	return fmt.Errorf("%w, into %s, and the switcher cannot switch accounts there yet. Nothing was changed. Settings → Report a bug has what is needed to fix it", ErrClaudeMovedData, moved)
+}
+
 // msixProfilePath returns where the profile called identity keeps its data: the
 // shared slot if it is the current profile, otherwise its parked directory.
 //
@@ -353,6 +403,9 @@ func msixSwapToIn(roaming, targetName string) error {
 	if strings.EqualFold(targetName, current) {
 		return nil // already active
 	}
+	if err := msixRefuseMovedData(roaming); err != nil {
+		return err
+	}
 	targetDir := filepath.Join(container, targetName)
 	if fi, err := os.Stat(targetDir); err != nil || !fi.IsDir() {
 		return fmt.Errorf("profile %q not found", targetName)
@@ -404,6 +457,9 @@ func msixSwapToIn(roaming, targetName string) error {
 // Claude first.
 func msixParkForNewIn(roaming, newName string) error {
 	if err := msixValidateNameIn(roaming, newName); err != nil {
+		return err
+	}
+	if err := msixRefuseMovedData(roaming); err != nil {
 		return err
 	}
 	// Validation trims a local copy; this function stores its argument. Without

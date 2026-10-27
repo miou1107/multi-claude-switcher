@@ -96,6 +96,15 @@ type SwitchedWithWarning struct{ Err error }
 func (e *SwitchedWithWarning) Error() string { return e.Err.Error() }
 func (e *SwitchedWithWarning) Unwrap() error { return e.Err }
 
+// switchBlocked asks the platform, when it can tell, whether a switch or a new
+// profile could work at all on this machine. See platform.SwitchGuard.
+func switchBlocked(p platform.Platform) error {
+	if g, ok := p.(platform.SwitchGuard); ok {
+		return g.SwitchBlocked()
+	}
+	return nil
+}
+
 // switchedWithWarning wraps err unless it is nil, so the return sites below read
 // as one line each.
 func switchedWithWarning(err error) error {
@@ -131,6 +140,10 @@ func (s *Switcher) SafeSwitch(srcProfilePath, dstProfilePath, dstIdentity string
 	// been removed is still a switch worth completing.
 	if fi, err := os.Stat(dstProfilePath); err != nil || !fi.IsDir() {
 		return fmt.Errorf("can't switch to %s: no profile folder there", filepath.Base(dstProfilePath))
+	}
+	// So does a platform that already knows the switch cannot work.
+	if err := switchBlocked(s.Platform); err != nil {
+		return err
 	}
 
 	// Step 1: close any running Claude Desktop (never write into a live profile).

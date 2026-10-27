@@ -1,10 +1,32 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/miou1107/multi-claude-switcher/platform"
 )
+
+// TestCreateProfileAsksThePlatformBeforeClosingClaude: a new profile on a Store
+// install whose data Claude has moved (issue #53) would never be read by Claude,
+// and the refusal must come while Claude is still open.
+func TestCreateProfileAsksThePlatformBeforeClosingClaude(t *testing.T) {
+	m := &mockPlatform{running: true, switchBlocked: platform.ErrClaudeMovedData}
+
+	_, err := NewProfileCreator(m).Create(CreateProfileRequest{Name: "Personal"})
+
+	if !errors.Is(err, platform.ErrClaudeMovedData) {
+		t.Fatalf("err = %v, want the platform's refusal", err)
+	}
+	if m.terminated {
+		t.Error("Claude was closed for a profile the platform had already refused")
+	}
+	if m.createdName != "" {
+		t.Errorf("the platform was asked to create %q after refusing", m.createdName)
+	}
+}
 
 func TestCreateProfileAddPath(t *testing.T) {
 	withStubbedManaged(t)

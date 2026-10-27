@@ -592,3 +592,118 @@ func TestPrepareRemoveRefusesPendingMigrationSource(t *testing.T) {
 		t.Fatal("PrepareRemove accepted the profile a queued migration reads from")
 	}
 }
+
+// claudeMovedFixture creates the folder the Store build of Claude Desktop moves
+// its data into once Anthropic turns the move on for an install:
+// %LOCALAPPDATA%\Claude-Data\<package family, lower case>. roaming is the one
+// msixRealFixture returns, whose package is Claude_test.
+func claudeMovedFixture(t *testing.T, roaming string) string {
+	t.Helper()
+	local := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(roaming))))
+	dir := filepath.Join(local, "Claude-Data", "claude_test")
+	writeProfileDir(t, dir, "moved")
+	return dir
+}
+
+// Issue #53. Once Claude has moved its data to Claude-Data it no longer reads the
+// slot, so swapping the slot changes nothing the user sees: every switch opens
+// the account that was in the slot when Claude moved, while the panel says the
+// switch worked. The swap must refuse and leave every folder where it was.
+func TestMSIXSwapRefusesOnceClaudeHasMovedItsData(t *testing.T) {
+	roaming := msixRealFixture(t)
+	slot := msixSlotDir(roaming)
+	work := filepath.Join(msixContainerDir(roaming), "Work")
+	writeProfileDir(t, slot, "A")
+	writeProfileDir(t, work, "W")
+	claudeMovedFixture(t, roaming)
+
+	if err := msixSwapToIn(roaming, "Work"); err == nil {
+		t.Fatal("swap went ahead although Claude no longer reads the slot")
+	}
+	if got := readMarker(t, slot); got != "A" {
+		t.Errorf("slot holds %q, want A untouched", got)
+	}
+	if got := readMarker(t, work); got != "W" {
+		t.Errorf("parked Work holds %q, want W untouched", got)
+	}
+}
+
+// Creating a profile parks the slot and leaves it empty for Claude to fill. With
+// the data moved, Claude would never look there, so the new account would never
+// appear. Same refusal, same untouched disk.
+func TestMSIXParkForNewRefusesOnceClaudeHasMovedItsData(t *testing.T) {
+	roaming := msixRealFixture(t)
+	slot := msixSlotDir(roaming)
+	writeProfileDir(t, slot, "A")
+	claudeMovedFixture(t, roaming)
+
+	if err := msixParkForNewIn(roaming, "Work"); err == nil {
+		t.Fatal("new profile went ahead although Claude no longer reads the slot")
+	}
+	if got := readMarker(t, slot); got != "A" {
+		t.Errorf("slot holds %q, want A untouched", got)
+	}
+	if exists(msixContainerDir(roaming)) {
+		t.Error("the profile container was created for a refused request")
+	}
+}
+
+// The same refusal says what it is, so the panel can put the bug report in front
+// of the user instead of only the error.
+func TestMSIXMovedDataRefusalIsRecognisable(t *testing.T) {
+	roaming := msixRealFixture(t)
+	writeProfileDir(t, msixSlotDir(roaming), "A")
+	writeProfileDir(t, filepath.Join(msixContainerDir(roaming), "Work"), "W")
+	claudeMovedFixture(t, roaming)
+	if err := msixSwapToIn(roaming, "Work"); !errors.Is(err, ErrClaudeMovedData) {
+		t.Fatalf("err = %v, want ErrClaudeMovedData", err)
+	}
+}
+
+// Claude's own code allows for the move landing inside the package's LocalCache
+// when Windows redirects the write there. Claude reads that copy too, so it counts.
+func TestMSIXMovedDataDirFindsBothPlaces(t *testing.T) {
+	roaming := msixRealFixture(t)
+	if got := msixMovedDataDir(roaming); got != "" {
+		t.Fatalf("nothing moved yet, got %q", got)
+	}
+	inPackage := filepath.Join(filepath.Dir(roaming), "Local", "Claude-Data", "claude_test")
+	writeProfileDir(t, inPackage, "moved")
+	if got := msixMovedDataDir(roaming); !strings.EqualFold(got, inPackage) {
+		t.Fatalf("moved into the package: got %q, want %q", got, inPackage)
+	}
+	real := claudeMovedFixture(t, roaming)
+	if got := msixMovedDataDir(roaming); !strings.EqualFold(got, real) {
+		t.Fatalf("with both present the real folder wins: got %q, want %q", got, real)
+	}
+}
+
+// Most of these tests use a bare temp folder as roaming, which is no Store
+// install. Nothing outside a Packages\<family>\LocalCache\Roaming path may be
+// taken for a move, or every one of them would start refusing.
+func TestMSIXMovedDataDirIgnoresAFolderThatIsNotAPackage(t *testing.T) {
+	roaming := t.TempDir()
+	writeProfileDir(t, filepath.Join(filepath.Dir(roaming), "Claude-Data", strings.ToLower(filepath.Base(roaming))), "x")
+	if got := msixMovedDataDir(roaming); got != "" {
+		t.Fatalf("got %q for a folder that is not a Store package", got)
+	}
+}
+
+// The platform-level check that runs before Claude is closed, and the report line.
+func TestWindowsSwitchBlockedAndInstallKindOnceClaudeHasMovedItsData(t *testing.T) {
+	roaming := msixRealFixture(t)
+	w := &WindowsPlatform{}
+	if err := w.SwitchBlocked(); err != nil {
+		t.Fatalf("nothing moved, yet SwitchBlocked = %v", err)
+	}
+	if got := w.InstallKind(); got != "store" {
+		t.Fatalf("InstallKind = %q, want store", got)
+	}
+	claudeMovedFixture(t, roaming)
+	if err := w.SwitchBlocked(); !errors.Is(err, ErrClaudeMovedData) {
+		t.Fatalf("SwitchBlocked = %v, want ErrClaudeMovedData", err)
+	}
+	if got := w.InstallKind(); !strings.Contains(got, "Claude-Data") {
+		t.Fatalf("InstallKind = %q, want it to say the data moved to Claude-Data", got)
+	}
+}
