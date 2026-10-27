@@ -947,7 +947,7 @@ func reloadPanel() {
 			Busy:       panelGetBusy(),
 		})
 	case "linkguide":
-		htmlStr = panelui.RenderLinkGuide(panelGetStatus())
+		htmlStr = panelLinkGuide()
 	case "debug":
 		// Reused, not rebuilt: showDebug is the only path into this view, and it
 		// only sets the view once the gather that fills panelDebugReportCache

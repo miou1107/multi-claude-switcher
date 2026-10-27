@@ -97,11 +97,16 @@ const claudeLogo = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24"
 // RenderLinkGuide is the screen behind the notice's button. It shows what
 // Windows' "How do you want to open this?" window looks like and where to click,
 // before the button that makes Windows show it. status reports a try that did
-// not open the window.
-func RenderLinkGuide(status string) string {
+// not open the window. switcherName is the switcher's name exactly as that
+// window shows it, "recommended" mark included, which follows Windows' language
+// rather than the panel's; "" draws the plain name.
+func RenderLinkGuide(status, switcherName string) string {
 	statusBanner := ""
 	if status != "" {
 		statusBanner = `<div class="hintw" style="margin:0 0 10px">` + html.EscapeString(status) + `</div>`
+	}
+	if switcherName == "" {
+		switcherName = "Multi-Claude Switcher"
 	}
 	body := `<div class="header">
   <button class="back" onclick="send('showList','')">‹</button>
@@ -109,14 +114,14 @@ func RenderLinkGuide(status string) string {
 </div>` + statusBanner + `
 <div class="hint" style="margin-top:0">Windows will ask which app opens claude:// links. In that window:</div>
 <div class="gsteps">
-  <div><b>①</b><span>Click Multi-Claude Switcher (recommended)</span></div>
+  <div><b>①</b><span>Click Multi-Claude Switcher</span></div>
   <div><b>②</b><span>Leave Always use this app ticked</span></div>
   <div><b>③</b><span>Click OK</span></div>
 </div>
 <div class="gpick" aria-hidden="true">
   <div class="gq">How do you want to open this?</div>
   <div class="gapp">` + claudeLogo + `<span translate="no">Claude</span></div>
-  <div class="gapp gon">` + switcherLogo + `<span><span translate="no">Multi-Claude Switcher</span> <span>(recommended)</span></span><span class="gmark">①</span></div>
+  <div class="gapp gon">` + switcherLogo + `<span translate="no">` + html.EscapeString(switcherName) + `</span><span class="gmark">①</span></div>
   <div class="gbox"><span class="gtick">✓</span><span>Always use this app</span><span class="gmark">②</span></div>
   <div class="gok"><span class="gokbtn">OK</span><span class="gmark">③</span></div>
 </div>

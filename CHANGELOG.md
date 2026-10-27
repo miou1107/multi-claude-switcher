@@ -16,9 +16,9 @@
   click, then makes Windows show it. Pick Multi-Claude Switcher, marked
   recommended there. From then on the switcher passes each link to the account
   you are on. The notice has no "Not now", because sign-in is broken until this
-  is done, and it stays until the switcher is chosen. If you pick another app,
-  it says so, and the button asks Windows again. Uninstalling the switcher
-  removes it from Windows' list of apps.
+  is done, and it stays until the switcher is chosen. If you pick the Store app
+  instead, it says so, and the button asks Windows again. Uninstalling the
+  switcher removes it from Windows' list of apps.
 - **The foot of the account list names the Claude Desktop the switcher drives**
   ([#61](https://github.com/miou1107/multi-claude-switcher/issues/61)): its
   version, and whether it is from the Microsoft Store, from claude.com, or the

@@ -86,15 +86,15 @@ func ClaudeLinkState() ClaudeLinkStatus {
 
 // RegisterClaudeLinkHandler offers the running switcher to Windows as an app
 // that can open claude:// links. It changes nothing about which app does: that
-// is the user's pick in OpenClaudeLinkPicker. Run each time before the picker,
-// so the entry always names the switcher's current location.
+// is the user's pick in the window AskWindowsForClaudeLinkApp brings up. Run
+// each time before asking, so the entry always names the switcher's current
+// location.
 func RegisterClaudeLinkHandler() error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("find the switcher's own path: %w", err)
 	}
-	lang, _, _ := procGetUserDefaultUILanguage.Call()
-	for _, v := range claudeLinkRegistration(exe, uint16(lang)) {
+	for _, v := range claudeLinkRegistration(exe, windowsUILanguage()) {
 		k, _, err := registry.CreateKey(registry.CURRENT_USER, v.key, registry.SET_VALUE)
 		if err != nil {
 			return fmt.Errorf("register the claude:// handler (%s): %w", v.key, err)
@@ -122,10 +122,31 @@ func RefreshClaudeLinkHandler() error {
 	return RegisterClaudeLinkHandler()
 }
 
+// windowsUILanguage is Windows' display language, a LANGID.
+func windowsUILanguage() uint16 {
+	lang, _, _ := procGetUserDefaultUILanguage.Call()
+	return uint16(lang)
+}
+
+// ClaudeLinkDisplayName is how the switcher is named in Windows' "How do you
+// want to open this?" window, so the guide can show the same words.
+func ClaudeLinkDisplayName() string {
+	return claudeLinkDisplayName(windowsUILanguage())
+}
+
 // UnregisterClaudeLinkHandler removes what RegisterClaudeLinkHandler wrote. The
 // uninstaller runs it, so nothing is left offering an exe that is gone.
+//
+// The user's pick goes too when it is the switcher. Left behind, it names an
+// app that no longer exists, and Windows answers the next link with a notice
+// that an app default was reset.
 func UnregisterClaudeLinkHandler() error {
 	var errs []error
+	if strings.EqualFold(claudeLinkUserChoice(), ClaudeLinkProgID) {
+		if err := registry.DeleteKey(registry.CURRENT_USER, claudeLinkUserChoiceKey); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if k, err := registry.OpenKey(registry.CURRENT_USER, `Software\RegisteredApplications`, registry.SET_VALUE); err == nil {
 		if err := k.DeleteValue(claudeLinkAppName); err != nil && !errors.Is(err, registry.ErrNotExist) {
 			errs = append(errs, err)
@@ -194,11 +215,17 @@ func AskWindowsForClaudeLinkApp() error {
 	// come up and nothing was picked, Windows gave the link straight to an app,
 	// and only Settings is left to change it.
 	for deadline := time.Now().Add(chooserAppearsWithin); time.Now().Before(deadline); time.Sleep(250 * time.Millisecond) {
-		if processRunning("OpenWith.exe") || ClaudeLinkState() == ClaudeLinksViaSwitcher {
+		if ClaudeLinkChooserOpen() || ClaudeLinkState() == ClaudeLinksViaSwitcher {
 			return nil
 		}
 	}
 	return ErrNoClaudeLinkChooser
+}
+
+// ClaudeLinkChooserOpen reports whether Windows' "How do you want to open
+// this?" window is up: it is OpenWith.exe (measured, Windows 10).
+func ClaudeLinkChooserOpen() bool {
+	return processRunning("OpenWith.exe")
 }
 
 // chooserAppearsWithin is how long Windows gets to show its window.
@@ -289,16 +316,19 @@ func claudeComVersion() string {
 // storePackageFamily returns the Store build's package family name, read from
 // its data folder under %LOCALAPPDATA%\Packages, or "".
 func storePackageFamily() string {
-	local := os.Getenv("LOCALAPPDATA")
-	if local == "" {
-		return ""
+	if local := os.Getenv("LOCALAPPDATA"); local != "" {
+		if matches, _ := filepath.Glob(filepath.Join(local, "Packages", storePackageName+"_*")); len(matches) > 0 {
+			return filepath.Base(matches[0])
+		}
 	}
-	matches, _ := filepath.Glob(filepath.Join(local, "Packages", storePackageName+"_*"))
-	if len(matches) == 0 {
-		return ""
-	}
-	return filepath.Base(matches[0])
+	// The data folder appears only once Claude has run. The family is fixed by
+	// the publisher, so it is known without it.
+	return storePackageFamilyName
 }
+
+// storePackageFamilyName is the Store build's package family name (measured,
+// Claude 3.6556.2 from the Store).
+const storePackageFamilyName = storePackageName + "_fnn82j28hfe8t"
 
 // packageFamilyVersion returns the version of the installed package in a
 // package family, or "". The install folder that carries it in its name is

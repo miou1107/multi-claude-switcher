@@ -19,10 +19,13 @@ func TestClaudeLinkStatusFor(t *testing.T) {
 		{"store app owns the links", "AppX8fe9ajw7dbkq7xe010tqgz6zzabny2ka", "", true, false, ClaudeLinksNeedSwitcher},
 		{"user chose the switcher", ClaudeLinkProgID, ClaudeLinkProgID, true, false, ClaudeLinksViaSwitcher},
 		{"chosen, matched without case", strings.ToLower(ClaudeLinkProgID), ClaudeLinkProgID, true, false, ClaudeLinksViaSwitcher},
-		// Picking another app in Windows' window still leaves the links on the
+		// Picking the Store app in Windows' window still leaves the links on the
 		// default account, so the notice stays, and Windows stops asking.
 		{"store app picked", "AppX8fe9ajw7dbkq7xe010tqgz6zzabny2ka", "AppX8fe9ajw7dbkq7xe010tqgz6zzabny2ka", true, false, ClaudeLinksOtherAppPicked},
-		{"store installed, another app picked", "claude", "claude", true, false, ClaudeLinksOtherAppPicked},
+		{"store installed, an unknown app picked", "SomeBrowserURL", "SomeBrowserURL", true, false, ClaudeLinksOtherAppPicked},
+		// Picking Claude's own registration is not a wrong pick: that is the
+		// command the switcher holds on the account in use.
+		{"store installed, Claude's own handler picked", "claude", "claude", true, false, ClaudeLinksFine},
 		// The claude.com build alone: the handler the switcher holds on the
 		// account in use is what Windows reads.
 		{"claude.com build only", "claude", "", false, false, ClaudeLinksFine},
@@ -57,14 +60,14 @@ func TestClaudeLinkRegistration(t *testing.T) {
 		// What Windows runs for a link once the user has chosen the switcher.
 		`Software\Classes\MultiClaudeSwitcher.ClaudeLink\shell\open\command|`: `"` + exe + `" --open-claude-link "%1"`,
 		// What puts the switcher in Windows' list of apps for claude://.
-		`Software\RegisteredApplications|Multi-Claude Switcher`:                          `Software\Multi-Claude Switcher\Capabilities`,
-		`Software\Multi-Claude Switcher\Capabilities\URLAssociations|claude`:             ClaudeLinkProgID,
-		`Software\Multi-Claude Switcher\Capabilities|ApplicationName`:                    "Multi-Claude Switcher",
-		`Software\Classes\MultiClaudeSwitcher.ClaudeLink\Application|ApplicationName`:    "Multi-Claude Switcher (recommended)",
-		`Software\Classes\MultiClaudeSwitcher.ClaudeLink\DefaultIcon|`:                   `"` + exe + `",0`,
-		`Software\Classes\MultiClaudeSwitcher.ClaudeLink\Application|ApplicationIcon`:    `"` + exe + `",0`,
-		`Software\Classes\MultiClaudeSwitcher.ClaudeLink|`:                               "Claude sign-in link",
-		`Software\Multi-Claude Switcher\Capabilities|ApplicationDescription`:             "Sends Claude sign-in links to the account you are on.",
+		`Software\RegisteredApplications|Multi-Claude Switcher`:                       `Software\Multi-Claude Switcher\Capabilities`,
+		`Software\Multi-Claude Switcher\Capabilities\URLAssociations|claude`:          ClaudeLinkProgID,
+		`Software\Multi-Claude Switcher\Capabilities|ApplicationName`:                 "Multi-Claude Switcher",
+		`Software\Classes\MultiClaudeSwitcher.ClaudeLink\Application|ApplicationName`: "Multi-Claude Switcher (recommended)",
+		`Software\Classes\MultiClaudeSwitcher.ClaudeLink\DefaultIcon|`:                `"` + exe + `",0`,
+		`Software\Classes\MultiClaudeSwitcher.ClaudeLink\Application|ApplicationIcon`: `"` + exe + `",0`,
+		`Software\Classes\MultiClaudeSwitcher.ClaudeLink|`:                            "Claude sign-in link",
+		`Software\Multi-Claude Switcher\Capabilities|ApplicationDescription`:          "Sends Claude sign-in links to the account you are on.",
 	}
 	for k, v := range want {
 		if got[k] != v {
@@ -120,12 +123,12 @@ func TestRecommendedMark(t *testing.T) {
 func TestIsClaudeLinkChooser(t *testing.T) {
 	for link, want := range map[string]bool{
 		ClaudeLinkChooser: true,
-		"claude://hotkey/?from=multi-claude-switcher":           true,
-		"CLAUDE://HOTKEY?from=multi-claude-switcher":            true,
-		"claude://hotkey":                                       false,
+		"claude://hotkey/?from=multi-claude-switcher": true,
+		"CLAUDE://HOTKEY?from=multi-claude-switcher":  true,
+		"claude://hotkey": false,
 		"claude://login/google-auth?from=multi-claude-switcher": false,
 		"claude://hotkey/x?from=multi-claude-switcher":          false,
-		"%%%":                                                   false,
+		"%%%": false,
 	} {
 		if got := IsClaudeLinkChooser(link); got != want {
 			t.Errorf("IsClaudeLinkChooser(%q) = %v, want %v", link, got, want)

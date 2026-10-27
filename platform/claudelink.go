@@ -52,6 +52,16 @@ const ClaudeLinkProgID = "MultiClaudeSwitcher.ClaudeLink"
 // tells the user what to click can name it exactly.
 const claudeLinkAppName = "Multi-Claude Switcher"
 
+// claudeLinkDisplayName is how the switcher is named in Windows' "How do you
+// want to open this?" window: its name with the "recommended" mark in Windows'
+// language, a LANGID.
+func claudeLinkDisplayName(uiLanguage uint16) string {
+	return claudeLinkAppName + recommendedMark(uiLanguage)
+}
+
+// claudeClassicProgID is Claude's own registration, HKCU\Software\Classes\claude.
+const claudeClassicProgID = "claude"
+
 // claudeLinkCapabilities is where the switcher declares what it can open.
 const claudeLinkCapabilities = `Software\Multi-Claude Switcher\Capabilities`
 
@@ -98,15 +108,16 @@ func (s ClaudeLinkStatus) String() string {
 // have not), whether the Store build the switcher drives is installed, and
 // whether the older Store build is the one in use.
 //
-// With the Store build installed, any answer but the switcher leaves the links
-// on the default account: the package's own handler, and equally the
-// claude.com build's or anything else the user picks in Windows' window. That
-// is why picking another app keeps the notice up.
+// With the Store build installed, a packaged app's handler leaves the links on
+// the default account, so picking it keeps the notice up. Claude's own
+// HKCU\Software\Classes\claude does not: that is the command the switcher holds
+// on the account in use (protocolhandler_windows.go), whichever build it
+// drives, so a user who picks that in Windows' window is not told otherwise.
 func claudeLinkStatusFor(progID, userChoice string, storeBuild, slotBuild bool) ClaudeLinkStatus {
 	switch {
 	case strings.EqualFold(progID, ClaudeLinkProgID):
 		return ClaudeLinksViaSwitcher
-	case slotBuild:
+	case slotBuild, strings.EqualFold(progID, claudeClassicProgID):
 		return ClaudeLinksFine
 	case storeBuild, strings.HasPrefix(strings.ToLower(progID), "appx"):
 		if userChoice != "" {
@@ -137,7 +148,7 @@ func claudeLinkRegistration(exe string, uiLanguage uint16) []regValue {
 	return []regValue{
 		{prog, "", "Claude sign-in link"},
 		{prog + `\DefaultIcon`, "", icon},
-		{prog + `\Application`, "ApplicationName", claudeLinkAppName + recommendedMark(uiLanguage)},
+		{prog + `\Application`, "ApplicationName", claudeLinkDisplayName(uiLanguage)},
 		{prog + `\Application`, "ApplicationIcon", icon},
 		{prog + `\shell\open\command`, "", `"` + exe + `" --open-claude-link "%1"`},
 		{claudeLinkCapabilities, "ApplicationName", claudeLinkAppName},
