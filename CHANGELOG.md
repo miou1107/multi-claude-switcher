@@ -12,10 +12,13 @@
   The new package opens on whichever account folder it is given, the same as
   the claude.com build, through the `claude-desktop-msstore.exe` command the
   Store adds. The switcher now finds that command when there is no claude.com
-  build and switches with it, one folder per account. Signing in comes back to
-  the right account too: Claude registers `claude://` with a path Windows will
-  not start directly, and the switcher now puts that command there instead. The
-  bug report names the Store package.
+  build and switches with it, one folder per account. Claude registers
+  `claude://` with a path Windows refuses to start directly; when the switcher
+  points sign-in links at an account it now writes that command there instead.
+  The bug report names the Store package. Accounts the switcher parked in the
+  older package's folder while this was broken stay where they were, under
+  `%LOCALAPPDATA%\Packages\Claude_<hash>\LocalCache\Roaming\.mcs-profiles`;
+  nothing was deleted.
 - **(Windows, Store) Switching now stops and says why once Claude has moved its
   data, instead of saying it switched when it did not.** The Microsoft Store
   build of Claude Desktop can move its data out of the Store app's folder into

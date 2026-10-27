@@ -136,25 +136,37 @@ func protocolCommandProfile(cmd string) (string, bool) {
 
 // SetProtocolHandlerProfile points `claude://` at profilePath, so a sign-in
 // callback opens the profile the user is actually on. It is a no-op when the
-// handler already names that profile.
+// handler already names that profile with an executable that can be started.
 func SetProtocolHandlerProfile(profilePath string) error {
 	cmd, err := readProtocolCommand()
 	if err != nil {
 		return err
 	}
-	exe, ok := exeFromProtocolCommand(cmd)
-	if !ok {
-		return fmt.Errorf("could not read Claude's path out of the claude:// handler (%q)", cmd)
+	next, write, err := protocolCommandFor(cmd, profilePath)
+	if err != nil || !write {
+		return err
 	}
-	launchable := launchableHandlerExe(exe)
-	if cur, ok := protocolCommandProfile(cmd); ok && strings.EqualFold(cur, profilePath) && launchable == exe {
-		return nil
-	}
-	if err := writeProtocolCommand(buildProtocolCommand(launchable, profilePath)); err != nil {
+	if err := writeProtocolCommand(next); err != nil {
 		return err
 	}
 	log.Printf("claude:// handler now opens %s", profilePath)
 	return nil
+}
+
+// protocolCommandFor returns the handler command that opens profilePath, and
+// whether it differs from cmd. It is apart from the registry so it can be
+// tested: the hold asks it every second, and a wrong "differs" rewrites the key
+// every second.
+func protocolCommandFor(cmd, profilePath string) (next string, write bool, err error) {
+	exe, exeOK := exeFromProtocolCommand(cmd)
+	if cur, ok := protocolCommandProfile(cmd); ok && strings.EqualFold(cur, profilePath) &&
+		(!exeOK || launchableHandlerExe(exe) == exe) {
+		return cmd, false, nil
+	}
+	if !exeOK {
+		return "", false, fmt.Errorf("could not read Claude's path out of the claude:// handler (%q)", cmd)
+	}
+	return buildProtocolCommand(launchableHandlerExe(exe), profilePath), true, nil
 }
 
 // launchableHandlerExe returns exe, or the command that can start the same Claude

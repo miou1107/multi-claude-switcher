@@ -219,6 +219,11 @@ func isDesktopProcess(p procInfo) bool {
 	if strings.Contains(hay, `\windowsapps\anthropicpbc.claude_`) {
 		return true // Store build, package AnthropicPBC.Claude
 	}
+	if strings.Contains(hay, `\microsoft\windowsapps\`+storeAliasName) {
+		// The same build started through its alias: the command line names the
+		// alias, so this still holds when no executable path is reported.
+		return true
+	}
 	return false
 }
 

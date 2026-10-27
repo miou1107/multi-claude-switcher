@@ -789,3 +789,70 @@ func TestAHandlerPointingIntoWindowsAppsIsRewrittenToTheAlias(t *testing.T) {
 		t.Errorf("a standalone path was rewritten to %q", got)
 	}
 }
+
+// A machine that moved to the current Store package can keep the old one's
+// folder, state.json included. A migration queued there while the switcher was
+// driving the wrong package must not be picked up again: the tray polls it for
+// a quarter of an hour on every start.
+func TestTheOldStoreContainerIsIgnoredOnceTheCurrentPackageIsInstalled(t *testing.T) {
+	roaming := msixRealFixture(t)
+	if err := writeMSIXStateIn(roaming, msixState{Current: "Work", PendingMigrateFrom: "Claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if !MSIXPendingMigration() || MSIXCurrentName() != "Work" {
+		t.Fatal("fixture: with only the old package the queued migration must be visible")
+	}
+	storeAliasFixture(t)
+	if MSIXPendingMigration() {
+		t.Error("a migration left in the old package's folder was picked up although the current Store package is installed")
+	}
+	if got := MSIXCurrentName(); got != "" {
+		t.Errorf("MSIXCurrentName = %q, want none once the old package is not the one in use", got)
+	}
+	if MSIXUnconfiguredMultiAccount() {
+		t.Error("the old package's folder was read for the multi-account nudge")
+	}
+}
+
+// The hold calls this every second. The Store build's own registration is
+// rewritten to the alias once, and from then on the answer is "nothing to do";
+// a handler the switcher already wrote must never be rewritten again.
+func TestProtocolCommandForRewritesTheStorePathOnceAndThenSettles(t *testing.T) {
+	msixRealFixture(t)
+	alias := storeAliasFixture(t)
+	profile := `C:\Users\Example\AppData\Roaming\ClaudeWork`
+	storeOwn := `"C:\Program Files\WindowsApps\AnthropicPBC.Claude_3.6556.2.0_x64__fnn82j28hfe8t\app\Claude.exe" "%1"`
+
+	// What the switcher used to leave behind: the right profile, an exe that
+	// cannot be started. "Already names the profile" must not keep it.
+	stuck := `"C:\Program Files\WindowsApps\AnthropicPBC.Claude_3.6556.2.0_x64__fnn82j28hfe8t\app\Claude.exe" --user-data-dir="` + profile + `" "%1"`
+
+	for _, start := range []string{storeOwn, stuck} {
+		next, write, err := protocolCommandFor(start, profile)
+		if err != nil || !write {
+			t.Fatalf("from %q: write=%v err=%v, want a rewrite", start, write, err)
+		}
+		if exe, _ := exeFromProtocolCommand(next); !strings.EqualFold(exe, alias) {
+			t.Errorf("from %q: rewritten exe %q, want the alias", start, exe)
+		}
+		if got, _ := protocolCommandProfile(next); got != profile {
+			t.Errorf("from %q: rewritten profile %q, want %q", start, got, profile)
+		}
+		// The next tick, and the one after, see what was just written.
+		for tick := 2; tick <= 3; tick++ {
+			again, write, err := protocolCommandFor(next, profile)
+			if err != nil || write || again != next {
+				t.Fatalf("tick %d after %q: write=%v err=%v; the hold would rewrite the key every second", tick, start, write, err)
+			}
+		}
+	}
+
+	standalone := `"C:\Users\Example\AppData\Local\AnthropicClaude\app-3.6556.2\claude.exe" "%1"`
+	next, write, err := protocolCommandFor(standalone, profile)
+	if err != nil || !write {
+		t.Fatalf("standalone: write=%v err=%v", write, err)
+	}
+	if exe, _ := exeFromProtocolCommand(next); exe != `C:\Users\Example\AppData\Local\AnthropicClaude\app-3.6556.2\claude.exe` {
+		t.Errorf("standalone exe changed to %q", exe)
+	}
+}

@@ -64,6 +64,14 @@ func TestIsDesktopProcess(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "Store desktop app started through its alias, with no executable path reported",
+			p: procInfo{
+				exePath: "",
+				cmdLine: `"C:\Users\Example\AppData\Local\Microsoft\WindowsApps\claude-desktop-msstore.exe" --user-data-dir="C:\Users\Example\AppData\Roaming\ClaudeWork"`,
+			},
+			want: true,
+		},
+		{
 			name: "Store desktop app, new package AnthropicPBC.Claude (issue #53)",
 			p: procInfo{
 				exePath: `C:\Program Files\WindowsApps\AnthropicPBC.Claude_3.6556.2.0_x64__fnn82j28hfe8t\app\Claude.exe`,

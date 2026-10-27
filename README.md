@@ -51,12 +51,13 @@ left. Enough friction that most people stop bothering.
 ## Install
 
 > ⚠️ **Before anything else**
-> You need [Claude Desktop](https://claude.com/download) from claude.com, or the
-> one the Microsoft Store installs today (package `AnthropicPBC.Claude`), which
-> the switcher opens through the `claude-desktop-msstore.exe` command the Store
-> adds. **Older Store installs are not supported**: they keep their data
-> somewhere virtualized that cannot be swapped out, which is the mechanism this
-> whole tool depends on.
+> You need [Claude Desktop](https://claude.com/download), from claude.com or from
+> the Microsoft Store. The Store installs it today as the package
+> `AnthropicPBC.Claude`, which the switcher opens through the
+> `claude-desktop-msstore.exe` command the Store adds, one folder per account,
+> the same way as the claude.com build. The older Store package
+> (`Claude_<hash>`) has a single data folder, which the switcher swaps when you
+> switch.
 
 **macOS**
 
@@ -90,12 +91,12 @@ The panel is drawn with the **WebView2 Runtime**, which ships with Windows 11 an
 with Windows 10 21H2 or newer. On anything older the app points you at
 Microsoft's installer.
 
-**Before any of this**, you need [Claude Desktop](https://claude.com/download)
-from claude.com, or the one the Microsoft Store installs today (package
-`AnthropicPBC.Claude`). When both are installed, the switcher uses the one from
-claude.com. Older Store installs are not supported: they keep their data
-somewhere virtualized that cannot be swapped out, which is the mechanism the
-whole tool depends on.
+**Before any of this**, you need [Claude Desktop](https://claude.com/download),
+from claude.com or from the Microsoft Store. When both are installed, the
+switcher uses the one from claude.com. The Store installs Claude today as the
+package `AnthropicPBC.Claude`, which is switched the same way as the claude.com
+build; the older Store package (`Claude_<hash>`) is switched by swapping its
+single data folder.
 
 Updates install themselves in the background, on both platforms. You install
 once. Nothing asks first; once a new version is running, one notification says

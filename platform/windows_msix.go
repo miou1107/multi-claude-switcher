@@ -563,10 +563,23 @@ func MSIXAvailable() bool {
 	return msixRoamingDir() != ""
 }
 
+// msixActiveRoamingDir returns the old Store package's roaming dir only while that
+// package is the one the switcher drives, and "" otherwise. A machine that moved
+// to the current Store package (or to the standalone build) can keep the old
+// package's folder, state.json included, and nothing in it may be acted on: a
+// migration queued there while the switcher drove the wrong package (issue #53)
+// would otherwise be polled again on every start.
+func msixActiveRoamingDir() string {
+	if !MSIXAvailable() {
+		return ""
+	}
+	return msixRoamingDir()
+}
+
 // MSIXCurrentName returns the display/folder name of the currently active Store
 // profile, or "" if the Store build is not present.
 func MSIXCurrentName() string {
-	roaming := msixRoamingDir()
+	roaming := msixActiveRoamingDir()
 	if roaming == "" {
 		return ""
 	}
@@ -577,7 +590,7 @@ func MSIXCurrentName() string {
 // signed-out Claude under newName so the user can log into another account. The
 // caller must have terminated Claude Desktop first.
 func MSIXNewProfile(newName string) error {
-	roaming := msixRoamingDir()
+	roaming := msixActiveRoamingDir()
 	if roaming == "" {
 		return errors.New("no Store Claude Desktop found")
 	}
@@ -590,7 +603,7 @@ func MSIXNewProfile(newName string) error {
 // MSIXPendingMigration reports whether a first-login session migration is queued
 // (i.e. a profile was just created and we are waiting for the user to sign in).
 func MSIXPendingMigration() bool {
-	roaming := msixRoamingDir()
+	roaming := msixActiveRoamingDir()
 	if roaming == "" {
 		return false
 	}
@@ -600,7 +613,7 @@ func MSIXPendingMigration() bool {
 // MSIXAttemptMigration tries to complete a queued migration; see
 // msixAttemptMigrationIn. done is false while the user has not yet signed in.
 func MSIXAttemptMigration() (copied int, done bool) {
-	roaming := msixRoamingDir()
+	roaming := msixActiveRoamingDir()
 	if roaming == "" {
 		return 0, true
 	}
@@ -609,7 +622,7 @@ func MSIXAttemptMigration() (copied int, done bool) {
 
 // MSIXCancelMigration clears a queued migration (used when the poller gives up).
 func MSIXCancelMigration() {
-	roaming := msixRoamingDir()
+	roaming := msixActiveRoamingDir()
 	if roaming == "" {
 		return
 	}
@@ -625,7 +638,7 @@ func MSIXCancelMigration() {
 // two or more account buckets and no profile has been parked yet. Used to nudge
 // the user toward setting up their other account.
 func MSIXUnconfiguredMultiAccount() bool {
-	roaming := msixRoamingDir()
+	roaming := msixActiveRoamingDir()
 	if roaming == "" {
 		return false
 	}
