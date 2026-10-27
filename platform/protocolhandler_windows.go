@@ -51,6 +51,7 @@ package platform
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -135,24 +136,60 @@ func protocolCommandProfile(cmd string) (string, bool) {
 
 // SetProtocolHandlerProfile points `claude://` at profilePath, so a sign-in
 // callback opens the profile the user is actually on. It is a no-op when the
-// handler already names that profile.
+// handler already names that profile with an executable that can be started.
 func SetProtocolHandlerProfile(profilePath string) error {
 	cmd, err := readProtocolCommand()
 	if err != nil {
 		return err
 	}
-	if cur, ok := protocolCommandProfile(cmd); ok && strings.EqualFold(cur, profilePath) {
-		return nil
+	next, write, err := protocolCommandFor(cmd, profilePath)
+	if err != nil || !write {
+		return err
 	}
-	exe, ok := exeFromProtocolCommand(cmd)
-	if !ok {
-		return fmt.Errorf("could not read Claude's path out of the claude:// handler (%q)", cmd)
-	}
-	if err := writeProtocolCommand(buildProtocolCommand(exe, profilePath)); err != nil {
+	if err := writeProtocolCommand(next); err != nil {
 		return err
 	}
 	log.Printf("claude:// handler now opens %s", profilePath)
 	return nil
+}
+
+// protocolCommandFor returns the handler command that opens profilePath, and
+// whether it differs from cmd. It is apart from the registry so it can be
+// tested: the hold asks it every second, and a wrong "differs" rewrites the key
+// every second.
+func protocolCommandFor(cmd, profilePath string) (next string, write bool, err error) {
+	exe, exeOK := exeFromProtocolCommand(cmd)
+	if cur, ok := protocolCommandProfile(cmd); ok && strings.EqualFold(cur, profilePath) &&
+		(!exeOK || launchableHandlerExe(exe) == exe) {
+		return cmd, false, nil
+	}
+	if !exeOK {
+		return "", false, fmt.Errorf("could not read Claude's path out of the claude:// handler (%q)", cmd)
+	}
+	return buildProtocolCommand(launchableHandlerExe(exe), profilePath), true, nil
+}
+
+// launchableHandlerExe returns exe, or the command that can start the same Claude
+// when exe cannot be started from a handler. The Microsoft Store build registers
+// claude:// with its own Claude.exe under Program Files\WindowsApps, and Windows
+// refuses to start that file directly ("Access is denied"), so a sign-in held on
+// a profile with that path never came back. Its execution alias starts it.
+func launchableHandlerExe(exe string) string {
+	if !isPackagedInstallPath(exe) {
+		return exe
+	}
+	if alt, err := findClaudeExecutable(); err == nil {
+		return alt
+	}
+	return exe
+}
+
+// isPackagedInstallPath reports whether path is inside a package's install folder
+// under Program Files\WindowsApps. The execution aliases in
+// %LOCALAPPDATA%\Microsoft\WindowsApps are not: those are what starts a package.
+func isPackagedInstallPath(path string) bool {
+	p := strings.ToLower(filepath.Clean(path))
+	return strings.Contains(p, `\windowsapps\`) && !strings.Contains(p, `\microsoft\windowsapps\`)
 }
 
 // RestoreProtocolHandler puts `claude://` back to the form Claude Desktop

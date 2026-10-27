@@ -23,12 +23,12 @@ import (
 // respects --user-data-dir, mirroring the macOS model. This is "Option B" in
 // docs/superpowers/specs/2026-07-23-windows-port-foundation-design-draft.md.
 //
-// The MSIX / Microsoft-Store (enterprise) build is NOT yet supported for
-// launching: its executable lives under an ACL-locked WindowsApps directory and
-// virtualizes its data dir, and whether it forwards a custom --user-data-dir is
-// unverified (design draft Option A, probe 3). The detection / termination
-// methods below already recognise both builds; only LaunchProfile and the data
-// root are standalone-only for now.
+// The Microsoft Store build installed today (package AnthropicPBC.Claude) takes
+// that path too: its executable under Program Files\WindowsApps cannot be
+// started directly, but the claude-desktop-msstore.exe alias it installs
+// forwards --user-data-dir, so findClaudeExecutable returns the alias when there
+// is no standalone build. The older Store package (Claude_<hash>) is the one the
+// slot swap in windows_msix.go is for.
 type WindowsPlatform struct{}
 
 func New() Platform {
@@ -214,7 +214,15 @@ func isDesktopProcess(p procInfo) bool {
 		return true // standalone build
 	}
 	if strings.Contains(hay, `\windowsapps\claude_`) {
-		return true // MSIX / Store build
+		return true // MSIX / Store build, old package
+	}
+	if strings.Contains(hay, `\windowsapps\anthropicpbc.claude_`) {
+		return true // Store build, package AnthropicPBC.Claude
+	}
+	if strings.Contains(hay, `\microsoft\windowsapps\`+storeAliasName) {
+		// The same build started through its alias: the command line names the
+		// alias, so this still holds when no executable path is reported.
+		return true
 	}
 	return false
 }
@@ -589,6 +597,15 @@ func (w *WindowsPlatform) SwitchBlocked() error {
 //
 // NOTE: these paths are the expected standalone layout and are UNVERIFIED
 // (design draft probe 4). Confirm on a real standalone install before shipping.
+//
+// When there is no standalone build it falls back to the Microsoft Store build
+// that Store installs are now (package AnthropicPBC.Claude), through its app
+// execution alias. That build takes --user-data-dir the same way, so finding it
+// here is what puts it on the standalone path rather than the old Store build's
+// slot swap (issue #53). Measured on Claude 3.6556.2 from the Store: started
+// through the alias with --user-data-dir it logs "[user-data-move]
+// stay_chosen_folder" and writes to that folder under %APPDATA%, while its
+// own Claude.exe under Program Files\WindowsApps refuses a direct start.
 func findClaudeExecutable() (string, error) {
 	local := os.Getenv("LOCALAPPDATA")
 	var candidates []string
@@ -598,13 +615,42 @@ func findClaudeExecutable() (string, error) {
 			candidates = append(candidates, matches...)
 		}
 	}
+	if alias := storeAliasPath(); alias != "" {
+		candidates = append(candidates, alias)
+	}
 	for _, c := range candidates {
-		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+		if isLaunchableFile(c) {
 			return c, nil
 		}
 	}
-	return "", fmt.Errorf("standalone Claude Desktop executable not found under %%LOCALAPPDATA%%\\AnthropicClaude; " +
-		"install the standalone build from claude.com/download (the enterprise MSIX/Store build is not yet supported for launching)")
+	return "", fmt.Errorf("Claude Desktop executable not found under %%LOCALAPPDATA%%\\AnthropicClaude, and the Microsoft Store build's %s is not installed; "+
+		"install Claude Desktop from claude.com/download or the Microsoft Store", storeAliasName)
+}
+
+// storeAliasName is the command the Microsoft Store build of Claude Desktop
+// (package AnthropicPBC.Claude) installs under %LOCALAPPDATA%\Microsoft\WindowsApps.
+// It starts the packaged app with whatever arguments it is given.
+const storeAliasName = "claude-desktop-msstore.exe"
+
+// storeAliasPath returns where the Store build's alias lives, or "" when
+// %LOCALAPPDATA% is not set.
+func storeAliasPath() string {
+	local := os.Getenv("LOCALAPPDATA")
+	if local == "" {
+		return ""
+	}
+	return filepath.Join(local, "Microsoft", "WindowsApps", storeAliasName)
+}
+
+// isLaunchableFile reports whether path names a file rather than a directory.
+// An app execution alias is a reparse point, not a regular file, so Lstat is
+// asked when Stat cannot follow it.
+func isLaunchableFile(path string) bool {
+	if fi, err := os.Stat(path); err == nil {
+		return !fi.IsDir()
+	}
+	fi, err := os.Lstat(path)
+	return err == nil && !fi.IsDir()
 }
 
 // queryClaudeProcesses returns every claude.exe process (Desktop and CLI alike)
@@ -810,6 +856,11 @@ func (w *WindowsPlatform) InstallKind() string {
 			return "store, data moved by Claude to " + claudeMovedDataParent
 		}
 		return "store"
+	}
+	if exe, err := findClaudeExecutable(); err == nil && sameWindowsPath(exe, storeAliasPath()) {
+		// Not "standalone": the update-relaunch watcher keys on that, and it
+		// reads versions from the standalone build's app-<version> folders.
+		return "store, package AnthropicPBC.Claude through " + storeAliasName
 	}
 	return "standalone"
 }
