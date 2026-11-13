@@ -13,7 +13,9 @@
   before the move
   ([#64](https://github.com/miou1107/multi-claude-switcher/issues/64)). Accounts
   parked before the move stay where they are and are switched in from there;
-  nothing is moved or deleted that did not need to be.
+  nothing is moved or deleted that did not need to be. Switching, adding an
+  account and the launch that follows it are covered by tests against a
+  moved-folder fixture.
 
 ## [0.14.5] - 2026-10-28
 

@@ -95,11 +95,17 @@ func msixSlotDir(roaming string) string { return filepath.Join(roaming, msixSlot
 // that window. Live detection still wins when the folder is present, so a machine
 // that somehow un-moved would correct itself.
 func msixActiveSlotDir(roaming string) string {
+	return msixActiveSlotDirIn(roaming, readMSIXStateIn(roaming))
+}
+
+// msixActiveSlotDirIn is msixActiveSlotDir for a caller that has already read the
+// state, so the slot is resolved without reading state.json a second time.
+func msixActiveSlotDirIn(roaming string, st msixState) string {
 	if moved := msixMovedDataDir(roaming); moved != "" {
 		return moved
 	}
-	if recorded := readMSIXStateIn(roaming).MovedSlot; recorded != "" {
-		return recorded
+	if st.MovedSlot != "" {
+		return st.MovedSlot
 	}
 	return msixSlotDir(roaming)
 }
@@ -155,8 +161,9 @@ func msixMovedDataDir(roaming string) string {
 // while exact matching would resolve a differently-cased current name to a parked
 // path that does not exist.
 func msixProfilePath(roaming, identity string) string {
-	if strings.EqualFold(readMSIXStateIn(roaming).Current, identity) {
-		return msixActiveSlotDir(roaming)
+	st := readMSIXStateIn(roaming)
+	if strings.EqualFold(st.Current, identity) {
+		return msixActiveSlotDirIn(roaming, st)
 	}
 	return filepath.Join(msixContainerDir(roaming), identity)
 }
@@ -552,14 +559,15 @@ func msixAttemptMigrationIn(roaming string) (copied int, done bool) {
 		return 0, true
 	}
 	// Not signed in yet? Keep waiting.
-	uuid, err := GetProfileAccountUUID(msixActiveSlotDir(roaming))
+	slot := msixActiveSlotDirIn(roaming, st)
+	uuid, err := GetProfileAccountUUID(slot)
 	if err != nil || uuid == "" {
 		return 0, false
 	}
 	// Copy that account's bucket from the parked source, if it has one.
 	fromBucket := filepath.Join(GetProfileSessionsDir(filepath.Join(msixContainerDir(roaming), from)), uuid)
 	if fi, e := os.Stat(fromBucket); e == nil && fi.IsDir() {
-		dstBucket := filepath.Join(GetProfileSessionsDir(msixActiveSlotDir(roaming)), uuid)
+		dstBucket := filepath.Join(GetProfileSessionsDir(slot), uuid)
 		copied, _ = CopyDirMerge(fromBucket, dstBucket)
 	}
 	st.PendingMigrateFrom = ""

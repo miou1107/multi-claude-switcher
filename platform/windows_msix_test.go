@@ -637,6 +637,9 @@ func TestMSIXSwitchesTheMovedFolderOnceClaudeHasMovedItsData(t *testing.T) {
 	if cur := readMSIXStateIn(roaming).Current; cur != "Work" {
 		t.Errorf("state names %q live, want Work", cur)
 	}
+	if readMSIXStateIn(roaming).MovedSlot == "" {
+		t.Error("the swap did not record MovedSlot; the create->launch bridge relies on it")
+	}
 
 	// Back again: A returns to the moved folder, W parks.
 	if err := msixSwapToIn(roaming, "Claude"); err != nil {
@@ -700,6 +703,40 @@ func TestMSIXActiveSlotDirIsStickyWhileTheMovedFolderIsParked(t *testing.T) {
 	}
 	if got := msixActiveSlotDir(roaming); !strings.EqualFold(got, moved) {
 		t.Errorf("while parked, active slot = %q, want it still the moved folder %q", got, moved)
+	}
+}
+
+// Issue #64. The create-then-launch bridge in the moved folder: CreateProfile must
+// return the moved folder as the data dir and leave msixActiveSlotDir resolving to
+// that same folder afterwards (via the recorded MovedSlot, since parking renames it
+// aside), so the LaunchProfile that follows treats it as the current profile and
+// only reopens Claude instead of trying to switch to a profile named after the
+// package family.
+func TestMSIXCreateProfileInTheMovedFolderBridgesToLaunch(t *testing.T) {
+	roaming := msixRealFixture(t)
+	moved := claudeMovedFixture(t, roaming)
+	writeProfileDir(t, moved, "A")
+	if err := writeMSIXStateIn(roaming, msixState{Current: "Claude"}); err != nil {
+		t.Fatal(err)
+	}
+
+	w := &WindowsPlatform{}
+	identity, dataDir, err := w.CreateProfile("Work")
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	if identity != "Work" {
+		t.Errorf("identity = %q, want Work", identity)
+	}
+	if !strings.EqualFold(dataDir, moved) {
+		t.Errorf("dataDir = %q, want the moved folder %q", dataDir, moved)
+	}
+	// The moved folder is parked now, so this is exactly the window LaunchProfile runs in.
+	if exists(moved) {
+		t.Fatal("fixture: the moved folder should be parked aside after create")
+	}
+	if got := msixActiveSlotDir(roaming); !sameWindowsPath(got, dataDir) {
+		t.Errorf("after create, active slot = %q; LaunchProfile would not treat %q as current", got, dataDir)
 	}
 }
 
