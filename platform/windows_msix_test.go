@@ -740,6 +740,40 @@ func TestMSIXCreateProfileInTheMovedFolderBridgesToLaunch(t *testing.T) {
 	}
 }
 
+// Issue #64 regression: the real-machine state when add-account crashed — a moved
+// install where MCS has NEVER set up switching (no state.json, no container) and
+// the stale in-package slot is still present. CreateProfile must park the moved
+// folder, leave the stale in-package slot alone, and not error.
+func TestMSIXCreateProfileOnAFreshMovedInstall(t *testing.T) {
+	roaming := msixRealFixture(t)
+	moved := claudeMovedFixture(t, roaming)
+	writeProfileDir(t, moved, "LIVE")
+	writeProfileDir(t, msixSlotDir(roaming), "stale") // in-package slot still present
+	// No state.json and no .mcs-profiles: MCS has never run here.
+
+	w := &WindowsPlatform{}
+	identity, dataDir, err := w.CreateProfile("Work")
+	if err != nil {
+		t.Fatalf("CreateProfile on a fresh moved install: %v", err)
+	}
+	if identity != "Work" {
+		t.Errorf("identity = %q, want Work", identity)
+	}
+	if !strings.EqualFold(dataDir, moved) {
+		t.Errorf("dataDir = %q, want the moved folder %q", dataDir, moved)
+	}
+	parked := filepath.Join(msixContainerDir(roaming), "Claude")
+	if !exists(parked) || readMarker(t, parked) != "LIVE" {
+		t.Error("the live account was not parked intact as the default \"Claude\"")
+	}
+	if exists(moved) {
+		t.Error("moved folder should be parked aside, absent for Claude to recreate")
+	}
+	if got := readMarker(t, msixSlotDir(roaming)); got != "stale" {
+		t.Errorf("the stale in-package slot was touched: holds %q", got)
+	}
+}
+
 // Claude's own code allows for the move landing inside the package's LocalCache
 // when Windows redirects the write there. Claude reads that copy too, so it counts.
 func TestMSIXMovedDataDirFindsBothPlaces(t *testing.T) {

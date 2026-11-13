@@ -15,7 +15,9 @@
   parked before the move stay where they are and are switched in from there;
   nothing is moved or deleted that did not need to be. Switching, adding an
   account and the launch that follows it are covered by tests against a
-  moved-folder fixture.
+  moved-folder fixture, including an install where switching had never been
+  set up. It was also checked on a real Store install whose data had moved:
+  adding an account, signing in to it and switching back and forth all worked.
 
 ## [0.14.5] - 2026-10-28
 
