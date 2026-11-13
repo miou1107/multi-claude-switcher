@@ -168,10 +168,9 @@ Claude 自己重開之前，會在你原本的帳號裡留一個記號。切換�
 **Q：（Windows）Claude 自己更新完，怎麼跑到另一個帳號？**
 Claude 更新完重新打開時沒有指定帳號，所以開的是預設帳號。切換器發現之後，會跳出視窗問你要不要換回更新前的帳號。你自己在切換器裡選預設帳號的話，它不會幫你換走。
 
-**Q：（Windows，Microsoft Store 版）切換停下來，說 Claude 把資料搬走了？**
-Microsoft Store 版的 Claude 有時會把資料搬到 `%LOCALAPPDATA%\Claude-Data`。搬過去之後，Claude 只讀新的資料夾，切換器目前還沒辦法在那裡切換帳號。
-所以切換器會在關掉 Claude 之前就停下來，什麼都不動。
-關掉這則訊息後會打開問題回報，原因已經幫你填好。送出報告可以幫我們早點支援這種情況。在那之前，從 claude.com 下載的 Claude 可以正常搭配切換器使用。
+**Q：（Windows，Microsoft Store 版）Claude 把資料搬走之後，還能切換嗎？**
+可以。Microsoft Store 版的 Claude 有時會把資料搬到 `%LOCALAPPDATA%\Claude-Data`，搬過去之後 Claude 只讀新的資料夾。切換器會跟著搬過去，在新的資料夾裡切換帳號，所以切換和新增帳號都照常可用。
+搬家前設定好的帳號會保留，從原本的位置換進來。
 
 **Q：（Windows）面板打不開怎麼辦？**
 通常是電腦少了 WebView2。對系統匣的切換器圖示按右鍵，選 **Quit**，裝好 WebView2 之後再打開切換器。Windows 10 21H2 以後的版本和 Windows 11 都已經內建 WebView2。

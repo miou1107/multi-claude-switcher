@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## [0.14.6] - 2026-11-13
+
+### Fixed
+- **(Windows, Store) Switching accounts works again once Claude has moved its
+  data to `Claude-Data`.** The Microsoft Store build of Claude Desktop can move
+  its data out of the Store app's folder into `%LOCALAPPDATA%\Claude-Data`, after
+  which Claude reads only the moved copy. The switcher refused once that had
+  happened ([#53](https://github.com/miou1107/multi-claude-switcher/issues/53));
+  it now swaps accounts through the moved folder instead of the abandoned
+  in-package slot, so switching and adding an account work there just as they did
+  before the move
+  ([#64](https://github.com/miou1107/multi-claude-switcher/issues/64)). Accounts
+  parked before the move stay where they are and are switched in from there;
+  nothing is moved or deleted that did not need to be. Switching, adding an
+  account and the launch that follows it are covered by tests against a
+  moved-folder fixture, including an install where switching had never been
+  set up. It was also checked on a real Store install whose data had moved:
+  adding an account, signing in to it and switching back and forth all worked.
+
 ## [0.14.5] - 2026-10-28
 
 ### Changed

@@ -79,6 +79,37 @@ func msixAUMID() string {
 
 func msixSlotDir(roaming string) string { return filepath.Join(roaming, msixSlotName) }
 
+// msixActiveSlotDir returns the directory Claude actually reads its data from, and
+// that MCS therefore swaps profiles in and out of.
+//
+// Normally that is the in-package slot (msixSlotDir). Once the Store build has
+// moved its data to %LOCALAPPDATA%\Claude-Data\<family> (issue #64), Claude reads
+// only the moved folder, so that folder becomes the slot and swapping the
+// in-package one changes nothing the user sees.
+//
+// The lookup is sticky on purpose. While a switch or a new profile is in flight the
+// moved folder is renamed aside into the container, so msixMovedDataDir would
+// briefly find nothing and a naive resolver would fall back to the in-package slot
+// mid-operation, targeting the wrong directory. state.json records the moved slot
+// (written by every mutation that acts on a moved install) so the path survives
+// that window. Live detection still wins when the folder is present, so a machine
+// that somehow un-moved would correct itself.
+func msixActiveSlotDir(roaming string) string {
+	return msixActiveSlotDirIn(roaming, readMSIXStateIn(roaming))
+}
+
+// msixActiveSlotDirIn is msixActiveSlotDir for a caller that has already read the
+// state, so the slot is resolved without reading state.json a second time.
+func msixActiveSlotDirIn(roaming string, st msixState) string {
+	if moved := msixMovedDataDir(roaming); moved != "" {
+		return moved
+	}
+	if st.MovedSlot != "" {
+		return st.MovedSlot
+	}
+	return msixSlotDir(roaming)
+}
+
 // claudeMovedDataParent is the folder under %LOCALAPPDATA% that the Store build of
 // Claude Desktop moves its data into, one subfolder per package family in lower
 // case. Read from Claude 3.6556.2 (index.pre.js: LOCALAPPDATA + "Claude" + "-Data",
@@ -117,18 +148,6 @@ func msixMovedDataDir(roaming string) string {
 	return ""
 }
 
-// msixRefuseMovedData returns the refusal for an install whose data Claude has
-// moved, or nil. Every operation that moves the slot asks it first, so nothing on
-// disk changes for a switch that could not have worked.
-func msixRefuseMovedData(roaming string) error {
-	moved := msixMovedDataDir(roaming)
-	if moved == "" {
-		return nil
-	}
-	log.Printf("[msix] Claude has moved its data to %q; refusing to swap the slot, which Claude no longer reads", moved)
-	return fmt.Errorf("%w, into %s, and the switcher cannot switch accounts there yet. Nothing was changed. Settings → Report a bug has what is needed to fix it", ErrClaudeMovedData, moved)
-}
-
 // msixProfilePath returns where the profile called identity keeps its data: the
 // shared slot if it is the current profile, otherwise its parked directory.
 //
@@ -142,8 +161,9 @@ func msixRefuseMovedData(roaming string) error {
 // while exact matching would resolve a differently-cased current name to a parked
 // path that does not exist.
 func msixProfilePath(roaming, identity string) string {
-	if strings.EqualFold(readMSIXStateIn(roaming).Current, identity) {
-		return msixSlotDir(roaming)
+	st := readMSIXStateIn(roaming)
+	if strings.EqualFold(st.Current, identity) {
+		return msixActiveSlotDirIn(roaming, st)
 	}
 	return filepath.Join(msixContainerDir(roaming), identity)
 }
@@ -171,6 +191,11 @@ type msixState struct {
 	// account. Empty when there is nothing to migrate. Cleared after the copy (or
 	// once the user switches away).
 	PendingMigrateFrom string `json:"pending_migrate_from,omitempty"`
+	// MovedSlot records the folder Claude moved its data into once the Store build
+	// has done so (issue #64). It is what lets msixActiveSlotDir keep pointing at
+	// the moved folder during the moment a swap has renamed it aside, when it does
+	// not exist to be detected. Empty on an install whose data has not moved.
+	MovedSlot string `json:"moved_slot,omitempty"`
 }
 
 // readMSIXStateIn reads the current-profile marker, defaulting to the bare-slot
@@ -265,8 +290,7 @@ func msixStrayDir(roaming string) (string, error) {
 //
 // The intruder is moved aside, never deleted. The user may have completed a
 // sign-in in that window, and that is real data.
-func msixClearSlot(roaming string) error {
-	slot := msixSlotDir(roaming)
+func msixClearSlot(roaming, slot string) error {
 	if _, err := os.Stat(slot); err != nil {
 		if os.IsNotExist(err) {
 			return nil // nothing in the way, which is the normal case
@@ -291,11 +315,11 @@ func msixClearSlot(roaming string) error {
 // msixActivate renames dir into the slot, clearing whatever has appeared there
 // first. Every rename INTO the slot goes through here, rollbacks included: a
 // rollback races Claude for the same directory the activation just lost to it.
-func msixActivate(roaming, dir string) error {
-	if err := msixClearSlot(roaming); err != nil {
+func msixActivate(roaming, slot, dir string) error {
+	if err := msixClearSlot(roaming, slot); err != nil {
 		return err
 	}
-	return renameWithRetry(dir, msixSlotDir(roaming))
+	return renameWithRetry(dir, slot)
 }
 
 // msixRecreatedName is what the slot is called once a switch has failed in both
@@ -342,7 +366,7 @@ func msixUnusedProfileName(roaming, base string) string {
 // and switching to it does the real work — which is exactly the recovery the user
 // needs and can reach from the account list.
 func msixRecordStrandedSlot(roaming string, st msixState, what, current, parked string, rollbackErr error) error {
-	slot := msixSlotDir(roaming)
+	slot := msixActiveSlotDir(roaming)
 	stranded := msixUnusedProfileName(roaming, msixRecreatedName)
 	st.Current = stranded
 	st.PendingMigrateFrom = ""
@@ -395,16 +419,20 @@ func msixValidateNameIn(roaming, name string) error {
 // slot is never left empty. It does NOT launch the app. Caller must have stopped
 // Claude first.
 func msixSwapToIn(roaming, targetName string) error {
+	moved := msixMovedDataDir(roaming)
 	slot := msixSlotDir(roaming)
+	if moved != "" {
+		slot = moved // Claude reads the moved folder now; swap profiles through it (issue #64)
+	}
 	container := msixContainerDir(roaming)
 	st := readMSIXStateIn(roaming)
 	current := st.Current
+	if moved != "" {
+		st.MovedSlot = moved
+	}
 
 	if strings.EqualFold(targetName, current) {
 		return nil // already active
-	}
-	if err := msixRefuseMovedData(roaming); err != nil {
-		return err
 	}
 	targetDir := filepath.Join(container, targetName)
 	if fi, err := os.Stat(targetDir); err != nil || !fi.IsDir() {
@@ -432,9 +460,9 @@ func msixSwapToIn(roaming, targetName string) error {
 	// The rollback's own failure used to be discarded, which is the worst outcome
 	// this code can produce: the slot is gone, the user's profile is parked under
 	// a name they never chose, and nothing says so. Say so.
-	if err := msixActivate(roaming, targetDir); err != nil {
+	if err := msixActivate(roaming, slot, targetDir); err != nil {
 		if slotParked {
-			if rb := msixActivate(roaming, parked); rb != nil {
+			if rb := msixActivate(roaming, slot, parked); rb != nil {
 				return msixRecordStrandedSlot(roaming, st, fmt.Sprintf("switch to %q", targetName), current, parked, rb)
 			}
 		}
@@ -459,16 +487,20 @@ func msixParkForNewIn(roaming, newName string) error {
 	if err := msixValidateNameIn(roaming, newName); err != nil {
 		return err
 	}
-	if err := msixRefuseMovedData(roaming); err != nil {
-		return err
-	}
 	// Validation trims a local copy; this function stores its argument. Without
 	// this, " Work " becomes a profile identity with spaces around it.
 	newName = strings.TrimSpace(newName)
+	moved := msixMovedDataDir(roaming)
 	slot := msixSlotDir(roaming)
+	if moved != "" {
+		slot = moved // Claude reads the moved folder now; park it rather than the in-package slot (issue #64)
+	}
 	container := msixContainerDir(roaming)
 	st := readMSIXStateIn(roaming)
 	current := st.Current
+	if moved != "" {
+		st.MovedSlot = moved
+	}
 	log.Printf("[msix] new profile %q: parking current %q, roaming=%q", newName, current, roaming)
 
 	if err := os.MkdirAll(container, 0o755); err != nil {
@@ -495,7 +527,7 @@ func msixParkForNewIn(roaming, newName string) error {
 	}
 	if err := writeMSIXStateIn(roaming, st); err != nil {
 		if didPark {
-			if rb := msixActivate(roaming, parked); rb != nil {
+			if rb := msixActivate(roaming, slot, parked); rb != nil {
 				// The same dead end msixSwapToIn avoids, reached from the create path
 				// instead: state.json still names current as the slot occupant while the
 				// slot holds whatever Claude recreated, so current is listed twice and a
@@ -527,14 +559,15 @@ func msixAttemptMigrationIn(roaming string) (copied int, done bool) {
 		return 0, true
 	}
 	// Not signed in yet? Keep waiting.
-	uuid, err := GetProfileAccountUUID(msixSlotDir(roaming))
+	slot := msixActiveSlotDirIn(roaming, st)
+	uuid, err := GetProfileAccountUUID(slot)
 	if err != nil || uuid == "" {
 		return 0, false
 	}
 	// Copy that account's bucket from the parked source, if it has one.
 	fromBucket := filepath.Join(GetProfileSessionsDir(filepath.Join(msixContainerDir(roaming), from)), uuid)
 	if fi, e := os.Stat(fromBucket); e == nil && fi.IsDir() {
-		dstBucket := filepath.Join(GetProfileSessionsDir(msixSlotDir(roaming)), uuid)
+		dstBucket := filepath.Join(GetProfileSessionsDir(slot), uuid)
 		copied, _ = CopyDirMerge(fromBucket, dstBucket)
 	}
 	st.PendingMigrateFrom = ""
@@ -650,7 +683,7 @@ func MSIXUnconfiguredMultiAccount() bool {
 		}
 	}
 	n := 0
-	if entries, err := os.ReadDir(GetProfileSessionsDir(msixSlotDir(roaming))); err == nil {
+	if entries, err := os.ReadDir(GetProfileSessionsDir(msixActiveSlotDir(roaming))); err == nil {
 		for _, e := range entries {
 			if e.IsDir() {
 				n++

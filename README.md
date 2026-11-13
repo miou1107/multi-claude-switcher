@@ -269,13 +269,12 @@ your default one. The switcher notices this and asks whether to switch you back
 to the account you were on. Choosing your default account in the switcher
 yourself is never undone.
 
-**(Windows, Microsoft Store) Switching stopped and says Claude moved its data.**
-The Store build of Claude Desktop can move its data out of the Store app's
-folder into `%LOCALAPPDATA%\Claude-Data`. After that, Claude reads only the
-moved copy, and the switcher cannot switch accounts there yet, so it stops
-before closing Claude and changes nothing. Closing the message opens the bug
-report with the reason filled in; sending it helps get this supported. Until
-then, Claude installed from claude.com works with the switcher.
+**(Windows, Microsoft Store) Does switching still work after Claude moves its data?**
+Yes. The Store build of Claude Desktop can move its data out of the Store app's
+folder into `%LOCALAPPDATA%\Claude-Data`, after which Claude reads only the moved
+copy. The switcher follows it there and swaps accounts in the moved folder, so
+switching and adding an account keep working. Accounts you set up before the move
+are kept and switched in from where they were.
 
 **(Windows) The panel will not open.**
 Usually WebView2 is missing. Right-click the eyes icon in the tray, choose
