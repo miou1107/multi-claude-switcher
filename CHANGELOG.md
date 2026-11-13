@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased]
+## [0.14.6] - 2026-11-13
 
 ### Fixed
 - **(Windows, Store) Switching accounts works again once Claude has moved its
