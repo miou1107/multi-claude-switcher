@@ -337,7 +337,7 @@ func TestMSIXActivateMovesARecreatedSlotAside(t *testing.T) {
 	writeProfileDir(t, slot, "recreated-by-claude")
 	writeProfileDir(t, source, "work-data")
 
-	if err := msixActivate(roaming, source); err != nil {
+	if err := msixActivate(roaming, msixSlotDir(roaming), source); err != nil {
 		t.Fatalf("activate: %v", err)
 	}
 	if got := readMarker(t, slot); got != "work-data" {
@@ -360,7 +360,7 @@ func TestMSIXActivateIntoAFreeSlotLeavesNoStray(t *testing.T) {
 	source := filepath.Join(msixContainerDir(roaming), "Work")
 	writeProfileDir(t, source, "work-data")
 
-	if err := msixActivate(roaming, source); err != nil {
+	if err := msixActivate(roaming, msixSlotDir(roaming), source); err != nil {
 		t.Fatalf("activate: %v", err)
 	}
 	if got := readMarker(t, msixSlotDir(roaming)); got != "work-data" {
@@ -605,58 +605,101 @@ func claudeMovedFixture(t *testing.T, roaming string) string {
 	return dir
 }
 
-// Issue #53. Once Claude has moved its data to Claude-Data it no longer reads the
-// slot, so swapping the slot changes nothing the user sees: every switch opens
-// the account that was in the slot when Claude moved, while the panel says the
-// switch worked. The swap must refuse and leave every folder where it was.
-func TestMSIXSwapRefusesOnceClaudeHasMovedItsData(t *testing.T) {
+// Issue #64. Once Claude has moved its data to Claude-Data it reads only the moved
+// folder, so a switch must swap profiles through THAT folder, not the in-package
+// slot. The account picked ends up in the moved folder, the one left is parked
+// intact, the abandoned in-package slot is never touched, and a switch back brings
+// the first account home again.
+func TestMSIXSwitchesTheMovedFolderOnceClaudeHasMovedItsData(t *testing.T) {
 	roaming := msixRealFixture(t)
-	slot := msixSlotDir(roaming)
+	moved := claudeMovedFixture(t, roaming)
+	writeProfileDir(t, moved, "A") // the live account, where Claude now reads
 	work := filepath.Join(msixContainerDir(roaming), "Work")
-	writeProfileDir(t, slot, "A")
 	writeProfileDir(t, work, "W")
-	claudeMovedFixture(t, roaming)
+	writeProfileDir(t, msixSlotDir(roaming), "stale") // the in-package slot Claude abandoned
+	if err := writeMSIXStateIn(roaming, msixState{Current: "Claude"}); err != nil {
+		t.Fatal(err)
+	}
 
-	if err := msixSwapToIn(roaming, "Work"); err == nil {
-		t.Fatal("swap went ahead although Claude no longer reads the slot")
+	if err := msixSwapToIn(roaming, "Work"); err != nil {
+		t.Fatalf("switch in the moved folder: %v", err)
 	}
-	if got := readMarker(t, slot); got != "A" {
-		t.Errorf("slot holds %q, want A untouched", got)
+	if got := readMarker(t, moved); got != "W" {
+		t.Errorf("moved folder holds %q, want the switched-in account W", got)
 	}
-	if got := readMarker(t, work); got != "W" {
-		t.Errorf("parked Work holds %q, want W untouched", got)
+	parkedClaude := filepath.Join(msixContainerDir(roaming), "Claude")
+	if !exists(parkedClaude) || readMarker(t, parkedClaude) != "A" {
+		t.Error("the account that was live (A) was not parked intact")
+	}
+	if got := readMarker(t, msixSlotDir(roaming)); got != "stale" {
+		t.Errorf("the abandoned in-package slot was touched: holds %q", got)
+	}
+	if cur := readMSIXStateIn(roaming).Current; cur != "Work" {
+		t.Errorf("state names %q live, want Work", cur)
+	}
+
+	// Back again: A returns to the moved folder, W parks.
+	if err := msixSwapToIn(roaming, "Claude"); err != nil {
+		t.Fatalf("switch back: %v", err)
+	}
+	if got := readMarker(t, moved); got != "A" {
+		t.Errorf("moved folder holds %q after switching back, want A", got)
+	}
+	if readMarker(t, work) != "W" {
+		t.Error("Work (W) was not parked intact on the way back")
 	}
 }
 
-// Creating a profile parks the slot and leaves it empty for Claude to fill. With
-// the data moved, Claude would never look there, so the new account would never
-// appear. Same refusal, same untouched disk.
-func TestMSIXParkForNewRefusesOnceClaudeHasMovedItsData(t *testing.T) {
+// Issue #64. Creating a profile once the data has moved parks the MOVED folder and
+// leaves it absent, so the packaged app recreates a clean, signed-out one there.
+// The live account lands parked intact and state records the moved slot.
+func TestMSIXParkForNewUsesTheMovedFolderOnceClaudeHasMovedItsData(t *testing.T) {
 	roaming := msixRealFixture(t)
-	slot := msixSlotDir(roaming)
-	writeProfileDir(t, slot, "A")
-	claudeMovedFixture(t, roaming)
+	moved := claudeMovedFixture(t, roaming)
+	writeProfileDir(t, moved, "A")
+	if err := writeMSIXStateIn(roaming, msixState{Current: "Claude"}); err != nil {
+		t.Fatal(err)
+	}
 
-	if err := msixParkForNewIn(roaming, "Work"); err == nil {
-		t.Fatal("new profile went ahead although Claude no longer reads the slot")
+	if err := msixParkForNewIn(roaming, "Work"); err != nil {
+		t.Fatalf("new profile in the moved folder: %v", err)
 	}
-	if got := readMarker(t, slot); got != "A" {
-		t.Errorf("slot holds %q, want A untouched", got)
+	if exists(moved) {
+		t.Error("the moved folder should be absent after creating a fresh profile")
 	}
-	if exists(msixContainerDir(roaming)) {
-		t.Error("the profile container was created for a refused request")
+	parkedClaude := filepath.Join(msixContainerDir(roaming), "Claude")
+	if !exists(parkedClaude) || readMarker(t, parkedClaude) != "A" {
+		t.Error("the live account A was not parked intact")
+	}
+	if got := readMSIXStateIn(roaming); got.Current != "Work" || got.MovedSlot == "" {
+		t.Errorf("state = %+v, want Current=Work and MovedSlot recorded", got)
 	}
 }
 
-// The same refusal says what it is, so the panel can put the bug report in front
-// of the user instead of only the error.
-func TestMSIXMovedDataRefusalIsRecognisable(t *testing.T) {
+// The resolver must keep pointing at the moved folder even while a switch or a new
+// profile has renamed it aside and it does not exist to be detected. Without the
+// MovedSlot record, CreateProfile's returned data dir and the launch that follows
+// it would disagree, and the switch would look for a profile named after the
+// package family.
+func TestMSIXActiveSlotDirIsStickyWhileTheMovedFolderIsParked(t *testing.T) {
 	roaming := msixRealFixture(t)
-	writeProfileDir(t, msixSlotDir(roaming), "A")
-	writeProfileDir(t, filepath.Join(msixContainerDir(roaming), "Work"), "W")
-	claudeMovedFixture(t, roaming)
-	if err := msixSwapToIn(roaming, "Work"); !errors.Is(err, ErrClaudeMovedData) {
-		t.Fatalf("err = %v, want ErrClaudeMovedData", err)
+	moved := claudeMovedFixture(t, roaming)
+	writeProfileDir(t, moved, "A")
+	if err := writeMSIXStateIn(roaming, msixState{Current: "Claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := msixActiveSlotDir(roaming); !strings.EqualFold(got, moved) {
+		t.Fatalf("active slot = %q, want the moved folder %q", got, moved)
+	}
+
+	if err := msixParkForNewIn(roaming, "Work"); err != nil {
+		t.Fatal(err)
+	}
+	if exists(moved) {
+		t.Fatal("fixture: the moved folder should be parked aside now")
+	}
+	if got := msixActiveSlotDir(roaming); !strings.EqualFold(got, moved) {
+		t.Errorf("while parked, active slot = %q, want it still the moved folder %q", got, moved)
 	}
 }
 
@@ -690,6 +733,9 @@ func TestMSIXMovedDataDirIgnoresAFolderThatIsNotAPackage(t *testing.T) {
 }
 
 // The platform-level check that runs before Claude is closed, and the report line.
+// Switching in the moved folder is supported now (issue #64), so SwitchBlocked no
+// longer refuses once Claude has moved its data; InstallKind still names the move
+// so a bug report can be acted on.
 func TestWindowsSwitchBlockedAndInstallKindOnceClaudeHasMovedItsData(t *testing.T) {
 	roaming := msixRealFixture(t)
 	w := &WindowsPlatform{}
@@ -700,11 +746,11 @@ func TestWindowsSwitchBlockedAndInstallKindOnceClaudeHasMovedItsData(t *testing.
 		t.Fatalf("InstallKind = %q, want store", got)
 	}
 	claudeMovedFixture(t, roaming)
-	if err := w.SwitchBlocked(); !errors.Is(err, ErrClaudeMovedData) {
-		t.Fatalf("SwitchBlocked = %v, want ErrClaudeMovedData", err)
+	if err := w.SwitchBlocked(); err != nil {
+		t.Fatalf("SwitchBlocked = %v, want nil now that switching the moved folder is supported", err)
 	}
 	if got := w.InstallKind(); !strings.Contains(got, "Claude-Data") {
-		t.Fatalf("InstallKind = %q, want it to say the data moved to Claude-Data", got)
+		t.Fatalf("InstallKind = %q, want it to still name the moved folder for bug reports", got)
 	}
 }
 

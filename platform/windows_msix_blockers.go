@@ -56,7 +56,7 @@ type slotProc struct {
 // ordinary directory belonging to some other install, matching it would close
 // processes that have nothing to do with this slot.
 func msixSlotAliases(roaming string) []string {
-	slot := filepath.Clean(msixSlotDir(roaming))
+	slot := filepath.Clean(msixActiveSlotDir(roaming))
 	aliases := []string{slot}
 	appData := os.Getenv("APPDATA")
 	if appData == "" {

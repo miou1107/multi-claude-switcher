@@ -4,7 +4,6 @@ package platform
 
 import (
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -105,7 +104,7 @@ func (w *WindowsPlatform) msixFindProfilesIn(roaming string) ([]*ProfileInfo, er
 	st := readMSIXStateIn(roaming)
 
 	var profiles []*ProfileInfo
-	slot := msixSlotDir(roaming)
+	slot := msixActiveSlotDir(roaming)
 	if fi, err := os.Stat(slot); err == nil && fi.IsDir() {
 		p := w.inspectProfile(st.Current, slot)
 		p.Managed = true
@@ -280,7 +279,7 @@ func (w *WindowsPlatform) DetectRunningProfiles() ([]string, error) {
 		if !running {
 			return nil, nil
 		}
-		return []string{msixSlotDir(msixRoamingDir())}, nil
+		return []string{msixActiveSlotDir(msixRoamingDir())}, nil
 	}
 
 	running, procs, err := w.IsAppRunning()
@@ -564,31 +563,22 @@ func (w *WindowsPlatform) msixLaunchProfile(profilePath string) error {
 	if roaming == "" {
 		return fmt.Errorf("Store Claude Desktop data directory not found")
 	}
-	if sameWindowsPath(profilePath, msixSlotDir(roaming)) {
+	if sameWindowsPath(profilePath, msixActiveSlotDir(roaming)) {
 		return msixLaunch()
 	}
 	if err := msixSwapToIn(roaming, filepath.Base(profilePath)); err != nil {
-		if errors.Is(err, ErrClaudeMovedData) {
-			// SwitchBlocked normally stops this before Claude is closed. Reaching
-			// here means Claude moved its data in between, and Claude is closed
-			// now: nothing was swapped, so reopen it as it was.
-			if lerr := msixLaunch(); lerr != nil {
-				log.Printf("[msix] could not reopen Claude after refusing the switch: %v", lerr)
-			}
-		}
 		return err
 	}
 	return msixLaunch()
 }
 
-// SwitchBlocked refuses a switch or a new profile on a Store install whose data
-// Claude has moved out of the package (issue #53), before Claude is closed. See
-// msixMovedDataDir.
+// SwitchBlocked reports, before Claude is closed, a switch that cannot work on
+// this machine. The Store build moving its data to Claude-Data used to be refused
+// here (issue #53); switching in the moved folder is supported since issue #64, so
+// there is nothing left to block and this returns nil. It stays to satisfy the
+// SwitchGuard contract and to give any future pre-close blocker a home.
 func (w *WindowsPlatform) SwitchBlocked() error {
-	if !w.isMSIX() {
-		return nil
-	}
-	return msixRefuseMovedData(msixRoamingDir())
+	return nil
 }
 
 // findClaudeExecutable locates the standalone Claude Desktop executable. Squirrel
@@ -723,12 +713,15 @@ func (w *WindowsPlatform) CreateProfile(clean string) (string, string, error) {
 		if roaming == "" {
 			return "", "", fmt.Errorf("Store Claude Desktop data directory not found")
 		}
+		// Resolve the data dir BEFORE parking: in the moved-data case parking renames
+		// the moved folder aside, so msixActiveSlotDir could not find it afterwards.
+		dataDir := msixActiveSlotDir(roaming)
 		if err := msixParkForNewIn(roaming, clean); err != nil {
 			return "", "", err
 		}
 		// The slot is deliberately absent now: the packaged app creates a clean one
 		// on next launch, which is what makes this a signed-out profile.
-		return clean, msixSlotDir(roaming), nil
+		return clean, dataDir, nil
 	}
 	root := w.AppSupportDir()
 	if root == "" {
